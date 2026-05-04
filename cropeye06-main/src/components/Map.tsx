@@ -356,6 +356,14 @@ const Map: React.FC<MapProps> = ({
     return s.includes("harvested");
   }, [cropStatus]);
 
+  // Use FarmerDashboard stage as the primary source of truth when available.
+  // This ensures Brix overlay flips to 0.0 immediately after the farmer UI marks a plot as harvested.
+  const farmerDashboardStage = useMemo(() => {
+    if (!plotNameForStatus) return null;
+    const dash = getApiData("farmerDashboard", plotNameForStatus);
+    return dash?.growthStage ?? dash?.cropStatus ?? null;
+  }, [plotNameForStatus, getApiData]);
+
   const fetchHarvestStatus = useCallback(
     async (plotName: string): Promise<string | null> => {
       const cacheKey = `harvest_${plotName}_${currentEndDate}`;
@@ -399,10 +407,8 @@ const Map: React.FC<MapProps> = ({
     (async () => {
       try {
         // 1) Prefer FarmerDashboard-provided status (single source of truth for farmer UI).
-        const dash = getApiData("farmerDashboard", plotNameForStatus);
-        const dashStage = dash?.growthStage ?? dash?.cropStatus ?? null;
-        if (dashStage) {
-          setCropStatus(String(dashStage));
+        if (farmerDashboardStage) {
+          setCropStatus(String(farmerDashboardStage));
           return;
         }
 
@@ -430,7 +436,7 @@ const Map: React.FC<MapProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [plotNameForStatus, currentEndDate, fetchHarvestStatus, getApiData]);
+  }, [plotNameForStatus, currentEndDate, fetchHarvestStatus, getApiData, farmerDashboardStage]);
 
   useEffect(() => {
     setLayerChangeKey(prev => prev + 1);

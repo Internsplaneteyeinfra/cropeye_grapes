@@ -34,6 +34,7 @@ import {
   Activity,
   Target,
   Leaf,
+  Sprout,
   LineChart as LineChartIcon,
   Users,
   MapPin,
@@ -2893,16 +2894,17 @@ const FarmerDashboard: React.FC = () => {
                       </span>
                     </div>
                <div className="flex flex-col items-center justify-between gap-1.5 h-full">
-  
-              <div className="flex items-center justify-center h-6 w-6 sm:h-7 sm:w-7">
-                <span className="text-xl sm:text-2xl leading-none select-none">
-                🌱
+                <div className="flex items-center justify-center h-6 w-6 sm:h-7 sm:w-7">
+                  <Sprout
+                    className="h-5 w-5 shrink-0 text-[#16dc9f] sm:h-6 sm:w-6"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                </div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#57b86a] sm:text-xs text-center">
+                  Excellent
                 </span>
               </div>
-             <span className="text-[11px] font-bold uppercase tracking-wider text-[#57b86a] sm:text-xs text-center">
-           Excellent
-          </span>
-            </div>
                   </div>
                 </div>
               </div>

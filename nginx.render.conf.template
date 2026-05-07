@@ -2,11 +2,7 @@ server {
   listen ${PORT};
   server_name _;
 
-  # Prevent Nginx from appending the internal port (10000) to redirects
-  port_in_redirect off;
-  absolute_redirect off;
-
-  root /usr/share/nginx/index.html;
+  root /usr/share/nginx/html;
 
   gzip on;
   gzip_types text/plain text/css application/javascript application/json application/xml text/xml;
@@ -34,18 +30,10 @@ server {
   # Static assets referenced with absolute paths in code (fix 404s):
   # Many components use /icons/... and /Image/... directly.
   location /icons/ {
-    # Public images are referenced by stable URLs; avoid long-lived browser caching
-    # so hosted deployments pick up updated assets without users hard-refreshing.
-    add_header Cache-Control "public, max-age=0, must-revalidate" always;
-    # cropeye06 is usually the source of truth for shared `/icons/*` assets in this monorepo.
-    # Prefer grapes build first so `/icons/...` doesn't accidentally resolve to an older login copy.
-    try_files $uri /grapes$uri /sugarcan$uri /login$uri =404;
+    try_files $uri /login$uri /grapes$uri /sugarcan$uri =404;
   }
   location /Image/ {
-    add_header Cache-Control "public, max-age=0, must-revalidate" always;
-    # cropeye06 references many images as absolute `/Image/...` even though the SPA is hosted under `/grapes/`.
-    # Prefer the grapes build first so `/Image/...` resolves to the same assets you see on localhost.
-    try_files $uri /grapes$uri /sugarcan$uri /login$uri =404;
+    try_files $uri /grapes$uri /sugarcan$uri =404;
   }
 
   # Proxy grapes Events API (same-origin) — avoids CORS to Railway.
@@ -149,11 +137,11 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_ssl_server_name on;
-    proxy_ssl_name cropeye-grapes-events-productio  n.up.railway.app;
+    proxy_ssl_name cropeye-grapes-events-production.up.railway.app;
     proxy_pass https://cropeye-grapes-events-production.up.railway.app/plots/agroStats;
   }
 
-  # Grapes Main API (same-origin) —  Soil NPK / required-n / analyze-npk.
+  # Grapes Main API (same-origin) — Soil NPK / required-n / analyze-npk.
   # Mirrors Vite dev proxy: /api/grapes-main/* -> strip prefix -> cropeye-grapes-main-production.
   location /api/grapes-main/ {
     proxy_http_version 1.1;

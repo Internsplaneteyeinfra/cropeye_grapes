@@ -2,6 +2,11 @@ server {
   listen ${PORT};
   server_name _;
 
+  # Prevent Nginx from including the internal port (e.g. :10000) in redirects.
+  # Render handles external SSL/port mapping; Nginx should only send relative paths.
+  port_in_redirect off;
+  absolute_redirect off;
+
   root /usr/share/nginx/html;
   index index.html;
 
@@ -169,13 +174,28 @@ server {
   }
 
   # --- Gateway SPA (served at /login/) ---
+  # NOTE: root = /usr/share/nginx/html (set above), so /login/index.html resolves correctly.
   location /login/ {
-    try_files $uri $uri/ /login/index.html;
+    alias /usr/share/nginx/html/login/;
+    index index.html;
+    try_files $uri $uri/ @login_fallback;
+  }
+  location @login_fallback {
+    rewrite ^ /login/index.html last;
   }
 
   # --- Grapes SPA (served at /grapes/) ---
+  # IMPORTANT: Do NOT use an absolute path in try_files when using alias.
+  # The last fallback must be a named location (@grapes_fallback) to avoid
+  # the Nginx bug where the fallback resolves against root instead of alias,
+  # causing a redirect loop or 404.
   location /grapes/ {
-    try_files $uri $uri/ /grapes/index.html;
+    alias /usr/share/nginx/html/grapes/;
+    index index.html;
+    try_files $uri $uri/ @grapes_fallback;
+  }
+  location @grapes_fallback {
+    rewrite ^ /grapes/index.html last;
   }
 
   # --- Sugarcane SPA (cropeye07, served at /sugarcan/) ---

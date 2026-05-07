@@ -13,6 +13,7 @@
 ###
 ### Render: add Docker build arg `VITE_PUBLIC_ORIGIN` = `https://<your-service>.onrender.com`
 ### (Dashboard → Service → Settings → Build → Docker Build Args).
+### If left empty, the apps will try to use relative paths or detect origin at runtime.
 
 # Pin base images to immutable digests (linux/amd64) so Render's BuildKit doesn't
 # accidentally select an SBOM/attestation manifest (`unknown/unknown`) which can fail with:
@@ -23,7 +24,7 @@ WORKDIR /build
 # Vite bakes VITE_* at build time — set before npm run build for gateway + both apps.
 # GATEWAY_URL is used by cropeye06/cropeye07 for redirects to centralized login.
 # GRAPES / SUGARCANE URLs are used by the gateway login redirect after auth.
-ARG VITE_PUBLIC_ORIGIN=https://cropeye-00.onrender.com
+ARG VITE_PUBLIC_ORIGIN=
 ENV VITE_GATEWAY_URL=${VITE_PUBLIC_ORIGIN}
 ENV VITE_GRAPES_APP_URL=${VITE_PUBLIC_ORIGIN}/grapes/
 ENV VITE_SUGARCANE_APP_URL=${VITE_PUBLIC_ORIGIN}/sugarcan/

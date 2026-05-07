@@ -3,10 +3,22 @@ server {
   server_name _;
 
   root /usr/share/nginx/html;
+  index index.html;
 
   gzip on;
   gzip_types text/plain text/css application/javascript application/json application/xml text/xml;
   gzip_min_length 256;
+
+  # Normalize missing trailing slashes and preserve tokens (?access=...)
+  location = /login {
+    return 301 /login/$is_args$args;
+  }
+  location = /grapes {
+    return 301 /grapes/$is_args$args;
+  }
+  location = /sugarcan {
+    return 301 /sugarcan/$is_args$args;
+  }
 
   # Legacy deploy path: /sugarcane/... -> /sugarcan/... (301)
   rewrite ^/sugarcane/?(.*)$ /sugarcan/$1 permanent;
@@ -14,17 +26,6 @@ server {
   # Make root go to /login/
   location = / {
     return 302 /login/;
-  }
-
-  # Normalize missing trailing slashes
-  location = /login {
-    return 301 /login/;
-  }
-  location = /grapes {
-    return 301 /grapes/;
-  }
-  location = /sugarcan {
-    return 301 /sugarcan/;
   }
 
   # Static assets referenced with absolute paths in code (fix 404s):

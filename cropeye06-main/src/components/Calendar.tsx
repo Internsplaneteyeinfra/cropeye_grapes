@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { getTasksForUser, updateTaskStatus } from '../api';
+import { useIrrigationSchedule } from '../hooks/useIrrigationSchedule';
+import {
+  IrrigationDayCell,
+  IrrigationDetailCard,
+} from './Irrigation/IrrigationCalendarParts';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const weekDaysMobile = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -37,6 +42,14 @@ interface CalendarProps {
 }
 
 const Calendar: React.FC<CalendarProps> = ({ currentUserId, currentUserRole }) => {
+  const { schedule: irrigationSchedule, irrigationType } = useIrrigationSchedule(true);
+
+  const irrigationByDate = useMemo(() => {
+    const map = new Map<string, (typeof irrigationSchedule)[number]>();
+    irrigationSchedule.forEach((row) => map.set(row.isoDate, row));
+    return map;
+  }, [irrigationSchedule]);
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isMobile, setIsMobile] = useState(false);
@@ -158,6 +171,9 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
     return `${year}-${month}-${dayStr}`;
   };
 
+  const getIrrigationForDay = (date: Date, day: number) =>
+    irrigationByDate.get(formatDate(date, day));
+
   const handlePrevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
@@ -210,20 +226,24 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
     for (let day = 1; day <= daysInMonth; day++) {
       const tasksForDay = getTasksForDate(currentDate, day);
       const todayFlag = isToday(currentDate, day);
-      const hasTasksFlag = tasksForDay.length > 0; // Check if date has tasks
+      const hasTasksFlag = tasksForDay.length > 0;
+      const irrigationRow = getIrrigationForDay(currentDate, day);
 
       days.push(
         <div
           key={day}
           onClick={() => setSelectedDate({date: currentDate, day})}
           className={`
-            ${isMobile ? 'h-12 sm:h-16' : 'h-24 sm:h-32'} 
-            p-1 sm:p-2 border rounded-lg transition-colors relative cursor-pointer
+            p-1 sm:p-2 border rounded-lg transition-colors relative cursor-pointer overflow-hidden
+            ${irrigationRow
+              ? isMobile ? 'min-h-[4.5rem] sm:min-h-24' : 'min-h-28 sm:min-h-32'
+              : isMobile ? 'h-12 sm:h-16' : 'h-24 sm:h-32'}
+            ${irrigationRow ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-inset ring-emerald-200' : ''}
             ${todayFlag 
               ? 'bg-blue-50 border-blue-300 shadow-sm' 
-              : hasTasksFlag 
-                ? 'bg-green-50 border-green-200'  // Green background for dates with tasks
-                : 'hover:bg-gray-50 border-gray-200'
+              : !irrigationRow && hasTasksFlag 
+                ? 'bg-green-50 border-green-200'
+                : !irrigationRow ? 'hover:bg-gray-50 border-gray-200' : 'hover:bg-emerald-100/80'
             }
             ${selectedDate && selectedDate.day === day && 
               selectedDate.date.getMonth() === currentDate.getMonth() && 
@@ -235,17 +255,21 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
         >
           <div className={`
             ${isMobile ? 'text-xs' : 'text-sm'} 
-            font-semibold mb-1
+            font-semibold mb-0.5
             ${todayFlag ? 'text-blue-600' : hasTasksFlag ? 'text-green-700' : 'text-gray-700'}
           `}>
             {day}
           </div>
 
-          <div className="overflow-hidden">
-            {renderTaskIndicator(tasksForDay)}
-          </div>
+          {irrigationRow ? (
+            <IrrigationDayCell row={irrigationRow} compact={isMobile} />
+          ) : (
+            <div className="overflow-hidden">
+              {renderTaskIndicator(tasksForDay)}
+            </div>
+          )}
 
-          {isMobile && tasksForDay.length > 0 && (
+          {isMobile && tasksForDay.length > 0 && !irrigationRow && (
             <div className="absolute top-0 right-0 -mt-1 -mr-1">
               <div className="bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-medium">
                 {tasksForDay.length > 9 ? '9+' : tasksForDay.length}
@@ -325,28 +349,22 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
         </div>
 
         <div className="p-2 sm:p-4 md:p-6">
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <p className="mt-2 text-gray-500">Loading tasks...</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-1 sm:mb-2">
-                {(isMobile ? weekDaysMobile : weekDays).map((day) => (
-                  <div 
-                    key={day} 
-                    className="text-center font-medium text-gray-600 py-1 sm:py-2 text-xs sm:text-sm"
-                  >
-                    {day}
-                  </div>
-                ))}
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-1 sm:mb-2">
+            {(isMobile ? weekDaysMobile : weekDays).map((day) => (
+              <div
+                key={day}
+                className="text-center font-medium text-gray-600 py-1 sm:py-2 text-xs sm:text-sm"
+              >
+                {day}
               </div>
+            ))}
+          </div>
 
-              <div className="grid grid-cols-7 gap-1 sm:gap-2">
-                {renderCalendarDays()}
-              </div>
-            </>
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
+            {renderCalendarDays()}
+          </div>
+          {loading && (
+            <p className="text-center text-gray-500 text-xs mt-2">Loading tasks...</p>
           )}
         </div>
 
@@ -362,13 +380,23 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             </div>
             {(() => {
               const selectedTasks = getTasksForDate(selectedDate.date, selectedDate.day);
-              
-              if (selectedTasks.length === 0) {
+              const irrigationForDay = getIrrigationForDay(selectedDate.date, selectedDate.day);
+
+              if (!irrigationForDay && selectedTasks.length === 0) {
                 return <div className="text-xs text-gray-500">No tasks scheduled for this date</div>;
               }
               
               return (
                 <div className="space-y-3">
+                  {irrigationForDay && (
+                    <IrrigationDetailCard
+                      row={irrigationForDay}
+                      irrigationType={irrigationType}
+                    />
+                  )}
+                  {selectedTasks.length === 0 && irrigationForDay && (
+                    <div className="text-xs text-gray-500">No tasks for this date.</div>
+                  )}
                   {selectedTasks.map((task) => (
                     <div key={task.id} className={`p-4 rounded-lg border-l-4 ${getPriorityColor(task.priority)}`}>
                       <div className="flex items-start justify-between mb-2">

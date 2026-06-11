@@ -281,10 +281,10 @@ const CustomTileLayer: React.FC<{
 };
 
 const Map: React.FC<MapProps> = ({
-  onHealthDataChange,
-  onSoilDataChange,
+  // onHealthDataChange,
+  // onSoilDataChange,
   onFieldAnalysisChange,
-  onMoistGroundChange,
+  // onMoistGroundChange,
   onPestDataChange,
 }) => {
   const { profile, loading: profileLoading } = useFarmerProfile();
@@ -330,8 +330,8 @@ const Map: React.FC<MapProps> = ({
     };
   } | null>(null);
 
-  const [hoveredPlotInfo, setHoveredPlotInfo] = useState<any>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // const [hoveredPlotInfo, setHoveredPlotInfo] = useState<any>(null);
+  // const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Track which data has been loaded to prevent re-fetching on navigation
   const dataLoadedRef = useRef<{ [key: string]: boolean }>({});
   const [selectedLegendClass, setSelectedLegendClass] = useState<string | null>(null);
@@ -1948,13 +1948,13 @@ const Map: React.FC<MapProps> = ({
   };
 
   // Helper function to get Brix color based on value (kept for potential future use)
-  const getBrixColor = (brix: number): string => {
-    if (brix < 19) return "#ef4444"; // Red
-    if (brix >= 19 && brix < 20) return "#f97316"; // Orange
-    if (brix >= 20 && brix < 21) return "#eab308"; // Yellow
-    if (brix >= 21 && brix <= 22) return "#84cc16"; // Light Green
-    return "#22c55e"; // Dark Green (> 22)
-  };
+  // const getBrixColor = (brix: number): string => {
+  //   if (brix < 19) return "#ef4444"; // Red
+  //   if (brix >= 19 && brix < 20) return "#f97316"; // Orange
+  //   if (brix >= 20 && brix < 21) return "#eab308"; // Yellow
+  //   if (brix >= 21 && brix <= 22) return "#84cc16"; // Light Green
+  //   return "#22c55e"; // Dark Green (> 22)
+  // };
 
   // Render Brix grid cells with white grid overlay and Brix values as text
   const renderBrixGrid = () => {
@@ -3031,47 +3031,12 @@ const Map: React.FC<MapProps> = ({
         </div>
       </div>
 
-      {/* Fertilizer Schedule and Soil Moisture Section - Below Field Score */}
-      <div className="mt-4 flex flex-col lg:flex-row gap-4 w-full" style={{ marginLeft: '0', paddingLeft: '0' }}>
-        {/* Fertilizer Schedule Card */}
-        <div 
-          className="rounded-2xl shadow-lg p-6 relative overflow-hidden" 
-          style={{ 
-            borderRadius: '1rem',
-            backgroundImage: "url('/Image/Fertilizer Schedule(BG).png')",
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-            backgroundColor: 'white',
-            flex: '1 1 calc(50% + 190px)',
-            minWidth: 0
-          }}
-        >
-          {/* Background overlay for better text readability */}
-          <div className="absolute inset-0 bg-white/10 z-10"></div>
-          
-          {/* Top image layer - on top of overlay but behind content */}
-          <div 
-            className="absolute inset-0 z-20 pointer-events-none"
-            style={{
-              backgroundImage: "url('/Image/Fertilizer Schedule(top).png')",
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat'
-            }}
-          ></div>
-          
-          <div className="relative z-30">
-          <div className="bg-white/90 border border-white/30 rounded-lg p-2">
-            <FertilizerTable />
-          </div>
-          </div>
+      {/* Fertilizer Schedule (wide) + Soil Moisture (narrow), fixed height row */}
+      <div className="mt-4 dashboard-cards-row">
+        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
+          <FertilizerTable embedded />
         </div>
-
-        {/* Soil Moisture Card */}
-        <div style={{ flex: '1 1 calc(50% - 190px)', minWidth: 0 }}>
-          <SoilMoistureCard optimalRange={[40, 60]} />
-        </div>
+        <SoilMoistureCard optimalRange={[40, 60]} className="dashboard-card-soil" />
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}

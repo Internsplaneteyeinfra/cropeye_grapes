@@ -104,6 +104,8 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
   const [stocks, setStocks] = useState<any[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [selectedPlotName, setSelectedPlotName] = useState<string | null>(null);
+  void FarmerHomeGrid;
+
   const [soilData, setSoilData] = useState({
     phValue: null as number | null,
     nitrogenValue: null as number | null,
@@ -111,6 +113,8 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
   });
 
   // NEW: Add currentUser state
+  void soilData;
+
   const [currentUser, setCurrentUser] = useState<{
     id: number;
     role: string;

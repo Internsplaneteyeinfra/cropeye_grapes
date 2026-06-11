@@ -1,0 +1,378 @@
+import { useEffect, useMemo, useState } from "react";
+import budData from "../components/bud.json";
+import { fetchWeatherForecast, extractNumericValue } from "../services/weatherForecastService";
+import { fetchCurrentWeather } from "../services/weatherService";
+import { useAppContext } from "../context/AppContext";
+import { useFarmerProfile } from "./useFarmerProfile";
+
+export type ETRange = "Low" | "Medium" | "High";
+
+export interface IrrigationScheduleRow {
+  isoDate: string;
+  date: string;
+  isToday: boolean;
+  etDisplayed: number;
+  etRange: ETRange;
+  rainfall: number;
+  waterRequired: number;
+  time: string;
+  needsIrrigation: boolean;
+}
+
+export interface IrrigationPlotConfig {
+  irrigationTypeCode: string;
+  irrigationType: string;
+  motorHp: number | null;
+  flowRateLph: number | null;
+  emittersCount: number;
+  spacingA: number;
+  spacingB: number;
+  pipeWidthInches: number | null;
+  distanceMotorToPlot: number | null;
+}
+
+const toIsoDate = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+export const getETRange = (etValue: number): ETRange => {
+  if (etValue <= 3.0) return "Low";
+  if (etValue <= 5.5) return "Medium";
+  return "High";
+};
+
+const calculateNetET = (et: number, rainfall: number) => {
+  const net = Number(et) - Number(rainfall);
+  return net > 0 ? net : 0;
+};
+
+const waterFromNetET = (netEt: number, kcVal: number) => {
+  if (!Number.isFinite(netEt) || !Number.isFinite(kcVal) || netEt <= 0) return 0;
+  return Math.round(netEt * kcVal * 0.94 * 4046.86);
+};
+
+const formatTimeHrsMins = (hoursTotal: number) => {
+  if (!Number.isFinite(hoursTotal) || hoursTotal <= 0) return "0 hrs 0 mins";
+  const h = Math.floor(hoursTotal);
+  const m = Math.round((hoursTotal - h) * 60);
+  return `${h} hrs ${m} mins`;
+};
+
+const needsIrrigation = (waterRequired: number, time: string) =>
+  waterRequired > 0 && time !== "0 hrs 0 mins" && time !== "N/A";
+
+const calcIrrigationTime = (waterRequired: number, cfg: IrrigationPlotConfig) => {
+  if (waterRequired <= 0) return "0 hrs 0 mins";
+
+  if (cfg.irrigationTypeCode === "drip") {
+    const effectiveFlow = cfg.flowRateLph && cfg.flowRateLph > 0 ? cfg.flowRateLph : 4;
+    const effectiveEmitters = cfg.emittersCount && cfg.emittersCount > 0 ? cfg.emittersCount : 1;
+    const validSpacingA = cfg.spacingA && cfg.spacingA > 0 ? cfg.spacingA : 4;
+    const validSpacingB = cfg.spacingB && cfg.spacingB > 0 ? cfg.spacingB : 2;
+    const plantsPerAcre = 43560 / (validSpacingA * validSpacingB);
+    const timeInMinutes =
+      ((waterRequired * 60) / plantsPerAcre) / (effectiveEmitters * effectiveFlow);
+    return formatTimeHrsMins(timeInMinutes / 60);
+  }
+
+  const effectiveMotorHp = cfg.motorHp && cfg.motorHp > 0 ? cfg.motorHp : 5;
+  const effectivePipeWidth = cfg.pipeWidthInches && cfg.pipeWidthInches > 0 ? cfg.pipeWidthInches : 2;
+  const diameterMeters = effectivePipeWidth * 0.0254;
+  const pipeAreaSqM = Math.PI * Math.pow(diameterMeters / 2, 2);
+  const baseVelocity = Math.max(0.75, Math.min(2.5, effectiveMotorHp * 0.45));
+
+  let frictionFactor = 1;
+  if (cfg.distanceMotorToPlot && cfg.distanceMotorToPlot > 0) {
+    const reduction = (cfg.distanceMotorToPlot / 100) * 0.05;
+    frictionFactor = Math.max(0.5, 1 - reduction);
+  }
+
+  const flowRateLitersPerHour = pipeAreaSqM * baseVelocity * frictionFactor * 3600 * 1000;
+  if (!Number.isFinite(flowRateLitersPerHour) || flowRateLitersPerHour <= 0) return "N/A";
+
+  return formatTimeHrsMins(waterRequired / flowRateLitersPerHour);
+};
+
+const generateAdjustedET = (baseEt: number, plotName: string) => {
+  const effectiveBaseEt = baseEt > 0 ? baseEt : 2.5;
+  let seed = 0;
+  for (let j = 0; j < plotName.length; j++) seed += plotName.charCodeAt(j);
+  seed += new Date().getDate();
+
+  let randomSeed = seed;
+  const seededRandom = () => {
+    randomSeed = (randomSeed * 9301 + 49297) % 233280;
+    return randomSeed / 233280;
+  };
+
+  const predictions: number[] = [];
+  const mediumDays: number[] = [];
+  const candidateDays = [0, 1, 2, 3, 4, 5];
+  const numMediumDays = 2 + Math.floor(seededRandom() * 2);
+
+  for (let k = 0; k < numMediumDays; k++) {
+    const randomIdx = Math.floor(seededRandom() * candidateDays.length);
+    mediumDays.push(candidateDays[randomIdx]);
+    candidateDays.splice(randomIdx, 1);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    let predictedET: number;
+    const isMediumDay = mediumDays.includes(i);
+
+    if (effectiveBaseEt <= 3.0) {
+      predictedET = isMediumDay ? 3.2 + seededRandom() * 1.8 : 2.0 + seededRandom() * 0.9;
+    } else if (effectiveBaseEt <= 5.5) {
+      predictedET = isMediumDay ? 3.5 + seededRandom() * 1.5 : 2.3 + seededRandom() * 0.7;
+    } else if (isMediumDay && seededRandom() > 0.6) {
+      predictedET = 5.5 + seededRandom() * 1.0;
+    } else if (isMediumDay) {
+      predictedET = 3.8 + seededRandom() * 1.5;
+    } else {
+      predictedET = 3.0 + seededRandom() * 0.8;
+    }
+
+    predictedET = Math.max(predictedET * (0.95 + seededRandom() * 0.1), 1.5);
+    predictions.push(Number(predictedET.toFixed(1)));
+  }
+
+  return predictions;
+};
+
+export const buildIrrigationSchedule = (
+  etValue: number,
+  rainfallMm: number,
+  forecastRainfall: number[],
+  kc: number,
+  plotName: string,
+  plotConfig: IrrigationPlotConfig
+): IrrigationScheduleRow[] => {
+  const scheduleData: IrrigationScheduleRow[] = [];
+  const today = new Date();
+  const next6Et = generateAdjustedET(etValue, plotName);
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+
+    const isToday = i === 0;
+    const etForDay = isToday ? etValue : next6Et[i - 1];
+    const rainfall = isToday ? rainfallMm : (forecastRainfall[i - 1] ?? 0);
+    const netEt = calculateNetET(etForDay, rainfall);
+    const waterRequired = waterFromNetET(netEt, kc);
+    const timeStr = calcIrrigationTime(waterRequired, plotConfig);
+
+    scheduleData.push({
+      isoDate: toIsoDate(date),
+      date: date.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+      isToday,
+      etDisplayed: etForDay,
+      etRange: getETRange(etForDay),
+      rainfall,
+      waterRequired,
+      time: timeStr,
+      needsIrrigation: needsIrrigation(waterRequired, timeStr),
+    });
+  }
+
+  return scheduleData;
+};
+
+export function useIrrigationSchedule(syncToAppState = false) {
+  const { getCached, setCached, setAppState, selectedPlotName } = useAppContext();
+  const { profile, loading: profileLoading } = useFarmerProfile();
+
+  const [plotName, setPlotName] = useState("");
+  const [etValue, setEtValue] = useState(0.1);
+  const [rainfallMm, setRainfallMm] = useState(0);
+  const [forecastRainfall, setForecastRainfall] = useState<number[]>([0, 0, 0, 0, 0, 0]);
+  const [kc, setKc] = useState(0.3);
+  const [plotConfig, setPlotConfig] = useState<IrrigationPlotConfig>({
+    irrigationTypeCode: "flood",
+    irrigationType: "Flood",
+    motorHp: null,
+    flowRateLph: null,
+    emittersCount: 0,
+    spacingA: 0,
+    spacingB: 0,
+    pipeWidthInches: null,
+    distanceMotorToPlot: null,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile || profileLoading) return;
+
+    let selectedPlot = null;
+    if (selectedPlotName) {
+      selectedPlot = profile.plots?.find(
+        (p: any) =>
+          p.fastapi_plot_id === selectedPlotName ||
+          `${p.gat_number}_${p.plot_number}` === selectedPlotName
+      );
+    }
+    if (!selectedPlot && profile.plots?.length) selectedPlot = profile.plots[0];
+    if (!selectedPlot) {
+      setPlotName("");
+      setLoading(false);
+      return;
+    }
+
+    const plotId =
+      selectedPlot.fastapi_plot_id ||
+      `${selectedPlot.gat_number}_${selectedPlot.plot_number}`;
+    setPlotName(plotId);
+
+    const coords = selectedPlot?.coordinates?.location?.coordinates;
+    if (Array.isArray(coords) && coords.length >= 2) {
+      const [lon, lat] = coords;
+      void (async () => {
+        try {
+          const data = await fetchCurrentWeather(lat, lon, true);
+          setRainfallMm(Number(data?.precip_mm) || 0);
+        } catch {
+          setRainfallMm(0);
+        }
+      })();
+      void (async () => {
+        try {
+          const forecastData = await fetchWeatherForecast(lat, lon);
+          const rainfallValues = (forecastData.data || []).map((d: any) =>
+            Number(extractNumericValue(d.precipitation ?? 0))
+          );
+          const arr: number[] = [];
+          for (let i = 0; i < 6; i++) arr.push(rainfallValues[i] ?? 0);
+          setForecastRainfall(arr);
+        } catch {
+          setForecastRainfall([0, 0, 0, 0, 0, 0]);
+        }
+      })();
+    }
+
+    const firstFarm = selectedPlot?.farms?.[0];
+    if (firstFarm?.plantation_date) {
+      const plantationDate = new Date(firstFarm.plantation_date);
+      const days = Math.floor((Date.now() - plantationDate.getTime()) / (1000 * 60 * 60 * 24));
+      let derivedStage = "Germination";
+      if (days > 210) derivedStage = "Maturity & Ripening";
+      else if (days > 90) derivedStage = "Grand Growth";
+      else if (days > 30) derivedStage = "Tillering";
+
+      let kcValue = 0.3;
+      try {
+        for (const method of (budData as any).fertilizer_schedule || []) {
+          for (const st of method.stages || []) {
+            if (st.stage === derivedStage && st.kc !== undefined) {
+              kcValue = Number(st.kc) || kcValue;
+            }
+          }
+        }
+      } catch {
+        /* keep default kc */
+      }
+      setKc(kcValue);
+    }
+
+    if (firstFarm) {
+      const firstIrrigation = firstFarm.irrigations?.[0];
+      setPlotConfig({
+        irrigationTypeCode: firstIrrigation?.irrigation_type_code || "flood",
+        irrigationType: firstIrrigation?.irrigation_type_code === "drip" ? "Drip" : "Flood",
+        motorHp: firstIrrigation?.motor_horsepower ?? null,
+        flowRateLph: firstIrrigation?.flow_rate_lph ?? null,
+        emittersCount: firstIrrigation?.emitters_count ?? 0,
+        spacingA: firstFarm?.spacing_a ?? 0,
+        spacingB: firstFarm?.spacing_b ?? 0,
+        pipeWidthInches: firstIrrigation?.pipe_width_inches ?? null,
+        distanceMotorToPlot: firstIrrigation?.distance_motor_to_plot_m ?? null,
+      });
+    }
+  }, [profile, profileLoading, selectedPlotName]);
+
+  useEffect(() => {
+    if (!plotName) return;
+
+    const cacheKey = `etData_${plotName}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      const value = Number(cached.etValue);
+      setEtValue(value > 0 ? value : 0.1);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const baseUrl = "https://cropeye-grapes-sef-production.up.railway.app";
+        const apiUrl = `${baseUrl}/plots/${encodeURIComponent(plotName)}/compute-et/`;
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          mode: "cors",
+          cache: "no-cache",
+          credentials: "omit",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+        });
+        if (!response.ok) throw new Error(`ET API ${response.status}`);
+        const data = await response.json();
+        const et = data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et ?? 0;
+        const finalEt = Number(et) > 0 ? Number(et) : 0.1;
+        if (!cancelled) {
+          setEtValue(finalEt);
+          setCached(cacheKey, { etValue: finalEt });
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Failed to fetch ET");
+          setEtValue(0.1);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [plotName, getCached, setCached]);
+
+  const schedule = useMemo(
+    () =>
+      plotName
+        ? buildIrrigationSchedule(etValue, rainfallMm, forecastRainfall, kc, plotName, plotConfig)
+        : [],
+    [plotName, etValue, rainfallMm, forecastRainfall, kc, plotConfig]
+  );
+
+  useEffect(() => {
+    if (!syncToAppState || schedule.length === 0) return;
+    setAppState((prev: any) => ({ ...prev, irrigationScheduleData: schedule }));
+  }, [schedule, setAppState, syncToAppState]);
+
+  return {
+    schedule,
+    loading: loading || profileLoading,
+    error,
+    plotName,
+    irrigationType: plotConfig.irrigationType,
+    getETRangeColor: (range: ETRange) => {
+      switch (range) {
+        case "Low":
+          return "text-green-600 bg-green-50";
+        case "Medium":
+          return "text-orange-600 bg-orange-50";
+        case "High":
+          return "text-red-600 bg-red-50";
+        default:
+          return "text-gray-600 bg-gray-50";
+      }
+    },
+  };
+}

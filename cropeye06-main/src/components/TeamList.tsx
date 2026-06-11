@@ -848,7 +848,12 @@ const fetchOrdersData = async (): Promise<TeamMember[]> => {
   );
 };
 
-const TeamList: React.FC = () => {
+type TeamListProps = {
+  users?: unknown[];
+  setUsers?: React.Dispatch<React.SetStateAction<unknown[]>>;
+};
+
+const TeamList: React.FC<TeamListProps> = (_props) => {
   const [teamData, setTeamData] =
     useState<Record<CategoryKey, TeamMember[]>>(EMPTY_TEAM_DATA);
   const [loading, setLoading] = useState<boolean>(true);

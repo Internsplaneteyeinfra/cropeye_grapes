@@ -30,6 +30,79 @@ export function buildGrapesBundle(yieldData: any, ripeningData: any, brixData: a
   };
 }
 
+/** Local calendar date (YYYY-MM-DD) — matches FarmerDashboard bundle cache keys. */
+export function getLocalDateIso(): string {
+  const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
+  return new Date(Date.now() - tzOffsetMs).toISOString().slice(0, 10);
+}
+
+export function grapesBundleCacheKey(plotId: string, endDate?: string): string {
+  return `farmerDashGrapes_v1_${plotId}_${endDate ?? getLocalDateIso()}`;
+}
+
+export type BrixTimeSeriesPoint = {
+  date: string;
+  ph: number;
+  brix: number;
+  ta: number;
+};
+
+function toSeriesNumber(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Normalize one API row (handles `pH` vs `ph`, etc.). */
+export function normalizeBrixTimeSeriesPoint(raw: unknown): BrixTimeSeriesPoint | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const date =
+    (typeof row.date === "string" && row.date) ||
+    (typeof row.day === "string" && row.day) ||
+    (typeof row.timestamp === "string" && row.timestamp) ||
+    null;
+  if (!date) return null;
+  const ph = row.ph ?? row.pH ?? row.PH;
+  const brix = row.brix ?? row.Brix ?? row.brix_value;
+  const ta = row.ta ?? row.TA ?? row.titratable_acidity;
+  return {
+    date,
+    ph: toSeriesNumber(ph),
+    brix: toSeriesNumber(brix),
+    ta: toSeriesNumber(ta),
+  };
+}
+
+/** Read `time_series` from a grapes bundle, standalone brix response, or raw array. */
+export function extractBrixTimeSeriesFromPayload(payload: unknown): BrixTimeSeriesPoint[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) {
+    return payload
+      .map(normalizeBrixTimeSeriesPoint)
+      .filter((p): p is BrixTimeSeriesPoint => p != null);
+  }
+  if (typeof payload !== "object") return [];
+
+  const root = payload as Record<string, unknown>;
+  let rawSeries: unknown[] | undefined;
+
+  if (isGrapesBundlePayload(payload)) {
+    const brix = (payload as GrapesBundlePayload).brix;
+    if (Array.isArray(brix?.time_series)) rawSeries = brix.time_series;
+    else if (Array.isArray(brix)) rawSeries = brix;
+  } else if (Array.isArray(root.time_series)) {
+    rawSeries = root.time_series;
+  } else if (root.brix && typeof root.brix === "object") {
+    const nested = (root.brix as Record<string, unknown>).time_series;
+    if (Array.isArray(nested)) rawSeries = nested;
+  }
+
+  if (!rawSeries?.length) return [];
+  return rawSeries
+    .map(normalizeBrixTimeSeriesPoint)
+    .filter((p): p is BrixTimeSeriesPoint => p != null);
+}
+
 /** POST with empty body; plot_name is the only documented query param for these routes. */
 export async function fetchGrapesEventsBundle(
   baseUrl: string,

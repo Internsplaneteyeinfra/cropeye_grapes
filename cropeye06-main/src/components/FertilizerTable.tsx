@@ -71,45 +71,266 @@ function extractGrapesScheduleMeta(parsed: unknown): GrapesScheduleMeta | null {
   };
 }
 
-/** Pull the 7-day schedule list from admin API JSON (handles alternate key names). */
+/** Collect every schedule row array from admin API JSON (not only next_7_days). */
+const SCHEDULE_ARRAY_KEYS = [
+  "next_7_days",
+  "next7_days",
+  "next7Days",
+  "next_seven_days",
+  "schedule",
+  "full_schedule",
+  "schedule_days",
+  "all_days",
+  "days",
+  "fertilizer_schedule",
+  "upcoming_days",
+  "daily_schedule",
+] as const;
+
+function scheduleItemKey(item: unknown): string {
+  if (!item || typeof item !== "object") return String(item);
+  const o = item as Record<string, unknown>;
+  const date = o.date ?? o.schedule_date;
+  const day = o.day ?? o.days ?? o.day_number;
+  return `${date ?? ""}_${day ?? ""}`;
+}
+
+function looksLikeScheduleRow(item: unknown): boolean {
+  if (!item || typeof item !== "object") return false;
+  const o = item as Record<string, unknown>;
+  return (
+    "date" in o ||
+    "schedule_date" in o ||
+    "day" in o ||
+    "issue" in o ||
+    "nutrient" in o ||
+    "recommendation" in o
+  );
+}
+
+function collectScheduleArraysFromObject(o: Record<string, unknown>): unknown[][] {
+  const arrays: unknown[][] = [];
+  const seenKeys = new Set<string>();
+
+  for (const k of SCHEDULE_ARRAY_KEYS) {
+    const v = o[k];
+    if (Array.isArray(v) && v.length > 0) {
+      arrays.push(v);
+      seenKeys.add(k);
+    }
+  }
+
+  for (const [k, v] of Object.entries(o)) {
+    if (seenKeys.has(k) || !Array.isArray(v) || v.length === 0) continue;
+    if (looksLikeScheduleRow(v[0])) arrays.push(v);
+  }
+
+  return arrays;
+}
+
+function mergeScheduleDayArrays(arrays: unknown[][]): unknown[] {
+  const seen = new Set<string>();
+  const merged: unknown[] = [];
+  for (const arr of arrays) {
+    for (const item of arr) {
+      const key = scheduleItemKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  merged.sort((a, b) => {
+    const da = String((a as Record<string, unknown>)?.date ?? "");
+    const db = String((b as Record<string, unknown>)?.date ?? "");
+    return da.localeCompare(db);
+  });
+  return merged;
+}
+
 function extractScheduleDaysArray(raw: unknown): unknown[] | undefined {
   if (raw === null || raw === undefined) return undefined;
   if (Array.isArray(raw)) return raw;
   if (typeof raw !== "object") return undefined;
+
   const o = raw as Record<string, unknown>;
-  const keys = [
-    "next_7_days",
-    "next7_days",
-    "next7Days",
-    "next_seven_days",
-    "schedule",
-  ] as const;
-  for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(o, k)) {
-      const v = o[k];
-      if (v === null) return [];
-      if (Array.isArray(v)) return v;
-      return undefined;
-    }
+  const arrays = collectScheduleArraysFromObject(o);
+
+  if (o.data && typeof o.data === "object" && !Array.isArray(o.data)) {
+    arrays.push(...collectScheduleArraysFromObject(o.data as Record<string, unknown>));
   }
-  const nested = o.data;
-  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-    const d = nested as Record<string, unknown>;
-    for (const k of keys) {
-      if (Object.prototype.hasOwnProperty.call(d, k)) {
-        const v = d[k];
-        if (v === null) return [];
-        if (Array.isArray(v)) return v;
-        return undefined;
-      }
-    }
+
+  if (o.today && typeof o.today === "object" && !Array.isArray(o.today)) {
+    if (looksLikeScheduleRow(o.today)) arrays.push([o.today]);
   }
+
+  if (arrays.length > 0) {
+    return mergeScheduleDayArrays(arrays);
+  }
+
+  for (const k of SCHEDULE_ARRAY_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(o, k) && o[k] === null) return [];
+  }
+
   return undefined;
 }
 
 function scheduleCellText(v: string | undefined | null): string {
   const t = v?.trim();
   return t ? t : "—";
+}
+
+function ScheduleTableCell({ value }: { value: string | undefined | null }) {
+  const text = scheduleCellText(value);
+  const [open, setOpen] = useState(false);
+  const isLong = text !== "—" && text.length > 72;
+
+  if (text === "—") {
+    return <span className="text-gray-400">—</span>;
+  }
+
+  return (
+    <div title={text}>
+      <span
+        className={
+          open
+            ? "whitespace-pre-wrap break-words"
+            : isLong
+              ? "line-clamp-2 break-words"
+              : "break-words"
+        }
+      >
+        {text}
+      </span>
+      {isLong && (
+        <button
+          type="button"
+          className="block mt-0.5 text-green-700 underline text-[9px]"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ScheduleV2CompactTable({
+  data,
+  fillHeight = false,
+}: {
+  data: FertilizerEntry[];
+  fillHeight?: boolean;
+}) {
+  return (
+    <div
+      className={`fertilizer-schedule-table-wrap w-full min-w-0 rounded-md border border-gray-200 bg-white ${
+        fillHeight ? "fertilizer-schedule-fill" : ""
+      }`}
+      style={fillHeight ? ({ ["--schedule-rows" as string]: data.length } as React.CSSProperties) : undefined}
+    >
+      <table className="w-full table-fixed text-[11px] leading-snug text-left">
+        <thead className="bg-green-100 text-gray-800">
+          <tr>
+            <th className="px-1.5 py-1 font-semibold border-b border-green-200 w-[12%]">Date</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[7%]">Day</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[10%]">Stage</th>
+            <th className="px-1.5 py-1 font-semibold border-b border-green-200 w-[13%]">Type</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[11%]">Issue</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[13%]">Nutrient</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[15%]">Recommendation</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[23%]">Organic</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, idx) => (
+            <tr
+              key={`${row.date}-${idx}`}
+              className="border-t border-gray-100 align-top odd:bg-white even:bg-gray-50/50"
+            >
+              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap">{scheduleCellText(row.date)}</td>
+              <td className="px-1 py-0.5 text-gray-900 text-center">{scheduleCellText(row.days)}</td>
+              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap text-[10px]">{scheduleCellText(row.stage)}</td>
+              <td className="px-1.5 py-0.5 text-gray-900 capitalize whitespace-nowrap">
+                {scheduleCellText(row.scheduleType)}
+              </td>
+              <td className="px-1 py-0.5 text-gray-900">
+                <ScheduleTableCell value={row.issue} />
+              </td>
+              <td className="px-1 py-0.5 text-gray-900">
+                <ScheduleTableCell value={row.nutrient} />
+              </td>
+              <td className="px-1 py-0.5 text-gray-900">
+                <ScheduleTableCell value={row.recommendation} />
+              </td>
+              <td className="px-1 py-0.5 text-gray-900">
+                <ScheduleTableCell value={row.organicDetail} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ScheduleLegacyCompactTable({
+  data,
+  fillHeight = false,
+}: {
+  data: FertilizerEntry[];
+  fillHeight?: boolean;
+}) {
+  return (
+    <div
+      className={`fertilizer-schedule-table-wrap w-full min-w-0 overflow-hidden rounded-md border border-gray-200 bg-white ${
+        fillHeight ? "fertilizer-schedule-fill" : ""
+      }`}
+      style={fillHeight ? ({ ["--schedule-rows" as string]: data.length } as React.CSSProperties) : undefined}
+    >
+      <table className="w-full table-fixed text-[10px] leading-tight text-left">
+        <thead className="bg-green-100 text-gray-800">
+          <tr>
+            <th className="px-1 py-1 font-semibold border-b w-[14%]">Date</th>
+            <th className="px-1 py-1 font-semibold border-b w-[14%]">Stage</th>
+            <th className="px-1 py-1 font-semibold border-b w-[18%]">Nutrients</th>
+            <th className="px-1 py-1 font-semibold border-b w-[27%]">Chemical</th>
+            <th className="px-1 py-1 font-semibold border-b w-[27%]">Organic</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, idx) => (
+            <tr key={`${row.date}-${idx}`} className="border-t border-gray-100 align-top odd:bg-white even:bg-gray-50/50">
+              <td className="px-1 py-1">{scheduleCellText(row.date)}</td>
+              <td className="px-1 py-1">{scheduleCellText(row.stage)}</td>
+              <td className="px-1 py-1">
+                N: {scheduleCellText(row.N_kg_acre)}
+                <br />
+                P: {scheduleCellText(row.P_kg_acre)}
+                <br />
+                K: {scheduleCellText(row.K_kg_acre)}
+              </td>
+              <td className="px-1 py-1">
+                {row.fertilizers ? (
+                  <ScheduleTableCell
+                    value={`Urea ${row.fertilizers.Urea_N_kg_per_acre} kg, SP ${row.fertilizers.SuperPhosphate_P_kg_per_acre} kg, Potash ${row.fertilizers.Potash_K_kg_per_acre} kg`}
+                  />
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-1 py-1">
+                <ScheduleTableCell
+                  value={
+                    row.organic_inputs?.length ? row.organic_inputs.join(", ") : undefined
+                  }
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function mapGrapesScheduleNext7ToEntries(
@@ -123,7 +344,7 @@ function mapGrapesScheduleNext7ToEntries(
       const str = (v: unknown) => (v == null ? "" : String(v));
       return {
         date: str(item.date),
-        stage: str(item.stage),
+        stage: str(item.stage) || (item.day != null ? `DAY ${item.day}` : ""),
         days: item.day != null ? String(item.day) : "",
         N_kg_acre: "",
         P_kg_acre: "",
@@ -185,7 +406,56 @@ const PLANTATION_TYPE_MONTHS: Record<string, number> = {
   Ratoon: 9,
 };
 
-const FertilizerTable: React.FC = () => {
+function findPlotInProfile(profile: any, plotToUse: string) {
+  if (!profile?.plots?.length) return null;
+
+  let selectedPlot = profile.plots.find(
+    (p: any) => p.fastapi_plot_id === plotToUse
+  );
+
+  if (!selectedPlot) {
+    selectedPlot = profile.plots.find((p: any) => {
+      const plotId = p.fastapi_plot_id || `${p.gat_number}_${p.plot_number}`;
+      return plotId === plotToUse;
+    });
+  }
+
+  if (!selectedPlot) {
+    const [gatNum, plotNum] = plotToUse.split("_");
+    selectedPlot = profile.plots.find(
+      (p: any) => p.gat_number === gatNum && p.plot_number === plotNum
+    );
+  }
+
+  return selectedPlot ?? null;
+}
+
+/** Try alternate plot ids for grapes-schedule (fastapi id, gat_plot, plot_name). */
+function collectSchedulePlotIds(profile: any, plotToUse: string): string[] {
+  const ids = new Set<string>();
+  if (plotToUse?.trim()) ids.add(plotToUse.trim());
+
+  const plot = findPlotInProfile(profile, plotToUse);
+  if (plot) {
+    if (plot.fastapi_plot_id) ids.add(String(plot.fastapi_plot_id));
+    if (plot.gat_number && plot.plot_number) {
+      ids.add(`${plot.gat_number}_${plot.plot_number}`);
+    }
+    if (typeof plot.plot_name === "string" && plot.plot_name.trim()) {
+      ids.add(plot.plot_name.trim());
+    }
+  }
+
+  return [...ids];
+}
+
+function canApplyScheduleResponse(parsed: unknown): boolean {
+  return extractScheduleDaysArray(parsed) !== undefined;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const [data, setData] = useState<FertilizerEntry[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
   const [plantationType, setPlantationType] = useState<string | null>(null);
@@ -201,6 +471,7 @@ const FertilizerTable: React.FC = () => {
     useState<GrapesScheduleMeta | null>(null);
   const [grapesScheduleV2, setGrapesScheduleV2] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
+  const scheduleFetchGenRef = useRef(0);
   const {
     profile,
     loading: profileLoading,
@@ -410,6 +681,9 @@ const FertilizerTable: React.FC = () => {
     return sevenDaysData;
   };
 
+  // Legacy bud.json helpers kept for reference; schedule is API-only (no local fallback).
+  void [calculateMonthsSincePlantation, generateSevenDaysData];
+
   const applyScheduleResponse = (parsed: unknown): boolean => {
     const next = extractScheduleDaysArray(parsed);
     if (next === undefined) {
@@ -439,8 +713,19 @@ const FertilizerTable: React.FC = () => {
   };
 
   useEffect(() => {
-    // Wait for profile to load
+    const runId = ++scheduleFetchGenRef.current;
+
+    const isStale = () =>
+      runId !== scheduleFetchGenRef.current;
+
+    // Wait for farmer profile before calling grapes-schedule (need plot id aliases)
     if (profileLoading) {
+      setScheduleFetchLoading(true);
+      return;
+    }
+
+    if (!profile?.plots?.length) {
+      setScheduleFetchLoading(false);
       return;
     }
 
@@ -469,394 +754,144 @@ const FertilizerTable: React.FC = () => {
       return;
     }
 
-    let cancelled = false;
-
     const run = async () => {
       setScheduleFetchLoading(true);
       setApiScheduleCompleted(false);
       setLocalError(null);
       setNoFertilizerRequired(false);
 
-      try {
-        const scheduleCacheKey = `grapesSchedule_${String(plotToUse)}`;
-        const cachedSchedule = getCached(scheduleCacheKey);
-        if (cachedSchedule !== undefined && applyScheduleResponse(cachedSchedule)) {
-          if (!cancelled) {
-            setScheduleFetchLoading(false);
-          }
-          return;
-        }
-
-        const base = getGrapesAdminBaseUrl();
-        const url = `${base.replace(/\/+$/, "")}/grapes-schedule/${encodeURIComponent(String(plotToUse))}`;
-        const controller = new AbortController();
-        const scheduleTimeoutMs = 120000;
-        const timeoutId = window.setTimeout(
-          () => controller.abort(),
-          scheduleTimeoutMs
-        );
-        let res: Response;
-        try {
-          res = await fetch(url, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            signal: controller.signal,
-          });
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
-        if (cancelled) {
+      const scheduleCacheKey = `grapesSchedule_${String(plotToUse)}`;
+      const cachedSchedule = getCached(scheduleCacheKey);
+      if (
+        cachedSchedule != null &&
+        canApplyScheduleResponse(cachedSchedule) &&
+        applyScheduleResponse(cachedSchedule)
+      ) {
+        if (!isStale()) {
           setScheduleFetchLoading(false);
-          return;
         }
-
-        if (res.ok) {
-          let parsed: unknown;
-          try {
-            parsed = await res.json();
-            setCached(scheduleCacheKey, parsed);
-          } catch {
-            console.warn(
-              "FertilizerTable: grapes-schedule returned non-JSON body, using legacy bud.json"
-            );
-            parsed = undefined;
-          }
-          if (applyScheduleResponse(parsed)) {
-            if (!cancelled) {
-              setScheduleFetchLoading(false);
-            }
-            return;
-          }
-          console.warn(
-            "FertilizerTable: grapes-schedule 200 but no schedule array in response; keys:",
-            parsed && typeof parsed === "object"
-              ? Object.keys(parsed as object)
-              : typeof parsed
-          );
-        } else {
-          console.warn(
-            "FertilizerTable: grapes-schedule HTTP",
-            res.status,
-            res.statusText,
-            "— trying legacy bud.json"
-          );
-        }
-      } catch (e) {
-        console.warn(
-          "FertilizerTable: grapes-schedule request failed, using legacy bud.json",
-          e
-        );
-      }
-
-      if (cancelled) {
-        setScheduleFetchLoading(false);
         return;
       }
 
-      try {
-        setLocalError(null);
+      const base = getGrapesAdminBaseUrl().replace(/\/+$/, "");
+      const schedulePlotIds = collectSchedulePlotIds(profile, String(plotToUse));
+      const scheduleTimeoutMs = 120000;
 
-      // Check if profile exists and has plots
-      if (!profile || !profile.plots || profile.plots.length === 0) {
-        throw new Error("No plots found in farmer profile");
-      }
+      const tryFetchSchedule = async (): Promise<boolean> => {
+        for (const schedulePlotId of schedulePlotIds) {
+          if (isStale()) return false;
 
-      // Get the selected plot by fastapi_plot_id (primary matching method)
-      // API response structure: plots[].fastapi_plot_id (e.g., "258_25")
-      let selectedPlot = profile.plots.find(
-        (p) => p.fastapi_plot_id === plotToUse
-      );
+          const url = `${base}/grapes-schedule/${encodeURIComponent(schedulePlotId)}`;
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(
+            () => controller.abort(),
+            scheduleTimeoutMs
+          );
+          let res: Response;
+          try {
+            res = await fetch(url, {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              signal: controller.signal,
+            });
+          } catch (fetchErr) {
+            console.warn(
+              "FertilizerTable: grapes-schedule request failed for plot",
+              schedulePlotId,
+              fetchErr
+            );
+            continue;
+          } finally {
+            window.clearTimeout(timeoutId);
+          }
 
-      // If not found by fastapi_plot_id, try matching by constructed plot ID
-      if (!selectedPlot) {
-        selectedPlot = profile.plots.find((p) => {
-          const plotId =
-            p.fastapi_plot_id || `${p.gat_number}_${p.plot_number}`;
-          return plotId === plotToUse;
-        });
-      }
+          if (isStale()) return false;
 
-      // If still not found, try matching by gat_number and plot_number
-      if (!selectedPlot) {
-        const [gatNum, plotNum] = plotToUse.split("_");
-        selectedPlot = profile.plots.find(
-          (p) => p.gat_number === gatNum && p.plot_number === plotNum
-        );
-      }
+          if (!res.ok) {
+            console.warn(
+              "FertilizerTable: grapes-schedule HTTP",
+              res.status,
+              res.statusText,
+              "for plot",
+              schedulePlotId,
+              "— trying next plot id"
+            );
+            continue;
+          }
 
-      if (!selectedPlot) {
-        console.error("FertilizerTable: Selected plot not found", {
-          plotToUse,
-          availablePlots: profile.plots.map((p) => ({
-            fastapi_plot_id: p.fastapi_plot_id,
-            gat_number: p.gat_number,
-            plot_number: p.plot_number,
-          })),
-        });
-        throw new Error(
-          `Selected plot "${plotToUse}" not found in farmer profile`
-        );
-      }
+          let parsed: unknown;
+          try {
+            parsed = await res.json();
+          } catch {
+            console.warn(
+              "FertilizerTable: grapes-schedule returned non-JSON body for plot",
+              schedulePlotId
+            );
+            continue;
+          }
 
-      console.log("FertilizerTable: Found plot by fastapi_plot_id", {
-        plotToUse,
-        foundPlot: {
-          fastapi_plot_id: selectedPlot.fastapi_plot_id,
-          gat_number: selectedPlot.gat_number,
-          plot_number: selectedPlot.plot_number,
-          farms_count: selectedPlot.farms?.length || 0,
-        },
-      });
+          if (!canApplyScheduleResponse(parsed)) {
+            console.warn(
+              "FertilizerTable: grapes-schedule 200 but no schedule array for plot",
+              schedulePlotId,
+              "keys:",
+              parsed && typeof parsed === "object"
+                ? Object.keys(parsed as object)
+                : typeof parsed
+            );
+            continue;
+          }
 
-      // Check if plot has farms
-      if (
-        !selectedPlot.farms ||
-        !Array.isArray(selectedPlot.farms) ||
-        selectedPlot.farms.length === 0
-      ) {
-        throw new Error("No farms found for the current plot");
-      }
+          if (isStale()) return false;
 
-      const getFarmPlantingMethod = (farm: any): string | undefined => {
-        return (
-          farm?.crop_type?.planting_method ||
-          farm?.crop_type?.planting_method_display ||
-          farm?.planting_method ||
-          farm?.planting_method_display
-        );
+          if (applyScheduleResponse(parsed)) {
+            setCached(`grapesSchedule_${schedulePlotId}`, parsed);
+            setCached(scheduleCacheKey, parsed);
+            return true;
+          }
+        }
+        return false;
       };
 
-      // Prefer a farm that has both plantation date and planting method.
-      // Some plots can have multiple farms and the first one may be incomplete.
-      const firstFarm = selectedPlot.farms?.[0];
-      const farmForSchedule =
-        selectedPlot.farms.find(
-          (farm: any) => farm?.plantation_date && getFarmPlantingMethod(farm)
-        ) ||
-        selectedPlot.farms.find((farm: any) => farm?.plantation_date) ||
-        firstFarm;
-
-      if (!farmForSchedule) {
-        throw new Error("No farm data found for the selected plot");
-      }
-
-      // Extract data from API response structure:
-      // API path: plots[].farms[].plantation_date (e.g., "2025-12-01")
-      // API path: plots[].farms[].crop_type.plantation_type (e.g., "ratoon")
-      // API path: plots[].farms[].crop_type.planting_method (e.g., "2_bud")
-
-      // Extract plantation_date - primary location from API response
-      // No fallback - must have actual plantation_date from API
-      const plantationDate = farmForSchedule.plantation_date; // Primary: farms[].plantation_date
-
-      // Extract plantation_type from crop_type - primary location from API response
-      const plantationTypeValue =
-        farmForSchedule.crop_type?.plantation_type || // Primary: farms[].crop_type.plantation_type (e.g., "ratoon")
-        farmForSchedule.crop_type?.plantation_type_display; // Alternative: farms[].crop_type.plantation_type_display (e.g., "Ratoon")
-
-      console.log("FertilizerTable: Extracted farm data from API response", {
-        fastapi_plot_id: selectedPlot.fastapi_plot_id,
-        selected_farm_id: farmForSchedule.id,
-        selected_farm_uid: farmForSchedule.farm_uid,
-        plantation_date: farmForSchedule.plantation_date,
-        plantationDate: plantationDate,
-        plantation_type: farmForSchedule.crop_type?.plantation_type,
-        plantation_type_display: farmForSchedule.crop_type?.plantation_type_display,
-        plantationTypeValue: plantationTypeValue,
-        planting_method: farmForSchedule.crop_type?.planting_method,
-        planting_method_display: farmForSchedule.crop_type?.planting_method_display,
-        crop_type_object: farmForSchedule.crop_type,
-        fullFarmData: farmForSchedule,
-      });
-
-      setPlantationType(plantationTypeValue || null);
-
-      if (!plantationDate) {
-        console.error("FertilizerTable: Plantation date not found", {
-          farmData: farmForSchedule,
-          availableFields: Object.keys(farmForSchedule),
-        });
-        throw new Error(
-          "Plantation date not found in farm data. Please ensure plantation date is set for this farm."
-        );
-      }
-
-      // Calculate months since plantation
-      const monthsSincePlantation =
-        calculateMonthsSincePlantation(plantationDate);
-      setMonthsCompleted(monthsSincePlantation);
-
-      console.log("FertilizerTable: Checking plantation type and months", {
-        plantationTypeValue: plantationTypeValue,
-        monthsSincePlantation: monthsSincePlantation,
-        plantationDate: plantationDate,
-      });
-
-      // Check plantation type and months BEFORE requiring planting method
-      // This allows us to show "No fertilizer required" even if planting method is missing
-      if (plantationTypeValue) {
-        // Normalize plantation type for matching (case-insensitive, remove hyphens/spaces)
-        const normalizedPlantationType = plantationTypeValue
-          .trim()
-          .toLowerCase()
-          .replace(/-/g, "") // Remove hyphens (pre-seasonal -> preseasonal)
-          .replace(/\s+/g, ""); // Remove spaces
-
-        console.log("FertilizerTable: Normalized plantation type", {
-          original: plantationTypeValue,
-          normalized: normalizedPlantationType,
-          availableKeys: Object.keys(PLANTATION_TYPE_MONTHS),
-        });
-
-        // Try to find matching plantation type (case-insensitive, ignore hyphens/spaces)
-        const matchingKey = Object.keys(PLANTATION_TYPE_MONTHS).find(
-          (key) =>
-            key.toLowerCase().replace(/-/g, "").replace(/\s+/g, "") ===
-            normalizedPlantationType
-        );
-
-        const requiredMonths = matchingKey
-          ? PLANTATION_TYPE_MONTHS[matchingKey]
-          : null;
-
-        console.log("FertilizerTable: Matching result", {
-          matchingKey: matchingKey,
-          requiredMonths: requiredMonths,
-          monthsSincePlantation: monthsSincePlantation,
-          shouldHide:
-            requiredMonths !== null && monthsSincePlantation >= requiredMonths,
-        });
-
-        if (
-          requiredMonths !== null &&
-          monthsSincePlantation >= requiredMonths
-        ) {
-          setNoFertilizerRequired(true);
-          setGrapesScheduleMeta(null);
-          setGrapesScheduleV2(false);
-          setData([]);
-          setLocalError(null); // Clear any previous errors
-          console.log(
-            "✅ FertilizerTable: No fertilizer required - HIDING TABLE",
-            {
-              plantationType: plantationTypeValue,
-              matchingKey: matchingKey,
-              monthsCompleted: monthsSincePlantation,
-              requiredMonths: requiredMonths,
-              plantationDate: plantationDate,
-            }
-          );
-          return; // Exit early - don't check planting method or generate fertilizer data
-        } else {
-          setNoFertilizerRequired(false);
-          console.log("❌ FertilizerTable: Fertilizer still required", {
-            monthsSincePlantation: monthsSincePlantation,
-            requiredMonths: requiredMonths,
-            matchingKey: matchingKey,
-          });
-        }
-      } else {
-        setNoFertilizerRequired(false);
-        console.log("⚠️ FertilizerTable: No plantation type found");
-      }
-
-      // Extract planting_method from crop_type (only needed if fertilizer is still required)
-      // API path: plots[].farms[].crop_type.planting_method (e.g., "2_bud")
-      const plantingMethod = getFarmPlantingMethod(farmForSchedule);
-
-      if (!plantingMethod) {
-        console.error(
-          "FertilizerTable: Planting method not found in API response",
-          {
-            fastapi_plot_id: selectedPlot.fastapi_plot_id,
-            farm_id: farmForSchedule.id,
-            farm_uid: farmForSchedule.farm_uid,
-            crop_type: farmForSchedule.crop_type,
-            availableFields: Object.keys(farmForSchedule),
-            farms_inspected: selectedPlot.farms.map((farm: any) => ({
-              farm_id: farm?.id,
-              farm_uid: farm?.farm_uid,
-              has_plantation_date: Boolean(farm?.plantation_date),
-              has_planting_method: Boolean(getFarmPlantingMethod(farm)),
-            })),
-          }
-        );
-        throw new Error(
-          `Planting method not found in farm data for plot "${plotToUse}". Please ensure planting method is set for this farm in the backend.`
-        );
-      }
-
-      console.log("FertilizerTable: Extracted planting method", {
-        planting_method: farmForSchedule.crop_type?.planting_method,
-        planting_method_display: farmForSchedule.crop_type?.planting_method_display,
-        extractedMethod: plantingMethod,
-      });
-
-      console.log("FertilizerTable: Generating fertilizer schedule", {
-        fastapi_plot_id: selectedPlot.fastapi_plot_id,
-        plotToUse,
-        plantationDate,
-        plantingMethod,
-        plantationType: plantationTypeValue,
-        monthsCompleted: monthsSincePlantation,
-        farmData: {
-          farm_id: farmForSchedule.id,
-          farm_uid: farmForSchedule.farm_uid,
-          plantation_date: farmForSchedule.plantation_date,
-          crop_type: farmForSchedule.crop_type,
-        },
-      });
-
-      // Generate fertilizer data using plantation_date and planting_method with bud.json
       try {
-        const fertilizerData = generateSevenDaysData(
-          plantationDate,
-          plantingMethod
-        );
-        setGrapesScheduleMeta(null);
-        setGrapesScheduleV2(false);
-        setData(fertilizerData);
-        console.log(
-          "FertilizerTable: Generated fertilizer data",
-          fertilizerData.length,
-          "entries"
-        );
-      } catch (genError: any) {
-        console.error(
-          "FertilizerTable: Error generating fertilizer data",
-          genError
-        );
-        throw new Error(
-          `Failed to generate fertilizer schedule: ${
-            genError.message || "Unknown error"
-          }. Please check if planting method "${plantingMethod}" is supported.`
-        );
-      }
-      } catch (error: any) {
-        console.error(
-          "FertilizerTable: Error loading fertilizer data:",
-          error?.message || error
-        );
+        let loaded = await tryFetchSchedule();
 
-        setLocalError(
-          `Failed to fetch data: ${error?.message || "Unknown error occurred"}`
-        );
-        setData([]);
-        setGrapesScheduleMeta(null);
-        setGrapesScheduleV2(false);
-        setPlantationType(null);
-        setMonthsCompleted(null);
-        setNoFertilizerRequired(false);
-      } finally {
-        if (!cancelled) setScheduleFetchLoading(false);
+        // One retry for slow/flaky API or profile timing (common cause of intermittent errors)
+        if (!loaded && !isStale()) {
+          await sleep(2000);
+          if (!isStale()) {
+            loaded = await tryFetchSchedule();
+          }
+        }
+
+        if (isStale()) return;
+
+        if (loaded) {
+          setScheduleFetchLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("FertilizerTable: grapes-schedule request failed", e);
+        if (isStale()) return;
       }
+
+      setLocalError(
+        `Unable to load fertilizer schedule for plot "${plotToUse}". The grapes-schedule API did not return data. Please ensure plantation date and planting method are set for this farm in the backend.`
+      );
+      setData([]);
+      setGrapesScheduleMeta(null);
+      setGrapesScheduleV2(false);
+      setPlantationType(null);
+      setMonthsCompleted(null);
+      setNoFertilizerRequired(false);
+      setScheduleFetchLoading(false);
     };
 
     void run();
     return () => {
-      cancelled = true;
+      scheduleFetchGenRef.current += 1;
     };
-  }, [profile, profileLoading, profileError, selectedPlotName]);
+  }, [profile, profileLoading, selectedPlotName, getCached, setCached]);
 
   const handleDownloadPDF = async () => {
     if (tableRef.current) {
@@ -871,14 +906,31 @@ const FertilizerTable: React.FC = () => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">
+    <div
+      className={
+        embedded
+          ? "w-full h-full min-w-0 overflow-hidden flex flex-col flex-1 min-h-0"
+          : "bg-white rounded-lg shadow-md p-3 sm:p-4 overflow-hidden"
+      }
+    >
+      <div className={`flex justify-between items-center shrink-0 ${embedded ? "mb-1.5" : "mb-3"}`}>
+        <h2
+          className={
+            embedded
+              ? "text-sm font-semibold text-gray-800"
+              : "text-lg sm:text-xl font-bold text-gray-800"
+          }
+        >
           Fertilizer Schedule
         </h2>
         <button
           onClick={handleDownloadPDF}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          className={
+            embedded
+              ? "bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-md shrink-0"
+              : "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          }
+          title="Download PDF"
         >
           <svg
             className="w-4 h-4"
@@ -1042,7 +1094,8 @@ const FertilizerTable: React.FC = () => {
           <span className="ml-2 text-gray-600">Loading fertilizer data...</span>
         </div>
       ) : (
-        (() => {
+        <div className={embedded ? "flex flex-col flex-1 min-h-0 h-full" : undefined}>
+        {(() => {
           // Re-check if fertilizer should be hidden (safety check in render)
           if (plantationType && monthsCompleted !== null) {
             const normalizedPlantationType = plantationType
@@ -1103,7 +1156,7 @@ const FertilizerTable: React.FC = () => {
             // Generic empty state: schedule API + legacy path left no rows (see console: FertilizerTable)
             if (!localError && !profileError) {
               errorMessage +=
-                " Check Network for grapes-schedule, and that the farm has plantation_date and a planting method supported by the schedule (or bud.json fallback).";
+                " Check Network for grapes-schedule, and that the farm has plantation_date and planting method set in the backend.";
             }
 
             // Add helpful suggestions based on the error
@@ -1152,229 +1205,49 @@ const FertilizerTable: React.FC = () => {
           }
 
           return grapesScheduleV2 ? (
-            <div ref={tableRef} className="overflow-x-auto space-y-4">
+            <div ref={tableRef} className="w-full min-w-0 flex flex-col flex-1 min-h-0">
               {grapesScheduleMeta && (
-                <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs sm:text-sm text-gray-700 border-b border-gray-200 pb-3">
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-gray-500 mb-1 leading-tight shrink-0">
                   {grapesScheduleMeta.plot && (
                     <span>
-                      <span className="font-semibold text-gray-800">Plot: </span>
+                      <span className="font-semibold text-gray-700">Plot </span>
                       {grapesScheduleMeta.plot}
                     </span>
                   )}
                   {grapesScheduleMeta.foundation_pruning_date && (
                     <span>
-                      <span className="font-semibold text-gray-800">
-                        Foundation pruning:{" "}
-                      </span>
+                      <span className="font-semibold text-gray-700">Foundation </span>
                       {grapesScheduleMeta.foundation_pruning_date}
                     </span>
                   )}
                   {grapesScheduleMeta.fruit_pruning_date && (
                     <span>
-                      <span className="font-semibold text-gray-800">
-                        Fruit pruning:{" "}
-                      </span>
+                      <span className="font-semibold text-gray-700">Fruit </span>
                       {grapesScheduleMeta.fruit_pruning_date}
                     </span>
                   )}
                 </div>
               )}
 
-              <div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  Next days schedule
-                </h3>
-                {/* Mobile: readable cards */}
-                <div className="grid grid-cols-1 gap-3 sm:hidden">
-                  {data.map((row, idx) => (
-                    <div
-                      key={`${row.date}-${idx}`}
-                      className="rounded-lg border border-gray-200 bg-white p-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-gray-900">
-                            {scheduleCellText(row.date)}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Day: {scheduleCellText(row.days)} • {scheduleCellText(row.stage)}
-                          </div>
-                        </div>
-                        <div className="text-xs font-semibold px-2 py-1 rounded-full bg-green-100 text-green-800 capitalize whitespace-nowrap">
-                          {scheduleCellText(row.scheduleType)}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-2 text-xs">
-                        <div>
-                          <div className="text-gray-500 mb-0.5">Issue</div>
-                          <div className="text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.issue)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500 mb-0.5">Nutrient</div>
-                          <div className="text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.nutrient)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500 mb-0.5">Recommendation</div>
-                          <div className="text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.recommendation)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500 mb-0.5">Organic</div>
-                          <div className="text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.organicDetail)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Desktop/tablet: wide table with proper widths + wrapping (scroll horizontally if needed) */}
-                <div className="hidden sm:block rounded-lg border border-gray-200 overflow-x-auto">
-                  <table className="w-full min-w-[1100px] table-fixed text-left text-xs sm:text-sm">
-                    <thead className="bg-green-100 text-gray-800 sticky top-0">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[110px]">
-                          Date
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[70px]">
-                          Day
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[140px]">
-                          Stage
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[110px]">
-                          Type
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[170px]">
-                          Issue
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[140px]">
-                          Nutrient
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[260px]">
-                          Recommendation
-                        </th>
-                        <th className="px-3 py-2 font-semibold border-b border-gray-200 w-[260px]">
-                          Organic
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.map((row, idx) => (
-                        <tr
-                          key={`${row.date}-${idx}`}
-                          className="bg-white odd:bg-gray-50/80 border-t border-gray-100"
-                        >
-                          <td className="px-3 py-2 align-top whitespace-nowrap text-gray-900">
-                            {scheduleCellText(row.date)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900">
-                            {scheduleCellText(row.days)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900">
-                            {scheduleCellText(row.stage)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900 capitalize">
-                            {scheduleCellText(row.scheduleType)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.issue)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.nutrient)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.recommendation)}
-                          </td>
-                          <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                            {scheduleCellText(row.organicDetail)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <h3 className="text-[11px] font-semibold text-gray-600 mb-1 shrink-0">
+                Schedule · {data.length} {data.length === 1 ? "day" : "days"}
+              </h3>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <ScheduleV2CompactTable data={data} fillHeight={embedded} />
               </div>
             </div>
           ) : (
-            <div ref={tableRef} className="overflow-x-auto">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  Next 7 Days Fertilizer Schedule
-                </h3>
-                {/* <p className="text-sm text-gray-600">Showing first and last day (same values for all 7 days)</p> */}
-              </div>
-              <div className="rounded-lg border border-gray-200 overflow-x-auto">
-                <table className="w-full min-w-[980px] table-fixed text-left text-xs sm:text-sm">
-                  <thead className="bg-green-200">
-                    <tr>
-                      <th className="px-3 py-2 font-semibold text-gray-900 border-b w-[110px]">
-                        Date
-                      </th>
-                      <th className="px-3 py-2 font-semibold text-gray-900 border-b w-[160px]">
-                        Stage
-                      </th>
-                      <th className="px-3 py-2 font-semibold text-gray-900 border-b w-[170px]">
-                        Nutrients (kg/acre)
-                      </th>
-                      <th className="px-3 py-2 font-semibold text-gray-900 border-b w-[260px]">
-                        Chemical Inputs
-                      </th>
-                      <th className="px-3 py-2 font-semibold text-gray-900 border-b w-[260px]">
-                        Organic Inputs
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white">
-                    {data.map((row, idx) => (
-                      <tr
-                        key={`${row.date}-${idx}`}
-                        className="odd:bg-white even:bg-gray-50/70 border-t border-gray-100"
-                      >
-                        <td className="px-3 py-2 align-top whitespace-nowrap text-gray-900">
-                          {scheduleCellText(row.date)}
-                        </td>
-                        <td className="px-3 py-2 align-top text-gray-900">
-                          {scheduleCellText(row.stage)}
-                        </td>
-                        <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                          <div>N: {scheduleCellText(row.N_kg_acre)}</div>
-                          <div>P: {scheduleCellText(row.P_kg_acre)}</div>
-                          <div>K: {scheduleCellText(row.K_kg_acre)}</div>
-                        </td>
-                        <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                          {row.fertilizers ? (
-                            <>
-                              <div>Urea: {row.fertilizers.Urea_N_kg_per_acre} kg</div>
-                              <div>
-                                SuperPhosphate: {row.fertilizers.SuperPhosphate_P_kg_per_acre} kg
-                              </div>
-                              <div>Potash: {row.fertilizers.Potash_K_kg_per_acre} kg</div>
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-3 py-2 align-top text-gray-900 whitespace-pre-wrap break-words">
-                          {row.organic_inputs && row.organic_inputs.length > 0
-                            ? row.organic_inputs.join("\n")
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div ref={tableRef} className="w-full min-w-0 flex flex-col flex-1 min-h-0">
+              <h3 className="text-[11px] font-semibold text-gray-600 mb-1 shrink-0">
+                Schedule · {data.length} {data.length === 1 ? "day" : "days"}
+              </h3>
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <ScheduleLegacyCompactTable data={data} fillHeight={embedded} />
               </div>
             </div>
           );
-        })()
+        })()}
+        </div>
       )}
     </div>
   );

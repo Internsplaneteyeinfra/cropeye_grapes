@@ -338,7 +338,7 @@ export function calculateSugarcaneStage(plantationDate: string): string {
 /**
  * Check if temperature and humidity fall within pest/disease ranges
  */
-function checkTemperatureHumidityMatch(
+export function checkTemperatureHumidityMatch(
   pestTemp: string,
   pestHumidity: string,
   currentTemp: number,
@@ -647,6 +647,10 @@ export async function generateRiskAssessment(
       const hasFungi = pestDetectionData.fungi_affected_pixel_percentage > 0;
       
       console.log('📊 Final API Detection Summary:', {
+        hasChewing,
+        hasSucking,
+        hasSoilBorn,
+        hasFungi,
         'Chewing percentage': pestDetectionData.chewing_affected_pixel_percentage,
         'Sucking percentage': pestDetectionData.sucking_affected_pixel_percentage,
         'Soil Born percentage': pestDetectionData.SoilBorn_affected_pixel_percentage,

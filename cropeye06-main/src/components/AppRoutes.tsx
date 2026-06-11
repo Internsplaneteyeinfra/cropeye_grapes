@@ -6,13 +6,13 @@ import {
   Navigate,
   useNavigate,
 } from "react-router-dom";
-import Login from "../components/Login";
+// import Login from "../components/Login";
 import App from "../App";
 import CommonSpinner from "../components/CommanSpinner";
 import {
   getAuthToken,
   getUserRole,
-  clearAuthData,
+  // clearAuthData,
   clearAllLocalStorage,
   setAuthData,
   isValidToken,
@@ -269,7 +269,7 @@ const AppRoutesContent: React.FC = () => {
       }
     } catch (error: any) {
       const status = error.response?.status;
-      const errorMessage = error.response?.data?.detail || error.message;
+      // const errorMessage = error.response?.data?.detail || error.message;
       
       // Handle 401/403 - Token expired or invalid
       if (status === 401 || status === 403) {
@@ -313,19 +313,19 @@ const AppRoutesContent: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (role: UserRole, token: string) => {
-    const normalizedRole = role.toLowerCase() as UserRole;
+  // const handleLoginSuccess = (role: UserRole, token: string) => {
+  //   const normalizedRole = role.toLowerCase() as UserRole;
 
-    // Store authentication data using utility function
-    setAuthData(token, normalizedRole);
+  //   // Store authentication data using utility function
+  //   setAuthData(token, normalizedRole);
 
-    // Update state
-    setUserRole(normalizedRole);
-    setIsAuthenticated(true);
+  //   // Update state
+  //   setUserRole(normalizedRole);
+  //   setIsAuthenticated(true);
 
-    // Auto-redirect to dashboard
-    navigate("/dashboard");
-  };
+  //   // Auto-redirect to dashboard
+  //   navigate("/dashboard");
+  // };
 
   const handleLogout = () => {
     clearApiCache();

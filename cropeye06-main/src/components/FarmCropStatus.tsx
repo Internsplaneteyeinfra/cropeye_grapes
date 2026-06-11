@@ -13,8 +13,8 @@ import {
   ReferenceArea,
   Scatter,
   ComposedChart,
-  BarChart,
-  Bar,
+  // BarChart,
+  // Bar,
 } from "recharts";
 import {
   MapContainer,
@@ -33,12 +33,12 @@ import {
   Activity,
   Target,
   Leaf,
-  BarChart3,
+  // BarChart3,
   // PieChart as PieChartIcon,
   LineChart as LineChartIcon,
   Users,
   MapPin,
-  Beaker,
+  // Beaker,
   // Crop,
   // Zap,
   // Clock,
@@ -64,12 +64,12 @@ const OPTIMAL_BIOMASS = 150;
 const SOIL_API_URL = "https://cropeye-grapes-admin-production.up.railway.app";
 const SOIL_DATE = "2025-10-03";
 
-const OTHER_FARMERS_RECOVERY = {
-  regional_average: 7.85,
-  top_quartile: 8.52,
-  bottom_quartile: 6.58,
-  similar_farms: 7.63,
-};
+// const OTHER_FARMERS_RECOVERY = {
+//   regional_average: 7.85,
+//   top_quartile: 8.52,
+//   bottom_quartile: 6.58,
+//   similar_farms: 7.63,
+// };
 
 /** Recovery Rate / canopy vigour distribution chart plot height (px) */
 const RECOVERY_QUALITY_CHART_PLOT_H = 150;
@@ -1384,6 +1384,13 @@ const OfficerDashboard: React.FC = () => {
       {/* Enhanced Header */}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ">
+        <button
+          type="button"
+          onClick={() => setShowDebugInfo((prev) => !prev)}
+          className="mb-2 text-xs text-gray-500 hover:text-gray-700"
+        >
+          {showDebugInfo ? "Hide debug info" : "Show debug info"}
+        </button>
         {/* Debug Info Panel */}
         {showDebugInfo && (
           <div className="mb-6 bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700">
@@ -1454,7 +1461,7 @@ const OfficerDashboard: React.FC = () => {
                       ) : (
                         <>
                           <option value="">Select a farmer</option>
-                          {farmers.map((farmer, index) => {
+                          {farmers.map((farmer) => {
                             const farmerId = String(farmer.id);
                             const farmerName =
                               `${farmer.first_name} ${farmer.last_name}`.trim();

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { Download } from "lucide-react";
+// import { Download } from "lucide-react";
 import "./App.css";
 import { useAppContext } from "../context/AppContext";
-import FertilizerTable from "./FertilizerTable";
+// import FertilizerTable from "./FertilizerTable";
 
 interface FertilizerEntry {
   day: number;
@@ -312,9 +312,12 @@ const Fertilizer: React.FC = () => {
     return value !== undefined && value !== null && value !== '';
   };
 
+  void [getCurrentDate, data, isLoading, handleDownloadPDF];
+
   const infoCards = [
     {
       short: "N",
+      subLabel: "Nitrogen",
       value: npkLoading
         ? "Loading..."
         : hasValue(npkData.N)
@@ -332,6 +335,7 @@ const Fertilizer: React.FC = () => {
     },
     {
       short: "P",
+      subLabel: "Phosphorus",
       value: npkLoading
         ? "Loading..."
         : hasValue(npkData.P)
@@ -349,6 +353,7 @@ const Fertilizer: React.FC = () => {
     },
     {
       short: "K",
+      subLabel: "Potassium",
       value: npkLoading
         ? "Loading..."
         : hasValue(npkData.K)
@@ -485,7 +490,7 @@ const Fertilizer: React.FC = () => {
                 <span className="text-4xl font-bold text-white">
                   {card.short}
                 </span>
-                <span className="text-xs text-white mt-1">{card.long}</span>
+                <span className="text-xs text-white mt-1">{card.subLabel}</span>
               </div>
               <div className={`text-4xl font-extrabold ${card.textColor} mb-2`}>
                 {card.value}
@@ -559,7 +564,7 @@ const Fertilizer: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </div> */}
+        </div> 
 
         <FertilizerTable />
 

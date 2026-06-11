@@ -149,15 +149,15 @@
   min-width: 200px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 11px;
-  line-height: 1.35;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
   color: #374151;
 }
 
 .notif-weather-alerts-muted {
   color: #6b7280;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -165,8 +165,8 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: #f9fafb;
@@ -178,7 +178,7 @@
 }
 
 .notif-weather-pill-warn {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  background: linear-gradient(135deg, #fef3c7 0%, #bd5847 100%);
   border-color: rgba(245, 158, 11, 0.35);
 }
 
@@ -188,7 +188,7 @@
 }
 
 .notif-weather-pill-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -196,9 +196,15 @@
 }
 
 .notif-weather-pill-value {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
   color: #111827;
+}
+
+.notif-weather-pill-value ul {
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .notif-forecast-block {
@@ -208,19 +214,21 @@
 }
 
 .notif-forecast-block-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #2563eb;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .notif-forecast-period {
   display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 6px;
-  margin-bottom: 4px;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .notif-forecast-period-label {
@@ -262,7 +270,7 @@
 }
 
 .notif-panel-header-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
 }
 
@@ -302,20 +310,21 @@
 }
 
 .notif-item-msg {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.5;
   color: #111827;
 }
 
 .notif-item-meta {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: #6b7280;
 }
 
 .notif-empty {
   padding: 18px 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: #6b7280;
   text-align: center;
 }

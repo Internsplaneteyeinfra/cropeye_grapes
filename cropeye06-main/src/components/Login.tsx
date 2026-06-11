@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Satellite, Leaf, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { setAuthData, setRefreshToken, getAuthToken, clearAuthData } from '../utils/auth';
-import { USE_MOCK_AUTH } from '../config/authConfig';
+import { USE_MOCK_AUTH } from '../config/authConfig.js';
 import { login } from '../api';
 
 export type UserRole = "manager" | "admin" | "fieldofficer" | "farmer" | "owner";
@@ -237,7 +237,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     try {
       if (USE_MOCK_AUTH) {
-        const { mockLogin } = await import("../mockAuth/mockAuthService");
+        const { mockLogin } = await import("../mockAuth/mockAuthService.js");
         const user = mockLogin(phone_number.trim(), password.trim());
         if (!user) {
           setError("Invalid credentials");

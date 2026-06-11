@@ -8,6 +8,7 @@ interface SoilMoistureCardProps {
   optimalRange: [number, number]; // [min%, max%]
   moistGroundPercent?: number | null;
   targetDate?: string; // Optional date input (format: YYYY-MM-DD)
+  className?: string;
 }
 
 // New 9006 endpoint types
@@ -26,6 +27,7 @@ interface SoilMoistureStackResponse {
 const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
   optimalRange,
   targetDate,
+  className = "",
 }) => {
   // Use current date if no target date provided
   const currentDate = targetDate || new Date().toISOString().split('T')[0];
@@ -262,12 +264,12 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
       : "text-gray-500";
 
   return (
-    <div className="irrigation-card">
+    <div className={`irrigation-card h-full ${className}`.trim()}>
       <div className="card-header">
         <Droplets className="card-icon" size={24} />
         <h3 className="font-semibold">Soil Moisture</h3>
       </div>
-      <div className="card-content soil-moisture">
+      <div className="card-content soil-moisture flex-1">
         <div className="moisture-beaker-container">
           <div className="moisture-beaker">
             {loading && (!displayMoisture || displayMoisture === 0) ? (

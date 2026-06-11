@@ -1,6 +1,6 @@
 // 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   format,
   startOfMonth,
@@ -10,8 +10,11 @@ import {
   addMonths,
   subMonths,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, Droplets, CloudRain } from 'lucide-react';
 import { getTasksForUser, addTask, getContactDetails, getFarmersByFieldOfficer, updateTaskStatus } from '../api';
+import { useIrrigationSchedule } from '../hooks/useIrrigationSchedule';
+import { IrrigationDayCell } from './Irrigation/IrrigationCalendarParts';
+import './Irrigation/Irrigation.css';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -43,6 +46,14 @@ interface TaskCalendarProps {
 }
 
 const TaskCalendar: React.FC<TaskCalendarProps> = ({ currentUserId, currentUserRole }) => {
+  const {
+    schedule: irrigationSchedule,
+    loading: irrigationLoading,
+    plotName,
+    irrigationType,
+    getETRangeColor,
+    error: irrigationError,
+  } = useIrrigationSchedule(true);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -315,6 +326,58 @@ const fetchContacts = async () => {
     }
   };
 
+  const irrigationByDate = useMemo(() => {
+    const map = new Map<string, (typeof irrigationSchedule)[number]>();
+    irrigationSchedule.forEach((row) => map.set(row.isoDate, row));
+    return map;
+  }, [irrigationSchedule]);
+
+  const getIrrigationForDate = (date: Date) =>
+    irrigationByDate.get(format(date, 'yyyy-MM-dd'));
+
+  const renderIrrigationDetailCard = (row: (typeof irrigationSchedule)[number]) => (
+    <div
+      className={`p-4 rounded-lg border-l-4 mb-4 ${
+        row.needsIrrigation ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-400'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h3 className="font-semibold text-gray-800 text-sm sm:text-base">
+          Irrigation — {row.date}
+          {row.isToday && (
+            <span className="ml-2 bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs">
+              Today
+            </span>
+          )}
+        </h3>
+        <span
+          className={`irrigation-action-badge ${row.needsIrrigation ? 'irrigate' : 'skip'}`}
+          title={row.needsIrrigation ? 'Irrigate' : 'Skip'}
+        >
+          {row.needsIrrigation ? (
+            <Droplets className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <CloudRain className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div>
+          <p className="text-xs text-gray-500">Rainfall</p>
+          <p className="font-semibold text-gray-800">{Number(row.rainfall).toFixed(1)} mm</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Water req.</p>
+          <p className="font-semibold text-blue-700">{row.waterRequired.toLocaleString()} L</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">{irrigationType} time</p>
+          <p className="font-semibold text-gray-800">{row.time}</p>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-3 sm:p-6 bg-gray-100 min-h-screen">
       <div className="w-full p-4 sm:p-6 bg-white rounded-lg shadow-md">
@@ -379,25 +442,30 @@ const fetchContacts = async () => {
             const isTodayDate = isToday(day);
             const dayTasks = getTasksForDate(day);
             const hasTasksOnDay = dayTasks.length > 0;
+            const irrigationRow = getIrrigationForDate(day);
             
             return (
               <div
                 key={day.toString()}
                 onClick={() => handleDateClick(day)}
-                className={`h-16 sm:h-20 lg:h-24 border-r border-b border-gray-200 last:border-r-0 flex flex-col items-center justify-start p-1 transition-colors cursor-pointer relative
+                className={`border-r border-b border-gray-200 last:border-r-0 flex flex-col justify-start p-1 transition-colors cursor-pointer relative
+                ${irrigationRow ? 'min-h-28 sm:min-h-32 lg:min-h-36' : 'min-h-16 sm:min-h-20 lg:min-h-24'}
+                ${irrigationRow ? 'bg-emerald-50/60 ring-1 ring-inset ring-emerald-200' : ''}
                 ${isTodayDate ? 'bg-blue-100 text-blue-600 font-semibold' : 
                   selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd') ? 'bg-green-100 text-green-600 font-semibold' :
-                  'hover:bg-gray-50 bg-white text-gray-700'}`}
+                  !irrigationRow ? 'hover:bg-gray-50 bg-white text-gray-700' : 'hover:bg-emerald-100/80 text-gray-700'}`}
               >
-                <span className={`text-sm sm:text-base mb-1
+                <span className={`text-sm sm:text-base mb-0.5 self-center
                   ${isTodayDate ? 'font-bold' : 
                     selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd') ? 'font-bold' :
                     'font-medium'}`}>
                   {format(day, 'd')}
                 </span>
+
+                {irrigationRow && <IrrigationDayCell row={irrigationRow} />}
                 
-                {hasTasksOnDay && (
-                  <div className="flex flex-col gap-0.5 w-full px-1">
+                {hasTasksOnDay && !irrigationRow && (
+                  <div className="flex flex-col gap-0.5 w-full px-1 mt-1">
                     {dayTasks.slice(0, 2).map((task) => (
                       <div
                         key={task.id}
@@ -417,6 +485,87 @@ const fetchContacts = async () => {
               </div>
             );
           })}
+        </div>
+
+        <div className="mt-4 rounded-lg overflow-hidden border border-green-200 shadow-sm">
+          <div className="bg-green-600 text-white px-3 py-2 text-sm font-semibold">
+            7-Day Irrigation Schedule
+          </div>
+          {irrigationLoading ? (
+            <p className="text-xs text-gray-500 p-4">Loading irrigation schedule...</p>
+          ) : !plotName ? (
+            <p className="text-xs text-gray-500 p-4">No plot found — irrigation data unavailable.</p>
+          ) : irrigationSchedule.length === 0 ? (
+            <p className="text-xs text-gray-500 p-4">No irrigation data for this plot yet.</p>
+          ) : (
+            <div className="overflow-x-auto bg-white">
+              <table className="w-full text-xs">
+                <thead className="bg-green-100">
+                  <tr>
+                    <th className="px-2 py-2 text-left font-medium">Date</th>
+                    <th className="px-2 py-2 text-center font-medium">Action</th>
+                    <th className="px-2 py-2 text-left font-medium">ETO</th>
+                    <th className="px-2 py-2 text-left font-medium">Rainfall (mm)</th>
+                    <th className="px-2 py-2 text-left font-medium">Water req. (L)</th>
+                    <th className="px-2 py-2 text-left font-medium">{irrigationType} Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {irrigationSchedule.map((day, idx) => (
+                    <tr
+                      key={day.isoDate || idx}
+                      className={`${idx % 2 ? 'bg-white' : 'bg-gray-50'} ${
+                        day.isToday ? 'ring-2 ring-inset ring-blue-300' : ''
+                      }`}
+                    >
+                      <td className="px-2 py-2 font-medium whitespace-nowrap">
+                        <span>{day.date}</span>
+                        {day.isToday && (
+                          <span className="ml-1 bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-[10px]">
+                            Today
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <span
+                          className={`irrigation-action-badge ${
+                            day.needsIrrigation ? 'irrigate' : 'skip'
+                          }`}
+                        >
+                          {day.needsIrrigation ? (
+                            <Droplets className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <CloudRain className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md font-semibold ${getETRangeColor(
+                            day.etRange
+                          )}`}
+                        >
+                          {day.etRange}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-gray-600 font-medium">
+                        {Number(day.rainfall).toFixed(1)}
+                      </td>
+                      <td className="px-2 py-2 text-blue-600 font-semibold">
+                        {day.waterRequired.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2 text-gray-800 font-medium whitespace-nowrap">
+                        {day.time}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {irrigationError && (
+            <p className="error-message-small mx-2 mb-2">{irrigationError}</p>
+          )}
         </div>
       </div>
 
@@ -446,8 +595,9 @@ const fetchContacts = async () => {
             (() => {
               const targetDate = selectedDate || new Date();
               const dateTasks = getTasksForDate(targetDate);
+              const irrigationForDay = getIrrigationForDate(targetDate);
               
-              if (dateTasks.length === 0) {
+              if (!irrigationForDay && dateTasks.length === 0) {
                 return (
                   <p className="text-gray-500 text-sm">
                     {selectedDate ? `No tasks scheduled for ${format(selectedDate, 'MMMM d, yyyy')}` : 'No tasks scheduled for today'}
@@ -457,6 +607,10 @@ const fetchContacts = async () => {
               
               return (
                 <div className="space-y-3">
+                  {irrigationForDay && renderIrrigationDetailCard(irrigationForDay)}
+                  {dateTasks.length === 0 && irrigationForDay && (
+                    <p className="text-gray-500 text-sm">No tasks for this date.</p>
+                  )}
                   {dateTasks.map((task) => (
                     <div key={task.id} className={`p-4 rounded-lg border-l-4 ${getStatusColor(task.status)}`}>
                       <div className="flex items-start justify-between mb-2">

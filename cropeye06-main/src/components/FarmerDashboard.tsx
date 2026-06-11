@@ -46,11 +46,13 @@ import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
-import CommonSpinner from "./CommanSpinner";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import {
+  extractBrixTimeSeriesFromPayload,
   fetchGrapesEventsBundle,
+  getLocalDateIso,
   getPlotAreaAcresFromProfile,
+  grapesBundleCacheKey,
   isGrapesBundlePayload,
   metricsFromGrapesBundle,
   soilMetricsFromAgroPlotRow,
@@ -505,14 +507,34 @@ async function loadAgroPlotRowForSoil(
   return row;
 }
 
-/** POST /grapes/brix-time-series — OpenAPI: only `plot_name` query param, empty body. */
+/** POST /grapes/brix-time-series — fallback only when grapes bundle has no series. */
 async function getBrixTimeSeries(plotName: string) {
   const url = `${BASE_URL}/grapes/brix-time-series?plot_name=${encodeURIComponent(plotName)}`;
   const res = await axios.post(url, null, {
-    timeout: 300000,
+    timeout: 120000,
     headers: { Accept: "application/json" },
   });
   return res.data;
+}
+
+function resolveBrixTimeSeriesPayload(
+  plotId: string,
+  endDate: string,
+  getApiData: (type: string, plotName: string) => unknown
+): unknown {
+  const brixCache = getCache(`brixTimeSeries_${plotId}`);
+  if (brixCache) return brixCache;
+
+  const ctxBrix = getApiData("brixTimeSeries", plotId);
+  if (ctxBrix) return ctxBrix;
+
+  const bundleCache = getCache(grapesBundleCacheKey(plotId, endDate));
+  if (bundleCache) return bundleCache;
+
+  const ctxAgro = getApiData("agroStats", plotId);
+  if (isGrapesBundlePayload(ctxAgro)) return ctxAgro;
+
+  return null;
 }
 
 function metricsFromLegacyAgroPlot(
@@ -656,7 +678,7 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
 
   const chartData = useMemo(() => {
     // Use fallback data if no real data available
-    if (!data || data.length === 0 ) {
+    if (!data || data.length === 0) {
       return {
         labels: fallbackLabels,
         datasets: fallbackDatasets,
@@ -845,6 +867,8 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
   );
 };
 
+void [TrendingUp, Droplets, Thermometer, Target, Star, OPTIMAL_BIOMASS];
+
 const FarmerDashboard: React.FC = () => {
   const {
     profile,
@@ -864,6 +888,7 @@ const FarmerDashboard: React.FC = () => {
   const hasApiDataRef = useRef(hasApiData);
   hasApiDataRef.current = hasApiData;
   const dashboardLoadInFlightRef = useRef<string | null>(null);
+  const [dashboardDataLoading, setDashboardDataLoading] = useState(true);
 
   const [currentPlotId, setCurrentPlotId] = useState<string | null>(null);
   const [vigourPixelPct, setVigourPixelPct] = useState<VigourPixelPct | null>(
@@ -871,6 +896,7 @@ const FarmerDashboard: React.FC = () => {
   );
   const [vigourChartLoading, setVigourChartLoading] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
+  void [getFarmerFullName, setShowDebugInfo];
   const [lineChartData, setLineChartData] = useState<LineChartData[]>([]);
   // Track if data has already been loaded for current plot to prevent re-fetching
   const dataLoadedRef = useRef<{ [plotId: string]: boolean }>({});
@@ -919,6 +945,8 @@ const FarmerDashboard: React.FC = () => {
   const [brixTimeSeriesData, setBrixTimeSeriesData] = useState<any[]>([]);
   const [brixTimeSeriesLoading, setBrixTimeSeriesLoading] = useState<boolean>(false);
   const [brixTimeSeriesError, setBrixTimeSeriesError] = useState<string | null>(null);
+  /** Bumped when dashboard bundle fetch finishes so the chart can read cache without a duplicate API call. */
+  const [brixChartTick, setBrixChartTick] = useState(0);
 
   const latestAciditySugar = useMemo(() => {
     if (!brixTimeSeriesData || brixTimeSeriesData.length === 0) return null;
@@ -986,6 +1014,7 @@ const FarmerDashboard: React.FC = () => {
     if (prevPlotIdRef.current !== null && prevPlotIdRef.current !== currentPlotId) {
       dataLoadedRef.current = {};
       dashboardLoadInFlightRef.current = null;
+      setDashboardDataLoading(true);
       setLineChartData([]);
       setAggregatedData([]);
       setCombinedChartData([]);
@@ -1073,6 +1102,7 @@ const FarmerDashboard: React.FC = () => {
     if (!profileRef.current?.plots?.length) return;
 
     if (dataLoadedRef.current[currentPlotId]) {
+      setDashboardDataLoading(false);
       return;
     }
 
@@ -1103,6 +1133,7 @@ const FarmerDashboard: React.FC = () => {
     const hasData = rawPlotPayload && (preloadedIndices || cachedIndices);
 
     if (hasData) {
+      setDashboardDataLoading(true);
       const indicesToUse = preloadedIndices || cachedIndices || [];
       setLineChartData(indicesToUse);
 
@@ -1113,24 +1144,36 @@ const FarmerDashboard: React.FC = () => {
       if (isGrapesBundlePayload(rawPlotPayload)) {
         let cancelled = false;
         void (async () => {
-          const agroPlotRow = await loadAgroPlotRowForSoil(
-            endDate,
-            currentPlotId,
-            p?.plots as ProfilePlotLite[] | undefined
-          );
-          if (cancelled) return;
-          setMetrics(
-            metricsFromGrapesBundle(
-              rawPlotPayload,
-              p,
+          try {
+            const agroPlotRow = await loadAgroPlotRowForSoil(
+              endDate,
               currentPlotId,
-              stressCached || { total_events: 0 },
-              irrigationCached || {},
-              agroPlotRow
-            )
-          );
+              p?.plots as ProfilePlotLite[] | undefined
+            );
+            if (cancelled) return;
+            setMetrics(
+              metricsFromGrapesBundle(
+                rawPlotPayload,
+                p,
+                currentPlotId,
+                stressCached || { total_events: 0 },
+                irrigationCached || {},
+                agroPlotRow
+              )
+            );
+            const cachedSeries = extractBrixTimeSeriesFromPayload(rawPlotPayload);
+            if (cachedSeries.length > 0) {
+              setBrixTimeSeriesData(cachedSeries);
+              setBrixTimeSeriesLoading(false);
+              setBrixTimeSeriesError(null);
+            }
+          } finally {
+            if (!cancelled) {
+              dataLoadedRef.current[currentPlotId] = true;
+              setDashboardDataLoading(false);
+            }
+          }
         })();
-        dataLoadedRef.current[currentPlotId] = true;
         return () => {
           cancelled = true;
         };
@@ -1144,16 +1187,20 @@ const FarmerDashboard: React.FC = () => {
         setMetrics(metricsFromLegacyAgroPlot(currentPlotData, stressCached, irrigationCached));
       }
       dataLoadedRef.current[currentPlotId] = true;
+      setDashboardDataLoading(false);
       return;
     }
 
+    setDashboardDataLoading(true);
     dashboardLoadInFlightRef.current = currentPlotId;
     fetchAllData()
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
         if (dashboardLoadInFlightRef.current === currentPlotId) {
           dashboardLoadInFlightRef.current = null;
         }
+        setBrixChartTick((t) => t + 1);
+        setDashboardDataLoading(false);
       });
     // Re-run when plot list appears (profile can hydrate after profileLoading is already false).
   }, [currentPlotId, profileLoading, profile?.plots?.length]);
@@ -1486,39 +1533,51 @@ const FarmerDashboard: React.FC = () => {
 
       const newMetrics = grapesBundle
         ? metricsFromGrapesBundle(
-            grapesBundle,
-            profileRef.current,
-            currentPlotId,
-            stressData,
-            irrigationData,
-            agroPlotRowForSoil
-          )
+          grapesBundle,
+          profileRef.current,
+          currentPlotId,
+          stressData,
+          irrigationData,
+          agroPlotRowForSoil
+        )
         : {
-            brix: null,
-            brixMin: null,
-            brixMax: null,
-            recovery: null,
-            area: getPlotAreaAcresFromProfile(profileRef.current, currentPlotId),
-            biomass: null,
-            totalBiomass: null,
-            daysToHarvest: null,
-            growthStage: null,
-            soilPH: soilOnly.soilPH,
-            organicCarbonDensity: soilOnly.organicCarbonDensity,
-            actualYield: null,
-            stressCount: stressData?.total_events ?? 0,
-            irrigationEvents: irrigationData?.total_events ?? null,
-            sugarYieldMean: null,
-            cnRatio: null,
-            sugarYieldMax: null,
-            sugarYieldMin: null,
-          };
+          brix: null,
+          brixMin: null,
+          brixMax: null,
+          recovery: null,
+          area: getPlotAreaAcresFromProfile(profileRef.current, currentPlotId),
+          biomass: null,
+          totalBiomass: null,
+          daysToHarvest: null,
+          growthStage: null,
+          soilPH: soilOnly.soilPH,
+          organicCarbonDensity: soilOnly.organicCarbonDensity,
+          actualYield: null,
+          stressCount: stressData?.total_events ?? 0,
+          irrigationEvents: irrigationData?.total_events ?? null,
+          sugarYieldMean: null,
+          cnRatio: null,
+          sugarYieldMax: null,
+          sugarYieldMin: null,
+        };
 
       console.log(`📊 Metrics from grapes bundle:`, {
         plotId: currentPlotId,
         hasBundle: !!grapesBundle,
         metrics: newMetrics,
       });
+
+      if (grapesBundle) {
+        const aciditySeries = extractBrixTimeSeriesFromPayload(grapesBundle);
+        if (aciditySeries.length > 0) {
+          setBrixTimeSeriesData(aciditySeries);
+          setBrixTimeSeriesLoading(false);
+          setBrixTimeSeriesError(null);
+          const brixPayload = grapesBundle.brix ?? { time_series: aciditySeries };
+          setCache(`brixTimeSeries_${currentPlotId}`, brixPayload);
+          setApiDataRef.current("brixTimeSeries", currentPlotId, brixPayload);
+        }
+      }
 
       setMetrics(newMetrics);
       // Share crop status with other screens (e.g., Map Brix overlay)
@@ -1554,6 +1613,7 @@ const FarmerDashboard: React.FC = () => {
       console.error("Error fetching NDRE stress events:", err);
     }
   };
+  void fetchNDREStressEvents;
 
   useEffect(() => {
     if (aggregatedData.length > 0) {
@@ -1579,30 +1639,48 @@ const FarmerDashboard: React.FC = () => {
     }
   }, [aggregatedData, ndreStressEvents, showNDREEvents]);
 
-  // Fetch Brix Time Series data
+  // Acidity & sugar chart — reuse grapes bundle (same POST as metrics); avoid duplicate 5min call.
   useEffect(() => {
-    const fetchBrixTimeSeries = async () => {
+    let cancelled = false;
+
+    const applySeries = (series: ReturnType<typeof extractBrixTimeSeriesFromPayload>) => {
+      if (cancelled) return;
+      setBrixTimeSeriesData(series);
+      setBrixTimeSeriesLoading(false);
+      setBrixTimeSeriesError(series.length > 0 ? null : "No acidity or sugar history for this plot yet.");
+    };
+
+    const cacheBrixPayload = (payload: unknown) => {
+      const brixPayload =
+        isGrapesBundlePayload(payload) ? (payload as { brix?: unknown }).brix : payload;
+      if (brixPayload) {
+        setCache(`brixTimeSeries_${currentPlotId}`, brixPayload);
+        setApiDataRef.current("brixTimeSeries", currentPlotId!, brixPayload);
+      }
+    };
+
+    const loadBrixTimeSeries = async () => {
       if (!currentPlotId || profileLoading) {
+        setBrixTimeSeriesLoading(false);
         return;
       }
 
-      // Check cache first (plot-only; API determines pruning server-side)
-      const cacheKey = `brixTimeSeries_${currentPlotId}`;
-      const cached = getCache(cacheKey);
-      if (cached && cached.time_series) {
-        console.log('✅ Using cached brix time series data');
-        setBrixTimeSeriesData(cached.time_series || []);
-        setBrixTimeSeriesLoading(false);
-        setBrixTimeSeriesError(null);
+      const endDate = getLocalDateIso();
+      const cachedPayload = resolveBrixTimeSeriesPayload(
+        currentPlotId,
+        endDate,
+        getApiDataRef.current
+      );
+      const cachedSeries = extractBrixTimeSeriesFromPayload(cachedPayload);
+      if (cachedSeries.length > 0) {
+        console.log("✅ Acidity & sugar chart: using cached grapes/brix data");
+        applySeries(cachedSeries);
         return;
       }
 
-      // Check global context
-      const contextData = getApiDataRef.current("brixTimeSeries", currentPlotId);
-      if (contextData && contextData.time_series) {
-        console.log('✅ Using brix time series data from context');
-        setBrixTimeSeriesData(contextData.time_series);
-        setBrixTimeSeriesLoading(false);
+      // Dashboard bundle fetch already includes /grapes/brix-time-series — wait, don't duplicate.
+      if (dashboardLoadInFlightRef.current === currentPlotId) {
+        setBrixTimeSeriesLoading(true);
         setBrixTimeSeriesError(null);
         return;
       }
@@ -1611,27 +1689,32 @@ const FarmerDashboard: React.FC = () => {
       setBrixTimeSeriesError(null);
 
       try {
-        console.log('🌱 Fetching brix time series (POST) for plot:', currentPlotId);
+        console.log("🌱 Acidity & sugar chart: fallback brix-time-series for plot:", currentPlotId);
         const data = await getBrixTimeSeries(currentPlotId);
+        if (cancelled) return;
 
-        const timeSeries = data?.time_series || [];
-        setBrixTimeSeriesData(timeSeries);
-
-        setCache(cacheKey, data);
-        setApiDataRef.current("brixTimeSeries", currentPlotId, data);
-
-        setBrixTimeSeriesError(null);
+        const series = extractBrixTimeSeriesFromPayload(data);
+        applySeries(series);
+        if (data) cacheBrixPayload(data);
       } catch (error: any) {
-        console.error('❌ Error fetching brix time series:', error);
-        setBrixTimeSeriesError(error?.message || 'Failed to load data');
+        if (cancelled) return;
+        console.error("❌ Error fetching brix time series:", error);
+        const msg = error?.message || "Failed to load data";
+        setBrixTimeSeriesError(
+          msg.includes("timeout")
+            ? "Chart data is taking too long. Metrics may still load from the dashboard bundle."
+            : msg
+        );
         setBrixTimeSeriesData([]);
-      } finally {
         setBrixTimeSeriesLoading(false);
       }
     };
 
-    fetchBrixTimeSeries();
-  }, [currentPlotId, profileLoading]);
+    loadBrixTimeSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPlotId, profileLoading, brixChartTick]);
 
   // Ripening / Harvest milestones (this card only; GET /grapes/ripening-stage?plot_name=…)
   useEffect(() => {
@@ -1889,15 +1972,9 @@ const FarmerDashboard: React.FC = () => {
     [vigourPixelPct]
   );
 
-  if (profileLoading) {
-    return (
-      <div className="min-h-screen dashboard-bg flex items-center justify-center">
-        <CommonSpinner />
-      </div>
-    );
-  }
+  const showLoadingDataBanner = profileLoading || dashboardDataLoading;
 
-  if (!currentPlotId) {
+  if (!currentPlotId && !profileLoading) {
     return (
       <div className="min-h-screen dashboard-bg p-3 flex items-center justify-center">
         <div className="text-center bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-8 max-w-md">
@@ -1932,6 +2009,26 @@ const FarmerDashboard: React.FC = () => {
         margin: '0 auto',
         padding: '0'
       }}>
+        {showLoadingDataBanner && (
+          <div
+            className="loading-indicator"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "#059669",
+              fontWeight: 500,
+              padding: "8px 12px",
+              background: "#ecfdf5",
+              border: "1px solid #a7f3d0",
+              borderRadius: 6,
+              marginBottom: 16,
+            }}
+          >
+            Loading data...
+          </div>
+        )}
+
         {/* Plot Selector */}
         {profile && !profileLoading && (
           <div className="bg-white rounded-lg shadow-md p-4 mb-4">
@@ -2083,9 +2180,9 @@ const FarmerDashboard: React.FC = () => {
             <p className="text-sm font-medium mt-auto pt-0 -mt-2 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Ripening/Harvest</p>
           </div>
 
-              <div 
-  className="relative flex-1 h-full min-h-[160px] bg-[#f8f9f1] rounded-[1rem] p-6 shadow-sm border border-white/50 overflow-hidden hover:shadow-md transition-all"
->
+          <div
+            className="relative flex-1 h-full min-h-[160px] bg-[#f8f9f1] rounded-[1rem] p-6 shadow-sm border border-white/50 overflow-hidden hover:shadow-md transition-all"
+          >
             <img
               src="/Image/crop images/yield.png"
               alt=""
@@ -2562,7 +2659,7 @@ const FarmerDashboard: React.FC = () => {
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
                   {metrics.organicCarbonDensity != null &&
-                  Number.isFinite(Number(metrics.organicCarbonDensity))
+                    Number.isFinite(Number(metrics.organicCarbonDensity))
                     ? Number(metrics.organicCarbonDensity).toFixed(2)
                     : "-"}
                 </div>
@@ -2642,7 +2739,7 @@ const FarmerDashboard: React.FC = () => {
                   title="Grapes Yield Forecast"
                   unit=" T/acre"
                   width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth * 0.8 : 300)}
-                  height={100}
+                  height={200}
                 />
               </div>
               <div className="mt-2 text-center">
@@ -2893,18 +2990,18 @@ const FarmerDashboard: React.FC = () => {
                         Good
                       </span>
                     </div>
-               <div className="flex flex-col items-center justify-between gap-1.5 h-full">
-                <div className="flex items-center justify-center h-6 w-6 sm:h-7 sm:w-7">
-                  <Sprout
-                    className="h-5 w-5 shrink-0 text-[#16dc9f] sm:h-6 sm:w-6"
-                    strokeWidth={2}
-                    aria-hidden
-                  />
-                </div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#57b86a] sm:text-xs text-center">
-                  Excellent
-                </span>
-              </div>
+                    <div className="flex flex-col items-center justify-between gap-1.5 h-full">
+                      <div className="flex items-center justify-center h-6 w-6 sm:h-7 sm:w-7">
+                        <Sprout
+                          className="h-5 w-5 shrink-0 text-[#16dc9f] sm:h-6 sm:w-6"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                      </div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#57b86a] sm:text-xs text-center">
+                        Excellent
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>

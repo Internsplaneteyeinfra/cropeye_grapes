@@ -179,6 +179,75 @@ function scheduleCellText(v: string | undefined | null): string {
   return t ? t : "—";
 }
 
+/** Excel-style date: 11-Jun */
+function formatScheduleDateDisplay(dateStr: string): string {
+  const raw = dateStr?.trim();
+  if (!raw) return "";
+
+  const iso = raw.split("T")[0];
+  const isoMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const d = new Date(
+      Number(isoMatch[1]),
+      Number(isoMatch[2]) - 1,
+      Number(isoMatch[3])
+    );
+    if (!Number.isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = d.toLocaleDateString("en-GB", { month: "short" });
+      return `${day}-${month}`;
+    }
+  }
+
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const d = new Date(
+      Number(slashMatch[3]),
+      Number(slashMatch[2]) - 1,
+      Number(slashMatch[1])
+    );
+    if (!Number.isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = d.toLocaleDateString("en-GB", { month: "short" });
+      return `${day}-${month}`;
+    }
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const month = parsed.toLocaleDateString("en-GB", { month: "short" });
+    return `${day}-${month}`;
+  }
+
+  return raw;
+}
+
+function capitalizeLabel(v: string): string {
+  const t = v.trim();
+  if (!t) return "";
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+
+/** Map grapes-schedule API row → table columns (1:1 with API fields) */
+function mapGrapesScheduleApiRow(item: Record<string, unknown>): FertilizerEntry {
+  const str = (v: unknown) => (v == null ? "" : String(v).trim());
+  const dayVal = item.day ?? item.day_number;
+  return {
+    date: formatScheduleDateDisplay(str(item.date)),
+    days: dayVal != null && dayVal !== "" ? String(dayVal) : "",
+    stage: str(item.stage),
+    scheduleType: capitalizeLabel(str(item.type)),
+    issue: str(item.issue),
+    nutrient: str(item.nutrient),
+    recommendation: str(item.recommendation),
+    organicDetail: str(item.organic),
+    N_kg_acre: "",
+    P_kg_acre: "",
+    K_kg_acre: "",
+  };
+}
+
 function ScheduleTableCell({ value }: { value: string | undefined | null }) {
   const text = scheduleCellText(value);
   const [open, setOpen] = useState(false);
@@ -228,17 +297,27 @@ function ScheduleV2CompactTable({
       }`}
       style={fillHeight ? ({ ["--schedule-rows" as string]: data.length } as React.CSSProperties) : undefined}
     >
-      <table className="w-full table-fixed text-[11px] leading-snug text-left">
+      <table className="fertilizer-schedule-v2-table w-full table-fixed text-[11px] leading-snug text-left border-collapse">
+        <colgroup>
+          <col className="fertilizer-col-date" />
+          <col className="fertilizer-col-day" />
+          <col className="fertilizer-col-stage" />
+          <col className="fertilizer-col-type" />
+          <col className="fertilizer-col-issue" />
+          <col className="fertilizer-col-nutrient" />
+          <col className="fertilizer-col-recommendation" />
+          <col className="fertilizer-col-organic" />
+        </colgroup>
         <thead className="bg-green-100 text-gray-800">
           <tr>
-            <th className="px-1.5 py-1 font-semibold border-b border-green-200 w-[12%]">Date</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[7%]">Day</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[10%]">Stage</th>
-            <th className="px-1.5 py-1 font-semibold border-b border-green-200 w-[13%]">Type</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[11%]">Issue</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[13%]">Nutrient</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[15%]">Recommendation</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200 w-[23%]">Organic</th>
+            <th className="px-1.5 py-1 font-semibold border-b border-r border-green-200">Date</th>
+            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Day</th>
+            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Stage</th>
+            <th className="px-1.5 py-1 font-semibold border-b border-r border-green-200">Type</th>
+            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Issue</th>
+            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Nutrient</th>
+            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Recommendation</th>
+            <th className="px-1 py-1 font-semibold border-b border-green-200">Organic</th>
           </tr>
         </thead>
         <tbody>
@@ -247,19 +326,25 @@ function ScheduleV2CompactTable({
               key={`${row.date}-${idx}`}
               className="border-t border-gray-100 align-top odd:bg-white even:bg-gray-50/50"
             >
-              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap">{scheduleCellText(row.date)}</td>
-              <td className="px-1 py-0.5 text-gray-900 text-center">{scheduleCellText(row.days)}</td>
-              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap text-[10px]">{scheduleCellText(row.stage)}</td>
-              <td className="px-1.5 py-0.5 text-gray-900 capitalize whitespace-nowrap">
+              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100 font-medium">
+                {scheduleCellText(row.date)}
+              </td>
+              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100 text-center font-medium">
+                {scheduleCellText(row.days)}
+              </td>
+              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100">
+                {scheduleCellText(row.stage)}
+              </td>
+              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100">
                 {scheduleCellText(row.scheduleType)}
               </td>
-              <td className="px-1 py-0.5 text-gray-900">
+              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
                 <ScheduleTableCell value={row.issue} />
               </td>
-              <td className="px-1 py-0.5 text-gray-900">
+              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
                 <ScheduleTableCell value={row.nutrient} />
               </td>
-              <td className="px-1 py-0.5 text-gray-900">
+              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
                 <ScheduleTableCell value={row.recommendation} />
               </td>
               <td className="px-1 py-0.5 text-gray-900">
@@ -300,7 +385,7 @@ function ScheduleLegacyCompactTable({
         <tbody>
           {data.map((row, idx) => (
             <tr key={`${row.date}-${idx}`} className="border-t border-gray-100 align-top odd:bg-white even:bg-gray-50/50">
-              <td className="px-1 py-1">{scheduleCellText(row.date)}</td>
+              <td className="px-1 py-1 whitespace-nowrap font-medium">{scheduleCellText(row.date)}</td>
               <td className="px-1 py-1">{scheduleCellText(row.stage)}</td>
               <td className="px-1 py-1">
                 N: {scheduleCellText(row.N_kg_acre)}
@@ -339,23 +424,7 @@ function mapGrapesScheduleNext7ToEntries(
 ): FertilizerEntry[] {
   if (!Array.isArray(items)) return [];
   if (useV2) {
-    return items.map((raw) => {
-      const item = raw as Record<string, unknown>;
-      const str = (v: unknown) => (v == null ? "" : String(v));
-      return {
-        date: str(item.date),
-        stage: str(item.stage) || (item.day != null ? `DAY ${item.day}` : ""),
-        days: item.day != null ? String(item.day) : "",
-        N_kg_acre: "",
-        P_kg_acre: "",
-        K_kg_acre: "",
-        issue: str(item.issue),
-        recommendation: str(item.recommendation),
-        organicDetail: str(item.organic),
-        nutrient: str(item.nutrient),
-        scheduleType: str(item.type),
-      };
-    });
+    return items.map((raw) => mapGrapesScheduleApiRow(raw as Record<string, unknown>));
   }
   return items.map((raw) => {
     const item = raw as Record<string, unknown>;
@@ -385,10 +454,13 @@ function mapGrapesScheduleNext7ToEntries(
       organic_inputs = [String(organicRaw)];
     }
     const str = (v: unknown) => (v == null ? "" : String(v));
+    const rawDate = str(item.date ?? item.schedule_date);
+    const dayNum = item.days ?? item.day_number ?? item.days_since_planting ?? item.day;
+    const dayLabel = dayNum != null && dayNum !== "" ? String(dayNum) : "";
     return {
-      date: str(item.date ?? item.day ?? item.schedule_date),
+      date: formatScheduleDateDisplay(rawDate),
       stage: str(item.stage ?? item.crop_stage ?? item.stage_name),
-      days: str(item.days ?? item.day_number ?? item.days_since_planting),
+      days: dayLabel,
       N_kg_acre: str(item.N_kg_acre ?? item.n_kg_acre ?? item.N ?? item.n),
       P_kg_acre: str(item.P_kg_acre ?? item.p_kg_acre ?? item.P ?? item.p),
       K_kg_acre: str(item.K_kg_acre ?? item.k_kg_acre ?? item.K ?? item.k),
@@ -667,9 +739,9 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
       );
 
       sevenDaysData.push({
-        date: targetDate.toLocaleDateString("en-GB"),
+        date: formatScheduleDateDisplay(targetDate.toISOString().split("T")[0]),
         stage: currentStage.stage,
-        days: `${targetDays}`,
+        days: `DAY ${targetDays}`,
         N_kg_acre: currentStage.N_kg_acre,
         P_kg_acre: currentStage.P_kg_acre,
         K_kg_acre: currentStage.K_kg_acre,

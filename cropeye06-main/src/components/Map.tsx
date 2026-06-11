@@ -3031,12 +3031,12 @@ const Map: React.FC<MapProps> = ({
         </div>
       </div>
 
-      {/* Fertilizer Schedule (wide) + Soil Moisture (narrow), fixed height row */}
-      <div className="mt-4 dashboard-cards-row">
-        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
+      {/* Fertilizer + Soil Moisture — align with 3-card row above (fertilizer = cols 1–2, soil = col 3) */}
+      <div className="mt-4 dashboard-cards-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full">
+        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full lg:col-span-2">
           <FertilizerTable embedded />
         </div>
-        <SoilMoistureCard optimalRange={[40, 60]} className="dashboard-card-soil" />
+        <SoilMoistureCard optimalRange={[40, 60]} className="dashboard-card-soil lg:col-span-1" />
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}

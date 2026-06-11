@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getTasksForUser, updateTaskStatus } from '../api';
 import { useIrrigationSchedule } from '../hooks/useIrrigationSchedule';
+import { useGrapesFertilizerSchedule } from '../hooks/useGrapesFertilizerSchedule';
 import {
   IrrigationDayCell,
   IrrigationDetailCard,
 } from './Irrigation/IrrigationCalendarParts';
+import {
+  FertilizerDayCell,
+  FertilizerDetailCard,
+} from './Irrigation/FertilizerCalendarParts';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const weekDaysMobile = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -43,6 +49,10 @@ interface CalendarProps {
 
 const Calendar: React.FC<CalendarProps> = ({ currentUserId, currentUserRole }) => {
   const { schedule: irrigationSchedule, irrigationType } = useIrrigationSchedule(true);
+  const {
+    scheduleByDate: fertilizerByDate,
+    loading: fertilizerLoading,
+  } = useGrapesFertilizerSchedule();
 
   const irrigationByDate = useMemo(() => {
     const map = new Map<string, (typeof irrigationSchedule)[number]>();
@@ -70,6 +80,17 @@ const Calendar: React.FC<CalendarProps> = ({ currentUserId, currentUserRole }) =
   useEffect(() => {
     fetchTasks();
   }, [currentUserId]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [selectedDate]);
+
+  const closeDayDetail = () => setSelectedDate(null);
 
   const fetchTasks = async () => {
     if (!currentUserId) {
@@ -174,6 +195,9 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
   const getIrrigationForDay = (date: Date, day: number) =>
     irrigationByDate.get(formatDate(date, day));
 
+  const getFertilizerForDay = (date: Date, day: number) =>
+    fertilizerByDate.get(formatDate(date, day));
+
   const handlePrevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   };
@@ -228,6 +252,8 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
       const todayFlag = isToday(currentDate, day);
       const hasTasksFlag = tasksForDay.length > 0;
       const irrigationRow = getIrrigationForDay(currentDate, day);
+      const fertilizerRow = getFertilizerForDay(currentDate, day);
+      const hasScheduleData = Boolean(irrigationRow || fertilizerRow);
 
       days.push(
         <div
@@ -235,15 +261,16 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
           onClick={() => setSelectedDate({date: currentDate, day})}
           className={`
             p-1 sm:p-2 border rounded-lg transition-colors relative cursor-pointer overflow-hidden
-            ${irrigationRow
-              ? isMobile ? 'min-h-[4.5rem] sm:min-h-24' : 'min-h-28 sm:min-h-32'
+            ${hasScheduleData
+              ? isMobile ? 'min-h-[5rem] sm:min-h-28' : 'min-h-32 sm:min-h-36'
               : isMobile ? 'h-12 sm:h-16' : 'h-24 sm:h-32'}
             ${irrigationRow ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-inset ring-emerald-200' : ''}
+            ${!irrigationRow && fertilizerRow ? 'bg-amber-50/70 border-amber-300 ring-1 ring-inset ring-amber-200' : ''}
             ${todayFlag 
               ? 'bg-blue-50 border-blue-300 shadow-sm' 
-              : !irrigationRow && hasTasksFlag 
+              : !hasScheduleData && hasTasksFlag 
                 ? 'bg-green-50 border-green-200'
-                : !irrigationRow ? 'hover:bg-gray-50 border-gray-200' : 'hover:bg-emerald-100/80'
+                : !hasScheduleData ? 'hover:bg-gray-50 border-gray-200' : 'hover:bg-emerald-100/80'
             }
             ${selectedDate && selectedDate.day === day && 
               selectedDate.date.getMonth() === currentDate.getMonth() && 
@@ -261,15 +288,19 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             {day}
           </div>
 
-          {irrigationRow ? (
+          {irrigationRow && (
             <IrrigationDayCell row={irrigationRow} compact={isMobile} />
-          ) : (
+          )}
+          {fertilizerRow && (
+            <FertilizerDayCell row={fertilizerRow} compact={isMobile} />
+          )}
+          {!irrigationRow && !fertilizerRow && (
             <div className="overflow-hidden">
               {renderTaskIndicator(tasksForDay)}
             </div>
           )}
 
-          {isMobile && tasksForDay.length > 0 && !irrigationRow && (
+          {isMobile && tasksForDay.length > 0 && !hasScheduleData && (
             <div className="absolute top-0 right-0 -mt-1 -mr-1">
               <div className="bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-medium">
                 {tasksForDay.length > 9 ? '9+' : tasksForDay.length}
@@ -325,7 +356,130 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
     }
   };
 
+  const renderTaskCard = (task: Task) => (
+    <div key={task.id} className={`p-4 rounded-lg border-l-4 ${getPriorityColor(task.priority)}`}>
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex-1">
+          <h3 className="font-medium text-gray-800 text-base">{task.title}</h3>
+          {task.description && (
+            <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+          )}
+        </div>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ml-2
+          ${task.status === 'completed' ? 'bg-green-100 text-green-800' : 
+            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' : 
+            'bg-gray-100 text-gray-800'}`}>
+          {task.status === 'in_progress' ? 'In Progress' : 
+           task.status.charAt(0).toUpperCase() + task.status.slice(1)}
+        </span>
+      </div>
+      <div className="flex items-center gap-4 mt-3 flex-wrap">
+        <span className={`px-2 py-0.5 rounded-full text-xs font-medium
+          ${task.priority === 'high' ? 'bg-red-100 text-red-700' : 
+            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' : 
+            'bg-green-100 text-green-700'}`}>
+          Priority: {task.priority}
+        </span>
+        {task.created_at && (
+          <span className="text-xs text-gray-500">
+            Assigned: {new Date(task.created_at).toLocaleString()}
+          </span>
+        )}
+        {task.created_by && (
+          <span className="text-xs text-gray-500">
+            By: {task.created_by.first_name} {task.created_by.last_name}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 pt-3 border-t border-gray-200">
+        <label className="text-xs font-medium text-gray-700 mr-2">Update Status:</label>
+        <select
+          value={task.status}
+          onChange={(e) => handleStatusChange(task.id, e.target.value)}
+          className="text-sm border border-gray-300 rounded px-3 py-1 focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+    </div>
+  );
+
+  const renderDayDetailContent = (date: Date, day: number) => {
+    const selectedTasks = getTasksForDate(date, day);
+    const irrigationForDay = getIrrigationForDay(date, day);
+    const fertilizerForDay = getFertilizerForDay(date, day);
+
+    if (!irrigationForDay && !fertilizerForDay && selectedTasks.length === 0) {
+      return (
+        <p className="text-gray-500 text-sm text-center py-8">
+          No tasks, irrigation, or fertilizer schedule for this date.
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {irrigationForDay && (
+          <IrrigationDetailCard row={irrigationForDay} irrigationType={irrigationType} />
+        )}
+        {fertilizerForDay && (
+          <FertilizerDetailCard row={fertilizerForDay} />
+        )}
+        {fertilizerLoading && !fertilizerForDay && irrigationForDay && (
+          <p className="text-gray-500 text-sm">Loading fertilizer schedule...</p>
+        )}
+        {selectedTasks.length === 0 && (irrigationForDay || fertilizerForDay) && (
+          <p className="text-gray-500 text-sm">No tasks for this date.</p>
+        )}
+        {selectedTasks.map(renderTaskCard)}
+      </div>
+    );
+  };
+
+  const dayDetailOverlay =
+    selectedDate &&
+    createPortal(
+      <div
+        className="calendar-day-fullscreen fixed inset-0 z-[100001] flex flex-col bg-gray-50"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Day details"
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[#1f6b3a] text-white shadow-md shrink-0">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-wide text-green-100">Calendar</p>
+            <h2 className="text-base sm:text-lg font-semibold truncate">
+              {selectedDate.date.toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={closeDayDetail}
+            className="shrink-0 p-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm p-4 sm:p-6">
+            {renderDayDetailContent(selectedDate.date, selectedDate.day)}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+
   return (
+    <>
+      {dayDetailOverlay}
     <div className="min-h-screen bg-gray-50 p-2 sm:p-4 md:p-6">
       <div className="max-w-7xl mx-auto bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
@@ -368,96 +522,7 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
           )}
         </div>
 
-        {/* Selected Date Tasks */}
-        {selectedDate && (
-          <div className="border-t border-gray-200 px-4 py-3">
-            <div className="text-sm font-medium text-gray-800 mb-2">
-              Tasks for {selectedDate.date.toLocaleDateString('en-US', { 
-                month: 'long', 
-                day: 'numeric',
-                year: 'numeric' 
-              })}
-            </div>
-            {(() => {
-              const selectedTasks = getTasksForDate(selectedDate.date, selectedDate.day);
-              const irrigationForDay = getIrrigationForDay(selectedDate.date, selectedDate.day);
-
-              if (!irrigationForDay && selectedTasks.length === 0) {
-                return <div className="text-xs text-gray-500">No tasks scheduled for this date</div>;
-              }
-              
-              return (
-                <div className="space-y-3">
-                  {irrigationForDay && (
-                    <IrrigationDetailCard
-                      row={irrigationForDay}
-                      irrigationType={irrigationType}
-                    />
-                  )}
-                  {selectedTasks.length === 0 && irrigationForDay && (
-                    <div className="text-xs text-gray-500">No tasks for this date.</div>
-                  )}
-                  {selectedTasks.map((task) => (
-                    <div key={task.id} className={`p-4 rounded-lg border-l-4 ${getPriorityColor(task.priority)}`}>
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-800 text-base">{task.title}</h3>
-                          {task.description && (
-                            <p className="text-sm text-gray-600 mt-1">{task.description}</p>
-                          )}
-                        </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ml-2
-                          ${task.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' : 
-                            'bg-gray-100 text-gray-800'}`}>
-                          {task.status === 'in_progress' ? 'In Progress' : 
-                           task.status.charAt(0).toUpperCase() + task.status.slice(1)}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center gap-4 mt-3 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium
-                          ${task.priority === 'high' ? 'bg-red-100 text-red-700' : 
-                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' : 
-                            'bg-green-100 text-green-700'}`}>
-                          Priority: {task.priority}
-                        </span>
-                        
-                        {task.created_at && (
-                          <span className="text-xs text-gray-500">
-                            Assigned: {new Date(task.created_at).toLocaleString()}
-                          </span>
-                        )}
-                        
-                        {task.created_by && (
-                          <span className="text-xs text-gray-500">
-                            By: {task.created_by.first_name} {task.created_by.last_name}
-                          </span>
-                        )}
-                      </div>
-                      
-                      {/* Status Dropdown - NEW */}
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <label className="text-xs font-medium text-gray-700 mr-2">Update Status:</label>
-                        <select
-                          value={task.status}
-                          onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                          className="text-sm border border-gray-300 rounded px-3 py-1 focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="completed">Completed</option>
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Today's Tasks (Mobile) */}
+        {/* Today's Tasks (Mobile) — only when no day selected */}
         {isMobile && !selectedDate && (
           <div className="border-t border-gray-200 px-4 py-3">
             <div className="text-sm font-medium text-gray-800 mb-2">Today's Tasks</div>
@@ -505,6 +570,7 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
         )}
       </div>
     </div>
+    </>
   );
 };
 

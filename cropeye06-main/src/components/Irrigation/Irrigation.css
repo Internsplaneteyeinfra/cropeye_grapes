@@ -690,20 +690,14 @@
   }
 }
 
-/* Fertilizer + Soil Moisture — balanced widths, tight gap, fixed height on desktop */
+/* Fertilizer + Soil Moisture — same 3-col grid as row above; fertilizer spans 2 cols */
 .dashboard-cards-row {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.10rem;
   width: 100%;
   align-items: stretch;
 }
 
 @media (min-width: 1024px) {
   .dashboard-cards-row {
-    /* ~62% fertilizer / ~38% soil — no empty strip between cards */
-    grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
-    gap: 0.5rem;
     height: 440px;
     min-height: 440px;
     max-height: 440px;
@@ -720,45 +714,26 @@
   flex-direction: column;
 }
 
-/* Embedded fertilizer table fills card — no inner scroll, rows stretch to bottom */
+/* Embedded fertilizer table — normal table layout so columns stay aligned with headers */
 .dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill {
   flex: 1;
   min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
 }
 
-.dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill table {
-  height: 100%;
+.fertilizer-schedule-v2-table {
   table-layout: fixed;
   border-collapse: collapse;
-  display: flex;
-  flex-direction: column;
 }
 
-.dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill thead {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-  flex-shrink: 0;
-}
-
-.dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill tbody {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill tbody tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-  flex: 1;
-  min-height: 0;
-}
+.fertilizer-schedule-v2-table .fertilizer-col-date { width: 8%; }
+.fertilizer-schedule-v2-table .fertilizer-col-day { width: 6%; }
+.fertilizer-schedule-v2-table .fertilizer-col-stage { width: 9%; }
+.fertilizer-schedule-v2-table .fertilizer-col-type { width: 9%; }
+.fertilizer-schedule-v2-table .fertilizer-col-issue { width: 12%; }
+.fertilizer-schedule-v2-table .fertilizer-col-nutrient { width: 14%; }
+.fertilizer-schedule-v2-table .fertilizer-col-recommendation { width: 17%; }
+.fertilizer-schedule-v2-table .fertilizer-col-organic { width: 25%; }
 
 .dashboard-cards-row .dashboard-card-fertilizer .fertilizer-schedule-fill tbody td {
   vertical-align: top;
@@ -784,13 +759,13 @@
   flex-direction: column;
 }
 
-@media (min-width: 990px) {
+@media (min-width: 1024px) {
   .dashboard-cards-row .dashboard-card-soil {
     min-height: 440px;
     max-height: 440px;
     height: 440px;
     width: 100%;
-    min-width: 100px;
+    min-width: 0;
   }
 }
 

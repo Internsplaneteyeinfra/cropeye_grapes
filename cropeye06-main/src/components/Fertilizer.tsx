@@ -16,19 +16,19 @@ interface FertilizerEntry {
 
 const videoList = [
   {
-    title: "उस शेतीची ओळख आणि महाराष्ट्राचे हवामान",
-    url: "https://www.youtube.com/embed/qzFbZvDin4U?si=y8NwUZfi7wWBWfWV",
-    desc: "या व्हिडिओमध्ये ऊस शेतीसाठी आवश्यक हवामान, पाऊस, माती आणि सिंचन याबद्दल माहिती दिली आहे. महाराष्ट्रातील ऊस उत्पादक भाग, पिकाचा कालावधी आणि योग्य व्यवस्थापनाचे महत्त्व जाणून घ्या. ",
+    // title: "उस शेतीची ओळख आणि महाराष्ट्राचे हवामान",
+    // url: "https://www.youtube.com/embed/qzFbZvDin4U?si=y8NwUZfi7wWBWfWV",
+    // desc: "या व्हिडिओमध्ये ऊस शेतीसाठी आवश्यक हवामान, पाऊस, माती आणि सिंचन याबद्दल माहिती दिली आहे. महाराष्ट्रातील ऊस उत्पादक भाग, पिकाचा कालावधी आणि योग्य व्यवस्थापनाचे महत्त्व जाणून घ्या. ",
   },
   {
-    title: "जमीन तयारी आणि मृदा आरोग्य",
-    url: "https://www.youtube.com/embed/vLOJbcQECfk?si=ChfTCkHbYjyNdWrT",
-    desc: "या भागात आपण मातीची मशागत आणि मातीचे आरोग्य या महत्त्वाच्या टप्प्याबद्दल जाणून घेऊ. चांगली माती ही ऊस पिकाच्या उत्तम उगवणीसाठी, मजबूत मुळे तयार होण्यासाठी आणि जास्त उत्पादनासाठी आवश्यक आहे.",
+    // title: "जमीन तयारी आणि मृदा आरोग्य",
+    // url: "https://www.youtube.com/embed/vLOJbcQECfk?si=ChfTCkHbYjyNdWrT",
+    // desc: "या भागात आपण मातीची मशागत आणि मातीचे आरोग्य या महत्त्वाच्या टप्प्याबद्दल जाणून घेऊ. चांगली माती ही ऊस पिकाच्या उत्तम उगवणीसाठी, मजबूत मुळे तयार होण्यासाठी आणि जास्त उत्पादनासाठी आवश्यक आहे.",
   },
   {
-    title: "ऊस शेतीत योग्य जातीची निवड",
-    url: "https://www.youtube.com/embed/Si0hh9xFHvI?si=Y582InMZoil2dccv",
-    desc: "ऊस शेतीत योग्य जातीची निवड ही यशस्वी शेतीचा पाया आहे. महाराष्ट्र, उत्तर प्रदेश आणि कर्नाटकात कोणत्या जाती सर्वाधिक लोकप्रिय आहेत, त्यांच्या वैशिष्ट्यांसह जाणून घ्या.",
+    // title: "ऊस शेतीत योग्य जातीची निवड",
+    // url: "https://www.youtube.com/embed/Si0hh9xFHvI?si=Y582InMZoil2dccv",
+    // desc: "ऊस शेतीत योग्य जातीची निवड ही यशस्वी शेतीचा पाया आहे. महाराष्ट्र, उत्तर प्रदेश आणि कर्नाटकात कोणत्या जाती सर्वाधिक लोकप्रिय आहेत, त्यांच्या वैशिष्ट्यांसह जाणून घ्या.",
   },
 ];
 
@@ -578,8 +578,8 @@ const Fertilizer: React.FC = () => {
               <div key={index} className="bg-white shadow-lg rounded-lg">
                 <div className="relative pb-60 overflow-hidden">
                   <iframe
-                    src={video.url}
-                    title={video.title}
+                    // src={video.url}
+                    // title={video.title}
                     className="absolute top-0 left-0 w-full h-full"
                     frameBorder="0"
                     allowFullScreen

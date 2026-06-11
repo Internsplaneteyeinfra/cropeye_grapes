@@ -1909,7 +1909,7 @@ const OfficerDashboard: React.FC = () => {
               <div className="flex items-center gap-2 mb-3 sm:mb-4 shrink-0">
                 <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 shrink-0" />
                 <h3 className="text-sm sm:text-base font-semibold text-gray-800">
-                  Recovery Rate Comparison
+                canopy vigour
                 </h3>
               </div>
 

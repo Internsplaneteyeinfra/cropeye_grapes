@@ -2854,7 +2854,7 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center gap-2 mb-3 sm:mb-4 shrink-0">
               <Users className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600 shrink-0" />
               <h3 className="text-base sm:text-lg font-semibold text-gray-800">
-                Recovery Rate Comparison
+                canopy vigour
               </h3>
             </div>
 

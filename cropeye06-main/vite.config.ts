@@ -240,11 +240,26 @@ export default defineConfig(({ mode }) => ({
           });
         },
       },
-      // Proxy for weather API (current weather)
+      // Proxy for weather API (current + 7-day forecast)
       '/api/weather': {
         target: 'https://weather-cropeye.up.railway.app',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/weather/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, _req, _res) => {
+            proxyReq.setHeader('Origin', 'https://weather-cropeye.up.railway.app');
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            proxyRes.headers['Access-Control-Allow-Origin'] = '*';
+            proxyRes.headers['Access-Control-Allow-Methods'] =
+              'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD';
+            proxyRes.headers['Access-Control-Allow-Headers'] =
+              'Content-Type, Authorization, Accept, Accept-Language, Origin, X-Requested-With';
+            if (req.method === 'OPTIONS') {
+              proxyRes.statusCode = 200;
+            }
+          });
+        },
       },
       // Proxy for forecast weather API (alerts + 24h/48h predictions)
       '/api/forecast-weather': {

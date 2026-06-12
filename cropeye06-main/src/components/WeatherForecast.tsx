@@ -19,7 +19,13 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
-import { extractNumericValue, testParsing, fetchWeatherForecast } from "../services/weatherForecastService";
+import {
+  ForecastChartDay,
+  forecastChartHasValues,
+  getOrFetchWeatherChartDays,
+  resolveForecastLatLon,
+  weatherChartCacheKey,
+} from "../services/weatherForecastService";
 import "./WeatherForecast.css";
 
 
@@ -34,14 +40,17 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 }) => {
   const { appState, setAppState, getCached, setCached, selectedPlotName } = useAppContext();
   const { profile } = useFarmerProfile();
-  const chartData = appState.weatherChartData || [];
-  const selectedDay = appState.weatherSelectedDay || null;
+  const [chartData, setChartData] = useState<ForecastChartDay[]>(
+    () => (appState.weatherChartData as ForecastChartDay[]) || []
+  );
+  const selectedDay = appState.weatherSelectedDay || chartData[0] || null;
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [farmerCoordinates, setFarmerCoordinates] = useState<{lat: number, lon: number} | null>(null);
   const [loadingCoordinates, setLoadingCoordinates] = useState(true);
-  const [hasFetchedWeather, setHasFetchedWeather] = useState(false);
+  const [loadingForecast, setLoadingForecast] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1024);
-  const fetchingRef = useRef(false); // Prevent multiple simultaneous fetches
+  const fetchGenRef = useRef(0);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -59,7 +68,6 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     const updateFarmerCoordinates = () => {
       if (propLat && propLon) {
         setFarmerCoordinates({ lat: propLat, lon: propLon });
-        setHasFetchedWeather(false);
         setLoadingCoordinates(false);
         return;
       }
@@ -88,13 +96,14 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
         }
         
         if (selectedPlot?.coordinates?.location) {
-          const coords = {
-            lat: selectedPlot.coordinates.location.latitude,
-            lon: selectedPlot.coordinates.location.longitude
-          };
-          setFarmerCoordinates(coords);
-          // Reset fetch flag when plot changes so weather data is refetched
-          setHasFetchedWeather(false);
+          const loc = selectedPlot.coordinates.location;
+          const plotLat = Number(loc.latitude);
+          const plotLon = Number(loc.longitude);
+          if (!Number.isFinite(plotLat) || !Number.isFinite(plotLon)) {
+            setFarmerCoordinates(null);
+          } else {
+            setFarmerCoordinates({ lat: plotLat, lon: plotLon });
+          }
         } else {
           setFarmerCoordinates(null);
         }
@@ -109,132 +118,85 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     updateFarmerCoordinates();
   }, [profile, propLat, propLon, selectedPlotName]);
 
-  // Determine which coordinates to use - memoize to prevent unnecessary recalculations
-  const lat = useMemo(() => {
-    return propLat || farmerCoordinates?.lat || 20.014040817830804;
-  }, [propLat, farmerCoordinates?.lat]);
-  const lon = useMemo(() => {
-    return propLon || farmerCoordinates?.lon || 73.66620106848734;
-  }, [propLon, farmerCoordinates?.lon]);
+  const selectedPlot = useMemo(() => {
+    if (!profile?.plots?.length) return null;
+    if (selectedPlotName) {
+      const match = profile.plots.find(
+        (p: any) =>
+          p.fastapi_plot_id === selectedPlotName ||
+          `${p.gat_number}_${p.plot_number}` === selectedPlotName
+      );
+      if (match) return match;
+    }
+    return profile.plots[0];
+  }, [profile, selectedPlotName]);
+
+  const { lat, lon } = useMemo(
+    () =>
+      resolveForecastLatLon(
+        selectedPlot,
+        propLat || farmerCoordinates?.lat,
+        propLon || farmerCoordinates?.lon
+      ),
+    [selectedPlot, propLat, propLon, farmerCoordinates?.lat, farmerCoordinates?.lon]
+  );
 
   useEffect(() => {
-    // Only fetch weather data when coordinates are available and not loading
-    if (loadingCoordinates) {
-      return;
-    }
+    if (loadingCoordinates) return;
 
-    // Only fetch once or if already fetching
-    if (hasFetchedWeather || fetchingRef.current) {
-      return;
-    }
-
-    const cacheKey = `weatherChartData_${lat}_${lon}`; // Include coordinates in cache key
-    
-    // Test parsing function - only log once on initial load
-    if (!hasFetchedWeather) {
-      testParsing();
-    }
-    
+    const cacheKey = weatherChartCacheKey(lat, lon);
     const cached = getCached(cacheKey);
-    if (cached && Array.isArray(cached) && cached.length > 0) {
+    if (
+      cached &&
+      Array.isArray(cached) &&
+      cached.length > 0 &&
+      forecastChartHasValues(cached as ForecastChartDay[])
+    ) {
+      const days = cached as ForecastChartDay[];
+      setChartData(days);
+      setForecastError(null);
       setAppState((prev: any) => ({
         ...prev,
-        weatherChartData: cached,
-        weatherSelectedDay: cached[0],
+        weatherChartData: days,
+        weatherSelectedDay: prev?.weatherSelectedDay ?? days[0],
       }));
-      setHasFetchedWeather(true);
       return;
     }
-        
-        // Mark as fetching to prevent multiple calls
-        fetchingRef.current = true;
-        setHasFetchedWeather(true);
-        
-        fetchWeatherForecast(lat, lon)
-      .then((data) => {
-        // Support both legacy array and new { source, data: [...] } shape
-        const rawList = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
 
-        // Normalize keys and strip units using service function
-        const parseNum = (v: any) => {
-          if (v === null || v === undefined) return 0;
-          if (typeof v === "number") return v;
-          if (typeof v === "string") {
-            return extractNumericValue(v);
-          }
-          return 0;
-        };
+    const gen = ++fetchGenRef.current;
+    setLoadingForecast(true);
+    setForecastError(null);
 
-        // Process API data directly - no need for date mapping
-
-        // Generate next 7 days starting from tomorrow (exclude today)
-        const days: any[] = [];
-        
-        // Create a map of API data by date for easy lookup
-        const apiDataByDate = new Map<string, any>();
-        rawList.forEach((d: any) => {
-          const dateStr = d.date || d.Date;
-          const iso = dateStr ? dateStr.split('T')[0] : new Date().toISOString().split("T")[0];
-          apiDataByDate.set(iso, d);
-        });
-        
-        // Generate next 7 days starting from tomorrow
-        const today = new Date();
-        for (let i = 1; i <= 7; i++) { // Start from i=1 (tomorrow) instead of i=0 (today)
-          const futureDate = new Date(today);
-          futureDate.setDate(today.getDate() + i);
-          const iso = futureDate.toISOString().split("T")[0];
-          
-          // Get API data for this date, or use default values if not available
-          const apiData = apiDataByDate.get(iso) || {};
-          
-          days.push({
-            date: futureDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
-            temperature: parseNum(apiData.temperature_max),
-            humidity: parseNum(apiData.humidity_max),
-            rainfall: parseNum(apiData.precipitation),
-            wind: parseNum(apiData.wind_speed_max),
-            fullDate: iso,
-          });
-        }
-
+    getOrFetchWeatherChartDays(lat, lon, getCached, setCached)
+      .then(({ chartDays }) => {
+        if (gen !== fetchGenRef.current) return;
+        setChartData(chartDays);
         setAppState((prev: any) => ({
           ...prev,
-          weatherChartData: days,
-          weatherSelectedDay: days[0],
+          weatherChartData: chartDays,
+          weatherSelectedDay: chartDays[0],
         }));
-        setCached(cacheKey, days);
-        fetchingRef.current = false;
       })
-        .catch((error) => {
-          console.error("WeatherForecast: Fetch error:", error);
-          fetchingRef.current = false;
-          // Fallback: generate next 7 days with zero values
-          const days: any[] = [];
-          const today = new Date();
-          
-          for (let i = 1; i <= 7; i++) { // Start from i=1 (tomorrow)
-            const futureDate = new Date(today);
-            futureDate.setDate(today.getDate() + i);
-            const iso = futureDate.toISOString().split("T")[0];
-            
-            days.push({
-              date: futureDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
-              temperature: 0,
-              humidity: 0,
-              rainfall: 0,
-              wind: 0,
-              fullDate: iso,
-            });
-          }
-          
-          setAppState((prev: any) => ({
-            ...prev,
-            weatherChartData: days,
-            weatherSelectedDay: days[0],
-          }));
-        });
-  }, [loadingCoordinates, hasFetchedWeather, lat, lon]); // Depend on coordinates so it refetches when plot changes
+      .catch((error) => {
+        if (gen !== fetchGenRef.current) return;
+        console.error("WeatherForecast: Fetch error:", error);
+        setForecastError(
+          error instanceof Error ? error.message : "Failed to load weather forecast"
+        );
+      })
+      .finally(() => {
+        if (gen === fetchGenRef.current) {
+          setLoadingForecast(false);
+        }
+      });
+  }, [loadingCoordinates, lat, lon, getCached, setCached, setAppState]);
+
+  useEffect(() => {
+    const shared = appState.weatherChartData as ForecastChartDay[] | undefined;
+    if (!Array.isArray(shared) || shared.length === 0) return;
+    setChartData(shared);
+    setForecastError(null);
+  }, [appState.weatherChartData]);
 
   const currentWeather = selectedDay || chartData[0];
 
@@ -294,12 +256,51 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     }
   };
 
-  if (!chartData.length) {
+  if (loadingForecast && !chartData.length) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading weather data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!chartData.length) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center px-4">
+          <p className="text-gray-700 mb-2">Could not load weather forecast.</p>
+          {forecastError ? (
+            <p className="text-sm text-gray-500 mb-4">{forecastError}</p>
+          ) : null}
+          <button
+            type="button"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            onClick={() => {
+              fetchGenRef.current += 1;
+              setLoadingForecast(true);
+              setForecastError(null);
+              getOrFetchWeatherChartDays(lat, lon, getCached, setCached)
+                .then(({ chartDays }) => {
+                  setChartData(chartDays);
+                  setAppState((prev: any) => ({
+                    ...prev,
+                    weatherChartData: chartDays,
+                    weatherSelectedDay: chartDays[0],
+                  }));
+                })
+                .catch((error) => {
+                  setForecastError(
+                    error instanceof Error ? error.message : "Failed to load weather forecast"
+                  );
+                })
+                .finally(() => setLoadingForecast(false));
+            }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import budData from "../components/bud.json";
-import { fetchWeatherForecast, extractNumericValue } from "../services/weatherForecastService";
-import { fetchCurrentWeather } from "../services/weatherService";
+import {
+  getOrFetchWeatherChartDays,
+  irrigationRainfallFromChartDays,
+  localIsoDate,
+  resolveForecastLatLon,
+  weatherTodayRainCacheKey,
+} from "../services/weatherForecastService";
 import { useAppContext } from "../context/AppContext";
 import { useFarmerProfile } from "./useFarmerProfile";
 
@@ -49,12 +54,7 @@ export interface IrrigationPlotConfig {
   distanceMotorToPlot: number | null;
 }
 
-const toIsoDate = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+const toIsoDate = localIsoDate;
 
 export const getETRange = (etValue: number): ETRange => {
   if (etValue <= 3.0) return "Low";
@@ -213,8 +213,9 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
   const [plotName, setPlotName] = useState("");
   const [etValue, setEtValue] = useState<number>(appState?.etValue ?? DEFAULT_ET);
-  const [rainfallMm, setRainfallMm] = useState(0);
-  const [forecastRainfall, setForecastRainfall] = useState<number[]>([0, 0, 0, 0, 0, 0]);
+  const [rainfallMm, setRainfallMm] = useState<number | null>(null);
+  const [forecastRainfall, setForecastRainfall] = useState<number[] | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
   const [kc, setKc] = useState(0.3);
   const [plotConfig, setPlotConfig] = useState<IrrigationPlotConfig>({
     irrigationTypeCode: "flood",
@@ -253,31 +254,41 @@ export function useIrrigationSchedule(syncToAppState = false) {
       `${selectedPlot.gat_number}_${selectedPlot.plot_number}`;
     setPlotName(plotId);
 
-    const coords = selectedPlot?.coordinates?.location?.coordinates;
-    if (Array.isArray(coords) && coords.length >= 2) {
-      const [lon, lat] = coords;
-      void (async () => {
-        try {
-          const data = await fetchCurrentWeather(lat, lon, true);
-          setRainfallMm(Number(data?.precip_mm) || 0);
-        } catch {
-          setRainfallMm(0);
+    const { lat, lon } = resolveForecastLatLon(selectedPlot);
+
+    let cancelled = false;
+    setWeatherLoading(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const { chartDays, todayRainfall } = await getOrFetchWeatherChartDays(
+          lat,
+          lon,
+          getCached,
+          setCached
+        );
+        if (!cancelled) {
+          setRainfallMm(todayRainfall);
+          setForecastRainfall(irrigationRainfallFromChartDays(chartDays));
+          setAppState((prev: any) => ({
+            ...prev,
+            weatherChartData: chartDays,
+            weatherSelectedDay: prev?.weatherSelectedDay ?? chartDays[0],
+          }));
         }
-      })();
-      void (async () => {
-        try {
-          const forecastData = await fetchWeatherForecast(lat, lon);
-          const rainfallValues = (forecastData.data || []).map((d: any) =>
-            Number(extractNumericValue(d.precipitation ?? 0))
-          );
-          const arr: number[] = [];
-          for (let i = 0; i < 6; i++) arr.push(rainfallValues[i] ?? 0);
-          setForecastRainfall(arr);
-        } catch {
-          setForecastRainfall([0, 0, 0, 0, 0, 0]);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : "Failed to load rainfall forecast";
+          setError(message);
+          setRainfallMm(null);
+          setForecastRainfall(null);
         }
-      })();
-    }
+      } finally {
+        if (!cancelled) setWeatherLoading(false);
+      }
+    })();
 
     const firstFarm = selectedPlot?.farms?.[0];
     if (firstFarm?.plantation_date) {
@@ -317,7 +328,35 @@ export function useIrrigationSchedule(syncToAppState = false) {
         distanceMotorToPlot: firstIrrigation?.distance_motor_to_plot_m ?? null,
       });
     }
-  }, [profile, profileLoading, selectedPlotName]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, profileLoading, selectedPlotName, getCached, setCached, setAppState]);
+
+  // Keep irrigation rain in sync when the forecast card loads the shared cache first
+  useEffect(() => {
+    const chartDays = appState?.weatherChartData;
+    if (!Array.isArray(chartDays) || chartDays.length === 0 || !profile?.plots?.length) return;
+
+    let selectedPlot: any = null;
+    if (selectedPlotName) {
+      selectedPlot = profile.plots.find(
+        (p: any) =>
+          p.fastapi_plot_id === selectedPlotName ||
+          `${p.gat_number}_${p.plot_number}` === selectedPlotName
+      );
+    }
+    if (!selectedPlot) selectedPlot = profile.plots[0];
+
+    const { lat, lon } = resolveForecastLatLon(selectedPlot);
+    const todayRain = getCached(weatherTodayRainCacheKey(lat, lon));
+    if (typeof todayRain !== "number") return;
+
+    setRainfallMm(todayRain);
+    setForecastRainfall(irrigationRainfallFromChartDays(chartDays));
+    setWeatherLoading(false);
+  }, [appState?.weatherChartData, profile, selectedPlotName, getCached]);
 
   useEffect(() => {
     if (!plotName) return;
@@ -365,14 +404,13 @@ export function useIrrigationSchedule(syncToAppState = false) {
           setEtValue(finalEt);
           setCached(cacheKey, { etValue: finalEt });
         }
-      } catch {
+      } catch (err: unknown) {
         if (!cancelled) {
-          const fallbackEt =
-            appState?.etValue && Number(appState.etValue) > 0
-              ? Number(appState.etValue)
-              : DEFAULT_ET;
-          setEtValue(fallbackEt);
-          setCached(cacheKey, { etValue: fallbackEt });
+          const message = err instanceof Error ? err.message : "Failed to load ET data";
+          setError((prev) => prev ?? message);
+          if (appState?.etValue && Number(appState.etValue) > 0) {
+            setEtValue(Number(appState.etValue));
+          }
         }
       } finally {
         clearTimeout(timeoutId);
@@ -385,12 +423,21 @@ export function useIrrigationSchedule(syncToAppState = false) {
     };
   }, [plotName, getCached, setCached, appState?.etValue]);
 
+  const rainfallReady = rainfallMm !== null && forecastRainfall !== null;
+
   const schedule = useMemo(
     () =>
-      plotName
-        ? buildIrrigationSchedule(etValue, rainfallMm, forecastRainfall, kc, plotName, plotConfig)
+      plotName && rainfallReady
+        ? buildIrrigationSchedule(
+            etValue,
+            rainfallMm,
+            forecastRainfall,
+            kc,
+            plotName,
+            plotConfig
+          )
         : [],
-    [plotName, etValue, rainfallMm, forecastRainfall, kc, plotConfig]
+    [plotName, etValue, rainfallMm, forecastRainfall, rainfallReady, kc, plotConfig]
   );
 
   const totals = useMemo((): ScheduleTotals | null => {
@@ -427,7 +474,8 @@ export function useIrrigationSchedule(syncToAppState = false) {
     schedule,
     totals,
     etLoading,
-    loading: etLoading,
+    weatherLoading,
+    loading: etLoading || weatherLoading,
     error,
     plotName,
     kc,

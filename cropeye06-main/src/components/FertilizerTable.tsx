@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { AlertCircle, Beaker, Leaf, Sprout } from "lucide-react";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
 import { getGrapesAdminBaseUrl } from "../utils/serviceUrls";
@@ -248,112 +249,211 @@ function mapGrapesScheduleApiRow(item: Record<string, unknown>): FertilizerEntry
   };
 }
 
-function ScheduleTableCell({ value }: { value: string | undefined | null }) {
+function ScheduleTableCell({
+  value,
+  clampLines = 2,
+}: {
+  value: string | undefined | null;
+  clampLines?: number;
+}) {
   const text = scheduleCellText(value);
   const [open, setOpen] = useState(false);
-  const isLong = text !== "—" && text.length > 72;
+  const isLong = text !== "—" && text.length > 60;
 
   if (text === "—") {
-    return <span className="text-gray-400">—</span>;
+    return <span className="text-gray-400 text-xs">—</span>;
   }
 
   return (
-    <div title={text}>
-      <span
-        className={
-          open
-            ? "whitespace-pre-wrap break-words"
-            : isLong
-              ? "line-clamp-2 break-words"
-              : "break-words"
-        }
+    <div className="min-w-0">
+      <p
+        className={`text-xs text-gray-800 leading-relaxed break-words ${
+          open ? "" : clampLines === 2 ? "line-clamp-2" : "line-clamp-3"
+        }`}
+        title={!open ? text : undefined}
       >
         {text}
-      </span>
+      </p>
       {isLong && (
         <button
           type="button"
-          className="block mt-0.5 text-green-700 underline text-[9px]"
+          className="mt-0.5 text-green-700 font-medium text-[10px] hover:underline"
           onClick={() => setOpen((v) => !v)}
         >
-          {open ? "Less" : "More"}
+          {open ? "Show less" : "Show more"}
         </button>
       )}
     </div>
   );
 }
 
-function ScheduleV2CompactTable({
-  data,
-  fillHeight = false,
+function hasScheduleApplication(row: FertilizerEntry): boolean {
+  const parts = [row.issue, row.nutrient, row.recommendation, row.organicDetail].filter(
+    (v) => v?.trim()
+  );
+  if (parts.length === 0) return false;
+  const joined = parts.join(" ").toLowerCase();
+  return !joined.includes("no application");
+}
+
+function ScheduleDetailBlock({
+  icon,
+  label,
+  value,
+  tone = "default",
 }: {
-  data: FertilizerEntry[];
-  fillHeight?: boolean;
+  icon: React.ReactNode;
+  label: string;
+  value: string | undefined | null;
+  tone?: "default" | "organic";
 }) {
+  const text = scheduleCellText(value);
+  if (text === "—") return null;
+
   return (
     <div
-      className={`fertilizer-schedule-table-wrap w-full min-w-0 rounded-md border border-gray-200 bg-white ${
-        fillHeight ? "fertilizer-schedule-fill" : ""
+      className={`fertilizer-detail-block rounded-lg p-2.5 ${
+        tone === "organic" ? "bg-emerald-50/80 border border-emerald-100" : "bg-gray-50 border border-gray-100"
       }`}
-      style={fillHeight ? ({ ["--schedule-rows" as string]: data.length } as React.CSSProperties) : undefined}
     >
-      <table className="fertilizer-schedule-v2-table w-full table-fixed text-[11px] leading-snug text-left border-collapse">
-        <colgroup>
-          <col className="fertilizer-col-date" />
-          <col className="fertilizer-col-day" />
-          <col className="fertilizer-col-stage" />
-          <col className="fertilizer-col-type" />
-          <col className="fertilizer-col-issue" />
-          <col className="fertilizer-col-nutrient" />
-          <col className="fertilizer-col-recommendation" />
-          <col className="fertilizer-col-organic" />
-        </colgroup>
-        <thead className="bg-green-100 text-gray-800">
-          <tr>
-            <th className="px-1.5 py-1 font-semibold border-b border-r border-green-200">Date</th>
-            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Day</th>
-            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Stage</th>
-            <th className="px-1.5 py-1 font-semibold border-b border-r border-green-200">Type</th>
-            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Issue</th>
-            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Nutrient</th>
-            <th className="px-1 py-1 font-semibold border-b border-r border-green-200">Recommendation</th>
-            <th className="px-1 py-1 font-semibold border-b border-green-200">Organic</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, idx) => (
-            <tr
-              key={`${row.date}-${idx}`}
-              className="border-t border-gray-100 align-top odd:bg-white even:bg-gray-50/50"
-            >
-              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100 font-medium">
-                {scheduleCellText(row.date)}
-              </td>
-              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100 text-center font-medium">
-                {scheduleCellText(row.days)}
-              </td>
-              <td className="px-1 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100">
-                {scheduleCellText(row.stage)}
-              </td>
-              <td className="px-1.5 py-0.5 text-gray-900 whitespace-nowrap border-r border-gray-100">
-                {scheduleCellText(row.scheduleType)}
-              </td>
-              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
-                <ScheduleTableCell value={row.issue} />
-              </td>
-              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
-                <ScheduleTableCell value={row.nutrient} />
-              </td>
-              <td className="px-1 py-0.5 text-gray-900 border-r border-gray-100">
-                <ScheduleTableCell value={row.recommendation} />
-              </td>
-              <td className="px-1 py-0.5 text-gray-900">
-                <ScheduleTableCell value={row.organicDetail} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-green-700">{icon}</span>
+        <span className="text-[11px] font-semibold text-green-800 tracking-wide uppercase">
+          {label}
+        </span>
+      </div>
+      <ScheduleTableCell value={value} clampLines={4} />
+    </div>
+  );
+}
+
+function ScheduleDayTab({
+  row,
+  active,
+  onSelect,
+}: {
+  row: FertilizerEntry;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const hasApplication = hasScheduleApplication(row);
+
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      disabled={active}
+      onClick={() => {
+        if (!active) onSelect();
+      }}
+      className={`fertilizer-day-tab flex-1 min-w-0 py-2 px-1.5 rounded-lg border text-center ${
+        active
+          ? "fertilizer-day-tab-active border-green-600 bg-green-600 text-white"
+          : hasApplication
+            ? "border-green-200 bg-green-50 text-green-900 hover:border-green-400 hover:bg-green-100/80"
+            : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+      }`}
+    >
+      <span
+        className={`block text-[11px] font-bold leading-tight truncate ${
+          active ? "text-white" : ""
+        }`}
+      >
+        {scheduleCellText(row.date)}
+      </span>
+    </button>
+  );
+}
+
+function ScheduleDayDetailCard({ row }: { row: FertilizerEntry }) {
+  const hasApplication = hasScheduleApplication(row);
+  const headerParts = [
+    row.days ? `Day ${row.days}` : null,
+    row.scheduleType || null,
+  ].filter(Boolean);
+
+  return (
+    <article className="fertilizer-day-detail rounded-xl border border-green-200 bg-white shadow-sm overflow-hidden mt-3">
+      <div className="flex items-stretch min-h-[120px]">
+        <div
+          className={`w-1 shrink-0 ${hasApplication ? "bg-green-500" : "bg-gray-300"}`}
+          aria-hidden
+        />
+        <div className="flex-1 min-w-0 p-3 sm:p-4">
+          {headerParts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-800">{headerParts.join(" · ")}</p>
+              {row.stage && row.stage.toUpperCase() !== `DAY ${row.days}`.toUpperCase() && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+                  {row.stage}
+                </span>
+              )}
+            </div>
+          )}
+
+          {!hasApplication ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-8 text-sm text-gray-500">
+              <Sprout className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+              No fertilizer scheduled
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              <ScheduleDetailBlock
+                icon={<AlertCircle className="h-3.5 w-3.5" />}
+                label="Issue"
+                value={row.issue}
+              />
+              <ScheduleDetailBlock
+                icon={<Beaker className="h-3.5 w-3.5" />}
+                label="Nutrient"
+                value={row.nutrient}
+              />
+              <ScheduleDetailBlock
+                icon={<Sprout className="h-3.5 w-3.5" />}
+                label="Recommendation"
+                value={row.recommendation}
+              />
+              <ScheduleDetailBlock
+                icon={<Leaf className="h-3.5 w-3.5" />}
+                label="Organic"
+                value={row.organicDetail}
+                tone="organic"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ScheduleV2CardList({ data }: { data: FertilizerEntry[] }) {
+  const [activeIdx, setActiveIdx] = useState<number>(() => {
+    const withApp = data.findIndex((row) => hasScheduleApplication(row));
+    return withApp >= 0 ? withApp : 0;
+  });
+
+  const safeIdx = activeIdx >= 0 && activeIdx < data.length ? activeIdx : 0;
+  const activeRow = data[safeIdx];
+
+  return (
+    <div className="fertilizer-schedule-panel w-full min-w-0">
+      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        Select a date
+      </p>
+      <div className="fertilizer-day-tabs flex gap-1 w-full min-w-0" role="tablist">
+        {data.map((row, idx) => (
+          <ScheduleDayTab
+            key={`${row.date}-${idx}`}
+            row={row}
+            active={safeIdx === idx}
+            onSelect={() => setActiveIdx(idx)}
+          />
+        ))}
+      </div>
+
+      {activeRow && <ScheduleDayDetailCard row={activeRow} />}
     </div>
   );
 }
@@ -981,7 +1081,7 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
     <div
       className={
         embedded
-          ? "w-full h-full min-w-0 overflow-hidden flex flex-col flex-1 min-h-0"
+          ? "w-full min-w-0 flex flex-col flex-1"
           : "bg-white rounded-lg shadow-md p-3 sm:p-4 overflow-hidden"
       }
     >
@@ -1279,33 +1379,33 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
           return grapesScheduleV2 ? (
             <div ref={tableRef} className="w-full min-w-0 flex flex-col flex-1 min-h-0">
               {grapesScheduleMeta && (
-                <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-gray-500 mb-1 leading-tight shrink-0">
+                <div className="fertilizer-meta-strip flex flex-wrap gap-2 mb-3 shrink-0">
                   {grapesScheduleMeta.plot && (
-                    <span>
-                      <span className="font-semibold text-gray-700">Plot </span>
+                    <span className="fertilizer-meta-pill">
+                      <span className="fertilizer-meta-label">Plot</span>
                       {grapesScheduleMeta.plot}
                     </span>
                   )}
                   {grapesScheduleMeta.foundation_pruning_date && (
-                    <span>
-                      <span className="font-semibold text-gray-700">Foundation </span>
+                    <span className="fertilizer-meta-pill">
+                      <span className="fertilizer-meta-label">Foundation</span>
                       {grapesScheduleMeta.foundation_pruning_date}
                     </span>
                   )}
                   {grapesScheduleMeta.fruit_pruning_date && (
-                    <span>
-                      <span className="font-semibold text-gray-700">Fruit </span>
+                    <span className="fertilizer-meta-pill">
+                      <span className="fertilizer-meta-label">Fruit</span>
                       {grapesScheduleMeta.fruit_pruning_date}
                     </span>
                   )}
+                  <span className="fertilizer-meta-pill fertilizer-meta-pill--muted">
+                    {data.length} {data.length === 1 ? "day" : "days"}
+                  </span>
                 </div>
               )}
 
-              <h3 className="text-[11px] font-semibold text-gray-600 mb-1 shrink-0">
-                Schedule · {data.length} {data.length === 1 ? "day" : "days"}
-              </h3>
-              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <ScheduleV2CompactTable data={data} fillHeight={embedded} />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <ScheduleV2CardList data={data} />
               </div>
             </div>
           ) : (
@@ -1313,8 +1413,8 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
               <h3 className="text-[11px] font-semibold text-gray-600 mb-1 shrink-0">
                 Schedule · {data.length} {data.length === 1 ? "day" : "days"}
               </h3>
-              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                <ScheduleLegacyCompactTable data={data} fillHeight={embedded} />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <ScheduleLegacyCompactTable data={data} fillHeight={!embedded} />
               </div>
             </div>
           );

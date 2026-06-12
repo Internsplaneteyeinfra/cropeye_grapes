@@ -164,6 +164,93 @@ const getTalukasByDistrict = (state: string, district: string): string[] => {
 const plantationTypes = ["Adsali", "Suru", "Pre-seasonal", "Ratoon"];
 const plantationMethods = ["3 bud", "2 bud", "1 bud", "1 bud (Stip Method)"];
 
+const PRUNING_DATE_FIELDS = ["foundation_pruning_date", "fruit_pruning_date"] as const;
+
+const PRUNING_FIELD_LABELS: Record<string, string> = {
+  foundation_pruning_date: "Foundation Pruning Date",
+  fruit_pruning_date: "Fruit Pruning Date",
+};
+
+const formatPruningDisplayDate = (dateStr: string): string => {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+};
+
+const isPruningDateField = (key: string) =>
+  PRUNING_DATE_FIELDS.includes(key as (typeof PRUNING_DATE_FIELDS)[number]);
+
+const grapesPlotsNeedPruningDates = (plotList: Plot[]) =>
+  plotList.some(
+    (plot) => plot.PlantAge === "0 to 3 years" || plot.PlantAge === "3 to 13 years"
+  );
+
+const getPruningFieldLabel = (key: string) =>
+  PRUNING_FIELD_LABELS[key] ||
+  key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+type PruningFieldErrors = Partial<Record<(typeof PRUNING_DATE_FIELDS)[number], string>>;
+
+const validatePruningDates = (
+  data: FarmerData,
+  plotList: Plot[]
+): { message: string | null; fieldErrors: PruningFieldErrors } => {
+  if (data.crop_type !== "Grapes" || !grapesPlotsNeedPruningDates(plotList)) {
+    return { message: null, fieldErrors: {} };
+  }
+
+  const fieldErrors: PruningFieldErrors = {};
+  const foundation = data.foundation_pruning_date?.trim() || "";
+  const fruit = data.fruit_pruning_date?.trim() || "";
+
+  if (!foundation) {
+    fieldErrors.foundation_pruning_date = "Foundation Pruning Date is required.";
+  }
+  if (!fruit) {
+    fieldErrors.fruit_pruning_date = "Fruit Pruning Date is required.";
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return {
+      message: "Please enter both Foundation and Fruit Pruning dates.",
+      fieldErrors,
+    };
+  }
+
+  const foundationDate = new Date(foundation);
+  const fruitDate = new Date(fruit);
+  if (Number.isNaN(foundationDate.getTime())) {
+    fieldErrors.foundation_pruning_date = "Enter a valid date.";
+  }
+  if (Number.isNaN(fruitDate.getTime())) {
+    fieldErrors.fruit_pruning_date = "Enter a valid date.";
+  }
+  if (Object.keys(fieldErrors).length > 0) {
+    return { message: "Please enter valid pruning dates.", fieldErrors };
+  }
+
+  if (fruitDate <= foundationDate) {
+    fieldErrors.fruit_pruning_date = "Must be after Foundation Pruning Date.";
+    return {
+      message: "Fruit Pruning Date must be after Foundation Pruning Date.",
+      fieldErrors,
+    };
+  }
+
+  if (data.plantation_date) {
+    const plantationDate = new Date(data.plantation_date);
+    if (!Number.isNaN(plantationDate.getTime()) && foundationDate < plantationDate) {
+      fieldErrors.foundation_pruning_date = "Cannot be before Plantation Date.";
+      return {
+        message: "Foundation Pruning Date cannot be before Plantation Date.",
+        fieldErrors,
+      };
+    }
+  }
+
+  return { message: null, fieldErrors: {} };
+};
+
 const SQUARE_METERS_PER_ACRE = 4046.8564224;
 
 function calculateAreaMetricsFromGeometry(geometry: any) {
@@ -433,6 +520,13 @@ function AddFarm() {
   // Email validation state
   const [emailError, setEmailError] = useState("");
   const [showEmailTooltip, setShowEmailTooltip] = useState(false);
+
+  const [pruningErrors, setPruningErrors] = useState<PruningFieldErrors>({});
+  const [pruningRegistrationNotice, setPruningRegistrationNotice] = useState<{
+    foundation: string;
+    fruit: string;
+    farmerName: string;
+  } | null>(null);
 
   // Phone number validation pattern
   const phonePattern = /^[0-9]{10}$/;
@@ -716,12 +810,22 @@ function AddFarm() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-      ...(name === "state" && { district: "", taluka: "" }),
-      ...(name === "district" && { taluka: "" }),
-    }));
+
+    setFormData((prev) => {
+      const nextFormData = {
+        ...prev,
+        [name]: value,
+        ...(name === "state" ? { district: "", taluka: "" } : {}),
+        ...(name === "district" ? { taluka: "" } : {}),
+      };
+
+      if (isPruningDateField(name) || name === "plantation_date") {
+        const { fieldErrors } = validatePruningDates(nextFormData, plots);
+        setPruningErrors(fieldErrors);
+      }
+
+      return nextFormData;
+    });
 
     setShowIcons((prev) => ({
       ...prev,
@@ -1551,6 +1655,15 @@ function AddFarm() {
       return;
     }
 
+    const pruningValidation = validatePruningDates(formData, plots);
+    if (pruningValidation.message) {
+      setPruningErrors(pruningValidation.fieldErrors);
+      setSubmitStatus("error");
+      setSubmitMessage(pruningValidation.message);
+      return;
+    }
+    setPruningErrors({});
+
     // Final clean of pin_codes for all plots before submission
     const cleanedPlots = plots.map(plot => ({
       ...plot,
@@ -1564,6 +1677,7 @@ function AddFarm() {
     setIsSubmitting(true);
     setSubmitStatus("idle");
     setSubmitMessage("");
+    setPruningRegistrationNotice(null);
 
     try {
       // Use all-in-one registration API for all users
@@ -1655,13 +1769,44 @@ function AddFarm() {
         }
       }
 
+      const savedFoundationPruning = formData.foundation_pruning_date;
+      const savedFruitPruning = formData.fruit_pruning_date;
+      const savedFarmerName = `${formData.first_name} ${formData.last_name}`.trim();
+
       // SUCCESS: Registration completed
       setSubmitStatus("success");
 
-      // Success message for all-in-one API
-      setSubmitMessage(`🎉 Farmer Registration Completed Successfully!
+      const pruningLines =
+        savedFoundationPruning && savedFruitPruning
+          ? `\n\n📅 Pruning dates saved:\n• Foundation: ${formatPruningDisplayDate(savedFoundationPruning)}\n• Fruit: ${formatPruningDisplayDate(savedFruitPruning)}`
+          : "";
+
+      setSubmitMessage(`🎉 Farmer Registration Completed Successfully!${pruningLines}
+
 🎯 Next Steps:
 The farmer can now login with Email credentials to access the dashboard and monitor their crops!`);
+
+      if (savedFoundationPruning && savedFruitPruning) {
+        setPruningRegistrationNotice({
+          foundation: savedFoundationPruning,
+          fruit: savedFruitPruning,
+          farmerName: savedFarmerName || "Farmer",
+        });
+
+        try {
+          if (
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted"
+          ) {
+            new Notification("Pruning dates registered", {
+              body: `Foundation: ${formatPruningDisplayDate(savedFoundationPruning)} | Fruit: ${formatPruningDisplayDate(savedFruitPruning)}`,
+              tag: "pruning-dates-registered",
+            });
+          }
+        } catch {
+          /* ignore notification failures */
+        }
+      }
 
       // Reset form after successful submission
       setFormData({
@@ -2153,8 +2298,8 @@ The farmer can now login with Email credentials to access the dashboard and moni
     return (
       <React.Fragment key={key}>
         <div className="relative mb-4">
-          <label className="block text-sm font-medium text-gray-700 capitalize mb-1">
-            {key.replace("_", " ").replace("number", "Number")}{" "}
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            {getPruningFieldLabel(key)}{" "}
             <span className="text-red-500">*</span>
           </label>
           <div>
@@ -2256,19 +2401,24 @@ The farmer can now login with Email credentials to access the dashboard and moni
                         : undefined
                   }
                   maxLength={key === "phone_number" ? 10 : undefined}
-                  className={`block w-full pl-10 pr-3 py-2 border rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm transition-colors ${(key === "phone_number" && phoneError) ||
-                    (key === "email" && emailError)
-                    ? "border-red-500 bg-red-50"
-                    : (key === "phone_number" &&
-                      value.length === 10 &&
-                      !phoneError) ||
-                      (key === "email" &&
-                        value.length > 0 &&
-                        !emailError &&
-                        emailPattern.test(value))
-                      ? "border-green-500 bg-green-50"
-                      : "border-gray-300"
-                    }`}
+                  required={isPruningDateField(key)}
+                  className={`block w-full pl-10 pr-3 py-2 border rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm transition-colors ${
+                    (key === "phone_number" && phoneError) ||
+                    (key === "email" && emailError) ||
+                    (isPruningDateField(key) &&
+                      pruningErrors[key as keyof PruningFieldErrors])
+                      ? "border-red-500 bg-red-50"
+                      : (key === "phone_number" &&
+                          value.length === 10 &&
+                          !phoneError) ||
+                        (key === "email" &&
+                          value.length > 0 &&
+                          !emailError &&
+                          emailPattern.test(value)) ||
+                        (isPruningDateField(key) && value)
+                        ? "border-green-500 bg-green-50"
+                        : "border-gray-300"
+                  }`}
                 />
               )}
               {showIcons[key] && (
@@ -2277,6 +2427,18 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 </span>
               )}
             </div>
+            {isPruningDateField(key) && (
+              <>
+                <p className="mt-1 text-xs text-amber-700 font-medium">
+                  Required
+                </p>
+                {pruningErrors[key as keyof PruningFieldErrors] && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {pruningErrors[key as keyof PruningFieldErrors]}
+                  </p>
+                )}
+              </>
+            )}
 
             {key === "grafted_variety" && graftedVarietySelection === "other" && (
               <div className="mt-3 relative">
@@ -2899,9 +3061,40 @@ The farmer can now login with Email credentials to access the dashboard and moni
 
           {submitStatus === "success" && (
             <div className="m-2 sm:m-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-md">
-              <p className="text-sm sm:text-base text-green-800">
+              <p className="text-sm sm:text-base text-green-800 whitespace-pre-line">
                 {submitMessage}
               </p>
+            </div>
+          )}
+
+          {pruningRegistrationNotice && (
+            <div className="m-2 sm:m-6 p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-blue-900 mb-1">
+                    Pruning dates registered for {pruningRegistrationNotice.farmerName}
+                  </p>
+                  <p className="text-sm text-blue-800">
+                    <span className="font-medium">Foundation:</span>{" "}
+                    {formatPruningDisplayDate(pruningRegistrationNotice.foundation)}
+                  </p>
+                  <p className="text-sm text-blue-800">
+                    <span className="font-medium">Fruit:</span>{" "}
+                    {formatPruningDisplayDate(pruningRegistrationNotice.fruit)}
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2">
+                    These dates will appear in the Fertilizer Schedule after the farmer logs in.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPruningRegistrationNotice(null)}
+                  className="text-blue-500 hover:text-blue-700 text-lg leading-none shrink-0"
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           )}
 

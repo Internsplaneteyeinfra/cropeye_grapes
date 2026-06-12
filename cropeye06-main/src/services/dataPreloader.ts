@@ -7,7 +7,7 @@
 import { getCache, setCache } from '../components/utils/cache';
 import { getFarmerMyProfile } from '../api';
 import { fetchCurrentWeather } from './weatherService';
-import { extractNumericValue, fetchWeatherForecast } from './weatherForecastService';
+import { buildForecastChartDays, fetchWeatherForecast } from './weatherForecastService';
 import { getGrapesMainBaseUrl } from '../utils/serviceUrls';
 import { normalizeNpkFromApi } from '../utils/npkNormalize';
 
@@ -76,42 +76,6 @@ const getPlotCoordinates = (plot: PlotData): { lat: number; lon: number } | null
   }
 
   return null;
-};
-
-const buildWeatherChartDays = (rawData: any): any[] => {
-  const rawList = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(rawData?.data)
-      ? rawData.data
-      : [];
-
-  const apiDataByDate = new Map<string, any>();
-  rawList.forEach((item: any) => {
-    const dateStr = item.date || item.Date;
-    const iso = dateStr ? String(dateStr).split('T')[0] : new Date().toISOString().split('T')[0];
-    apiDataByDate.set(iso, item);
-  });
-
-  const today = new Date();
-  const days: any[] = [];
-
-  for (let i = 1; i <= 7; i++) {
-    const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + i);
-    const iso = futureDate.toISOString().split('T')[0];
-    const apiData = apiDataByDate.get(iso) || {};
-
-    days.push({
-      date: futureDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-      temperature: extractNumericValue(apiData.temperature_max),
-      humidity: extractNumericValue(apiData.humidity_max),
-      rainfall: extractNumericValue(apiData.precipitation),
-      wind: extractNumericValue(apiData.wind_speed_max),
-      fullDate: iso,
-    });
-  }
-
-  return days;
 };
 
 const getFarmerProfileData = async (): Promise<any | null> => {
@@ -777,7 +741,12 @@ const fetchWeatherDataForPlot = async (plot: PlotData): Promise<void> => {
   if (!getCache(forecastCacheKey)) {
     try {
       const forecastData = await fetchWeatherForecast(lat, lon, true);
-      cacheData(forecastCacheKey, buildWeatherChartDays(forecastData));
+      const rawList = Array.isArray(forecastData)
+        ? forecastData
+        : Array.isArray(forecastData?.data)
+          ? forecastData.data
+          : [];
+      cacheData(forecastCacheKey, buildForecastChartDays(rawList));
     } catch (error) {
       console.warn(`Failed to preload weather forecast for ${getPlotName(plot)}:`, error);
     }

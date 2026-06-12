@@ -3019,21 +3019,21 @@ const Map: React.FC<MapProps> = ({
       </div>
 
       {/* Field Health Analysis, Crop Health Analysis, and Irrigation Schedule Section - Below the map */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 w-full" style={{ marginLeft: '0', paddingLeft: '0' }}>
-        <div>
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch" style={{ marginLeft: '0', paddingLeft: '0' }}>
+        <div className="min-w-0 h-full flex flex-col">
           <FieldHealthAnalysis fieldAnalysisData={fieldAnalysisData} />
         </div>
-        <div>
+        <div className="min-w-0 h-full flex flex-col">
           <CropHealthAnalysis />
         </div>
-        <div>
+        <div className="min-w-0 h-full flex flex-col">
           <IrrigationSchedule />
         </div>
       </div>
 
       {/* Fertilizer + Soil Moisture — align with 3-card row above (fertilizer = cols 1–2, soil = col 3) */}
       <div className="mt-4 dashboard-cards-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full">
-        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full lg:col-span-2">
+        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 lg:col-span-2">
           <FertilizerTable embedded />
         </div>
         <SoilMoistureCard optimalRange={[40, 60]} className="dashboard-card-soil lg:col-span-1" />

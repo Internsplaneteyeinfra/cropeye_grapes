@@ -13,11 +13,29 @@ export interface IrrigationScheduleRow {
   isToday: boolean;
   etDisplayed: number;
   etRange: ETRange;
+  netEt: number;
   rainfall: number;
   waterRequired: number;
   time: string;
   needsIrrigation: boolean;
 }
+
+export interface ScheduleTotals {
+  totalWater: number;
+  totalDripMinutes: number;
+  totalDripFormatted: string;
+  kc: number;
+  plantsPerAcre: number;
+  effectiveFlow: number;
+  effectiveEmitters: number;
+  irrigationType: string;
+}
+
+const ET_API_BASE = import.meta.env.DEV
+  ? "/api/field-analysis"
+  : "https://cropeye-grapes-sef-production.up.railway.app";
+
+const DEFAULT_ET = 2.5;
 
 export interface IrrigationPlotConfig {
   irrigationTypeCode: string;
@@ -54,11 +72,18 @@ const waterFromNetET = (netEt: number, kcVal: number) => {
   return Math.round(netEt * kcVal * 0.94 * 4046.86);
 };
 
-const formatTimeHrsMins = (hoursTotal: number) => {
+export const formatTimeHrsMins = (hoursTotal: number) => {
   if (!Number.isFinite(hoursTotal) || hoursTotal <= 0) return "0 hrs 0 mins";
   const h = Math.floor(hoursTotal);
   const m = Math.round((hoursTotal - h) * 60);
   return `${h} hrs ${m} mins`;
+};
+
+const parseTimeToMinutes = (time: string) => {
+  if (time === "N/A" || time === "0 hrs 0 mins") return 0;
+  const hMatch = time.match(/(\d+)\s*hrs/);
+  const mMatch = time.match(/(\d+)\s*mins/);
+  return (hMatch ? parseInt(hMatch[1], 10) : 0) * 60 + (mMatch ? parseInt(mMatch[1], 10) : 0);
 };
 
 const needsIrrigation = (waterRequired: number, time: string) =>
@@ -171,6 +196,7 @@ export const buildIrrigationSchedule = (
       isToday,
       etDisplayed: etForDay,
       etRange: getETRange(etForDay),
+      netEt,
       rainfall,
       waterRequired,
       time: timeStr,
@@ -182,11 +208,11 @@ export const buildIrrigationSchedule = (
 };
 
 export function useIrrigationSchedule(syncToAppState = false) {
-  const { getCached, setCached, setAppState, selectedPlotName } = useAppContext();
+  const { getCached, setCached, setAppState, selectedPlotName, appState } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
 
   const [plotName, setPlotName] = useState("");
-  const [etValue, setEtValue] = useState(0.1);
+  const [etValue, setEtValue] = useState<number>(appState?.etValue ?? DEFAULT_ET);
   const [rainfallMm, setRainfallMm] = useState(0);
   const [forecastRainfall, setForecastRainfall] = useState<number[]>([0, 0, 0, 0, 0, 0]);
   const [kc, setKc] = useState(0.3);
@@ -201,7 +227,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
     pipeWidthInches: null,
     distanceMotorToPlot: null,
   });
-  const [loading, setLoading] = useState(true);
+  const [etLoading, setEtLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -218,7 +244,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
     if (!selectedPlot && profile.plots?.length) selectedPlot = profile.plots[0];
     if (!selectedPlot) {
       setPlotName("");
-      setLoading(false);
+      setEtLoading(false);
       return;
     }
 
@@ -298,50 +324,66 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
     const cacheKey = `etData_${plotName}`;
     const cached = getCached(cacheKey);
-    if (cached) {
+    if (cached?.etValue) {
       const value = Number(cached.etValue);
-      setEtValue(value > 0 ? value : 0.1);
-      setLoading(false);
+      setEtValue(value > 0 ? value : DEFAULT_ET);
+      setEtLoading(false);
       return;
     }
 
+    if (appState?.etValue && Number(appState.etValue) > 0) {
+      setEtValue(Number(appState.etValue));
+      setEtLoading(false);
+    }
+
     let cancelled = false;
-    setLoading(true);
+    setEtLoading(true);
     setError(null);
 
     void (async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
       try {
-        const baseUrl = "https://cropeye-grapes-sef-production.up.railway.app";
-        const apiUrl = `${baseUrl}/plots/${encodeURIComponent(plotName)}/compute-et/`;
+        const apiUrl = `${ET_API_BASE}/plots/${encodeURIComponent(plotName)}/compute-et/`;
         const response = await fetch(apiUrl, {
           method: "POST",
           mode: "cors",
           cache: "no-cache",
           credentials: "omit",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
+
         if (!response.ok) throw new Error(`ET API ${response.status}`);
         const data = await response.json();
         const et = data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et ?? 0;
-        const finalEt = Number(et) > 0 ? Number(et) : 0.1;
+        const finalEt = Number(et) > 0 ? Number(et) : DEFAULT_ET;
         if (!cancelled) {
           setEtValue(finalEt);
           setCached(cacheKey, { etValue: finalEt });
         }
       } catch {
         if (!cancelled) {
-          setError("Failed to fetch ET");
-          setEtValue(0.1);
+          const fallbackEt =
+            appState?.etValue && Number(appState.etValue) > 0
+              ? Number(appState.etValue)
+              : DEFAULT_ET;
+          setEtValue(fallbackEt);
+          setCached(cacheKey, { etValue: fallbackEt });
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        clearTimeout(timeoutId);
+        if (!cancelled) setEtLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [plotName, getCached, setCached]);
+  }, [plotName, getCached, setCached, appState?.etValue]);
 
   const schedule = useMemo(
     () =>
@@ -351,6 +393,31 @@ export function useIrrigationSchedule(syncToAppState = false) {
     [plotName, etValue, rainfallMm, forecastRainfall, kc, plotConfig]
   );
 
+  const totals = useMemo((): ScheduleTotals | null => {
+    if (!schedule.length) return null;
+
+    const effectiveFlow =
+      plotConfig.flowRateLph && plotConfig.flowRateLph > 0 ? plotConfig.flowRateLph : 4;
+    const effectiveEmitters =
+      plotConfig.emittersCount && plotConfig.emittersCount > 0 ? plotConfig.emittersCount : 1;
+    const validSpacingA = plotConfig.spacingA && plotConfig.spacingA > 0 ? plotConfig.spacingA : 4;
+    const validSpacingB = plotConfig.spacingB && plotConfig.spacingB > 0 ? plotConfig.spacingB : 2;
+    const plantsPerAcre = Math.round(43560 / (validSpacingA * validSpacingB));
+
+    return {
+      totalWater: schedule.reduce((sum, day) => sum + day.waterRequired, 0),
+      totalDripMinutes: schedule.reduce((sum, day) => sum + parseTimeToMinutes(day.time), 0),
+      totalDripFormatted: formatTimeHrsMins(
+        schedule.reduce((sum, day) => sum + parseTimeToMinutes(day.time), 0) / 60
+      ),
+      kc,
+      plantsPerAcre,
+      effectiveFlow,
+      effectiveEmitters,
+      irrigationType: plotConfig.irrigationType,
+    };
+  }, [schedule, kc, plotConfig]);
+
   useEffect(() => {
     if (!syncToAppState || schedule.length === 0) return;
     setAppState((prev: any) => ({ ...prev, irrigationScheduleData: schedule }));
@@ -358,9 +425,13 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
   return {
     schedule,
-    loading: loading || profileLoading,
+    totals,
+    etLoading,
+    loading: etLoading,
     error,
     plotName,
+    kc,
+    plotConfig,
     irrigationType: plotConfig.irrigationType,
     getETRangeColor: (range: ETRange) => {
       switch (range) {

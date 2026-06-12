@@ -4,31 +4,17 @@ import { Droplets, CloudRain } from "lucide-react";
 import { useIrrigationSchedule } from "../hooks/useIrrigationSchedule";
 
 const IrrigationSchedule: React.FC = () => {
-  const { schedule: scheduleData, loading, error, irrigationType, getETRangeColor } =
-    useIrrigationSchedule(true);
+  const {
+    schedule: scheduleData,
+    totals,
+    etLoading,
+    irrigationType,
+    getETRangeColor,
+  } = useIrrigationSchedule(true);
 
   return (
-    <div
-      className="bg-white rounded-2xl overflow-hidden shadow h-full relative"
-      style={{
-        borderRadius: "1rem",
-        position: "relative",
-      }}
-    >
-      <div
-        className="absolute bottom-0 left-0 right-0 z-0"
-        style={{
-          height: "30%",
-          backgroundImage: "url('/Image/irrigation schedule.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center bottom",
-          backgroundRepeat: "no-repeat",
-          borderBottomLeftRadius: "1rem",
-          borderBottomRightRadius: "1rem",
-        }}
-      />
-
-      <div className="relative z-10 bg-white">
+    <div className="bg-white rounded-2xl overflow-hidden shadow h-full">
+      <div className="bg-white">
         <div className="bg-green-600 text-white p-2 flex items-center gap-2">
           <h2 className="text-sm font-semibold">7-Day Irrigation Schedule</h2>
         </div>
@@ -82,7 +68,7 @@ const IrrigationSchedule: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-2 py-2">
-                    {loading ? (
+                    {etLoading && day.isToday ? (
                       <div className="loading-spinner-small" />
                     ) : (
                       <span
@@ -108,10 +94,23 @@ const IrrigationSchedule: React.FC = () => {
                 </tr>
               ))}
             </tbody>
+            {totals && (
+              <tfoot>
+                <tr className="bg-green-50 border-t-2 border-green-300 font-semibold">
+                  <td className="px-2 py-2 text-xs" colSpan={4}>
+                    7-Day Total
+                  </td>
+                  <td className="px-2 py-2 text-blue-700 text-xs">
+                    {totals.totalWater.toLocaleString()} L
+                  </td>
+                  <td className="px-2 py-2 text-gray-900 text-xs">
+                    {totals.totalDripFormatted}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
-
-        {error && <div className="error-message-small">{error}</div>}
       </div>
     </div>
   );

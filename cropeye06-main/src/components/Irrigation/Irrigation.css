@@ -844,11 +844,11 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.65rem;
   border-radius: 9999px;
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #166534;
 }
@@ -860,7 +860,7 @@
 }
 
 .fertilizer-meta-label {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -891,8 +891,9 @@
 }
 
 .fertilizer-detail-block p {
-  font-size: 0.75rem;
-  line-height: 1.45;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 @keyframes fertilizer-card-open {

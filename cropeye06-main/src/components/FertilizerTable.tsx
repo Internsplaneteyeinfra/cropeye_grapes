@@ -261,13 +261,13 @@ function ScheduleTableCell({
   const isLong = text !== "—" && text.length > 60;
 
   if (text === "—") {
-    return <span className="text-gray-400 text-xs">—</span>;
+    return <span className="text-gray-400 text-sm">—</span>;
   }
 
   return (
     <div className="min-w-0">
       <p
-        className={`text-xs text-gray-800 leading-relaxed break-words ${
+        className={`text-sm text-gray-800 leading-relaxed break-words ${
           open ? "" : clampLines === 2 ? "line-clamp-2" : "line-clamp-3"
         }`}
         title={!open ? text : undefined}
@@ -277,7 +277,7 @@ function ScheduleTableCell({
       {isLong && (
         <button
           type="button"
-          className="mt-0.5 text-green-700 font-medium text-[10px] hover:underline"
+          className="mt-0.5 text-green-700 font-medium text-xs hover:underline"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? "Show less" : "Show more"}
@@ -312,13 +312,13 @@ function ScheduleDetailBlock({
 
   return (
     <div
-      className={`fertilizer-detail-block rounded-lg p-2.5 ${
+      className={`fertilizer-detail-block rounded-lg p-3 ${
         tone === "organic" ? "bg-emerald-50/80 border border-emerald-100" : "bg-gray-50 border border-gray-100"
       }`}
     >
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-green-700">{icon}</span>
-        <span className="text-[11px] font-semibold text-green-800 tracking-wide uppercase">
+        <span className="text-xs font-semibold text-green-800 tracking-wide uppercase">
           {label}
         </span>
       </div>
@@ -356,7 +356,7 @@ function ScheduleDayTab({
       }`}
     >
       <span
-        className={`block text-[11px] font-bold leading-tight truncate ${
+        className={`block text-sm font-bold leading-tight truncate ${
           active ? "text-white" : ""
         }`}
       >
@@ -383,9 +383,9 @@ function ScheduleDayDetailCard({ row }: { row: FertilizerEntry }) {
         <div className="flex-1 min-w-0 p-3 sm:p-4">
           {headerParts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-              <p className="text-sm font-semibold text-gray-800">{headerParts.join(" · ")}</p>
+              <p className="text-base font-semibold text-gray-800">{headerParts.join(" · ")}</p>
               {row.stage && row.stage.toUpperCase() !== `DAY ${row.days}`.toUpperCase() && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">
                   {row.stage}
                 </span>
               )}
@@ -400,22 +400,22 @@ function ScheduleDayDetailCard({ row }: { row: FertilizerEntry }) {
           ) : (
             <div className="space-y-2.5">
               <ScheduleDetailBlock
-                icon={<AlertCircle className="h-3.5 w-3.5" />}
+                icon={<AlertCircle className="h-4 w-4" />}
                 label="Issue"
                 value={row.issue}
               />
               <ScheduleDetailBlock
-                icon={<Beaker className="h-3.5 w-3.5" />}
+                icon={<Beaker className="h-4 w-4" />}
                 label="Nutrient"
                 value={row.nutrient}
               />
               <ScheduleDetailBlock
-                icon={<Sprout className="h-3.5 w-3.5" />}
+                icon={<Sprout className="h-4 w-4" />}
                 label="Recommendation"
                 value={row.recommendation}
               />
               <ScheduleDetailBlock
-                icon={<Leaf className="h-3.5 w-3.5" />}
+                icon={<Leaf className="h-4 w-4" />}
                 label="Organic"
                 value={row.organicDetail}
                 tone="organic"
@@ -439,7 +439,7 @@ function ScheduleV2CardList({ data }: { data: FertilizerEntry[] }) {
 
   return (
     <div className="fertilizer-schedule-panel w-full min-w-0">
-      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
         Select a date
       </p>
       <div className="fertilizer-day-tabs flex gap-1 w-full min-w-0" role="tablist">
@@ -1089,7 +1089,7 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
         <h2
           className={
             embedded
-              ? "text-sm font-semibold text-gray-800"
+              ? "text-base font-semibold text-gray-800"
               : "text-lg sm:text-xl font-bold text-gray-800"
           }
         >

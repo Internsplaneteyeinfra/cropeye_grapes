@@ -82,7 +82,7 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
       style={{ 
         backgroundImage: "url('/Image/field_score.png')",
         backgroundSize: 'cover',
-        backgroundPosition: 'center',
+        backgroundPosition: 'center top',
         backgroundRepeat: 'no-repeat',
         backgroundColor: 'white',
         borderRadius: '1rem'
@@ -90,21 +90,38 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
     >
       {/* Background overlay for better text readability */}
       <div className="absolute inset-0 bg-white/10 z-0"></div>
-      
-      <div className="relative z-10 flex flex-col items-center">
-        <h2 className="card-title text-lg font-semibold text-gray-800">
+
+      {/* Top band — keeps title readable on bright vineyard photo */}
+      <div
+        className="relative z-10 text-center -mx-4 -mt-4 px-4 pt-4 pb-4 mb-1"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.38) 65%, transparent 100%)",
+        }}
+      >
+        <h2
+          className="card-title text-lg md:text-xl font-bold text-white"
+          style={{
+            textShadow:
+              "0 2px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.55)",
+          }}
+        >
           Field Score
         </h2>
         {fieldAnalysisData && (
-          <div className="text-center text-sm text-gray-700 mt-1">
-            <div className="font-medium">
-              PlotID : {fieldAnalysisData.plotName}
-            </div>
+          <div
+            className="text-center text-sm text-white/95 mt-1 font-semibold"
+            style={{
+              textShadow:
+                "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.5)",
+            }}
+          >
+            PlotID : {fieldAnalysisData.plotName}
           </div>
         )}
       </div>
 
-      <div className="card-body mt-4 relative z-10">
+      <div className="card-body mt-2 relative z-10 flex-1">
         {fieldAnalysisData ? (
           <>
             <div className="flex justify-center mb-6">

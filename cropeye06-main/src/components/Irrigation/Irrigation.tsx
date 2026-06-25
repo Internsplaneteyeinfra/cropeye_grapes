@@ -5,6 +5,7 @@ import RainfallCard from "./cards/RainfallCard";
 import SoilMoistureCard from "./cards/SoilMoistureCard";
 import WaterUptakeCard from "./cards/WaterUptakeCard";
 import EvapotranspirationCard from "./cards/EvapotranspirationCard";
+import EvapotranspirationGraph from "./cards/EvapotranspirationGraph";
 import TemperatureCard from "./cards/TemperatureCard";
 import HumidityCard from "./cards/HumidityCard";
 import SoilMoistureTrendCard from "./cards/SoilMoistureTrendCard";
@@ -225,6 +226,10 @@ const Irrigation: React.FC<IrrigationProps> = ({
         <WaterUptakeCard />
       </div>
 
+      <div style={{ marginTop: "20px", marginBottom: "20px" }}>
+        <EvapotranspirationGraph />
+      </div>
+
       <div className="trend-card-row">
         <SoilMoistureTrendCard selectedPlotName={activePlotName} />
       </div>
@@ -258,7 +263,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
           Last updated: {lastUpdated.toLocaleTimeString()}
         </span>
       </div>
-    // </div>
+    </div>
   );
 };
 

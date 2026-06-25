@@ -9,31 +9,10 @@ import {
 } from "./utils/auth";
 import { checkAndRefreshToken, isTokenExpired, decodeToken } from "./utils/tokenManager";
 import { navigateToLogin } from "./utils/navigation";
+import { getBackendApiBaseUrl } from "./utils/serviceUrls";
 
-// Use direct API URL - CORS is handled on the backend
-// API Base URL: https://cropeye-backendd.up.railway.app/
-const getBaseURL = () => {
-  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  // In production we must call the backend API host (NOT the Render frontend host),
-  // otherwise you'll get CORS / 404 issues.
-  const fallbackHost = "https://cropeye-backendd.up.railway.app";
-
-  // If someone accidentally sets VITE_API_BASE_URL to the frontend host (onrender),
-  // ignore it in production.
-  const isBadProdValue =
-    !!raw &&
-    raw.length > 0 &&
-    !import.meta.env.DEV &&
-    /onrender\.com/i.test(raw);
-
-  const base = raw && raw.length && !isBadProdValue ? raw : fallbackHost;
-
-  // Allow providing either "...host" or "...host/api"
-  // Always normalize to ".../api/" (single trailing slash)
-  const withoutTrailing = base.replace(/\/+$/, "");
-  const withApi = /\/api$/i.test(withoutTrailing) ? withoutTrailing : `${withoutTrailing}/api`;
-  return `${withApi}/`;
-};
+// Live Railway backend API
+const getBaseURL = () => `${getBackendApiBaseUrl()}/`;
 
 const BASE_URLS = [
   getBaseURL(), // Primary: direct API URL

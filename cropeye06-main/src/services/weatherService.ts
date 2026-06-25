@@ -1,22 +1,10 @@
-// Weather Service for fetching current weather data
-const resolveWeatherBase = (overrideKey: string, fallback: string): string => {
-  const override = (import.meta.env[overrideKey] as string | undefined)?.trim();
-  if (override && override.length > 0) return override.replace(/\/+$/, "");
-  return fallback.replace(/\/+$/, "");
-};
+import { getForecastWeatherBaseUrl, getWeatherBaseUrl } from "../utils/serviceUrls";
 
-// Default to same-origin proxy paths to avoid hosted CORS issues.
-// Can be overridden via env when needed.
-export const WEATHER_API_BASE = resolveWeatherBase(
-  "VITE_WEATHER_API_BASE_URL",
-  "/api/weather"
-);
+// Live Railway weather APIs (override via VITE_WEATHER_* in env if needed).
+export const WEATHER_API_BASE = getWeatherBaseUrl();
 
 /** Current forecast + rain alerts */
-export const FORECAST_WEATHER_API_BASE = resolveWeatherBase(
-  "VITE_FORECAST_WEATHER_API_BASE_URL",
-  "/api/forecast-weather"
-);
+export const FORECAST_WEATHER_API_BASE = getForecastWeatherBaseUrl();
 
 export type ForecastPeriodPrediction = {
   rain_alert?: string;

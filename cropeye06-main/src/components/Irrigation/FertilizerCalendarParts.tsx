@@ -1,9 +1,10 @@
 import React from "react";
 import { Sprout } from "lucide-react";
 import type { GrapesScheduleRow } from "../../utils/grapesSchedule";
+import { normalizeScheduleText } from "../../utils/grapesSchedule";
 
 function cellText(v: string | undefined): string {
-  const t = v?.trim();
+  const t = normalizeScheduleText(v?.trim() ?? "");
   return t ? t : "—";
 }
 
@@ -39,9 +40,9 @@ export const FertilizerDayCell: React.FC<{
         className={`text-gray-700 break-words line-clamp-2 ${
           compact ? "text-[8px]" : "text-[9px] sm:text-[10px]"
         }`}
-        title={row.issue}
+        title={normalizeScheduleText(row.issue)}
       >
-        {row.issue}
+        {normalizeScheduleText(row.issue)}
       </p>
     )}
   </div>

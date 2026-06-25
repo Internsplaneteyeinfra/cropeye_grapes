@@ -49,13 +49,21 @@ import { useAppContext } from "../context/AppContext";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import {
   extractBrixTimeSeriesFromPayload,
-  fetchGrapesEventsBundle,
+  emptyGrapesDashboardMetrics,
+  fetchGrapesEventsBundleForPlot,
+  collectPlotApiIds,
+  fetchDashboardSoilMetrics,
   getLocalDateIso,
   getPlotAreaAcresFromProfile,
   grapesBundleCacheKey,
+  GRAPES_API_TIMEOUT_MS,
   isGrapesBundlePayload,
   metricsFromGrapesBundle,
-  soilMetricsFromAgroPlotRow,
+  metricsFromFarmerProfile,
+  mergeDashboardMetrics,
+  grapesPlotFormBody,
+  ripeningMilestonesFromPayload,
+  type GrapesBundlePayload,
 } from "../utils/grapesEventsBundle";
 import {
   fetchRipeningStageMilestones,
@@ -310,6 +318,7 @@ const PieChartWithNeedle: React.FC<PieChartWithNeedleProps> = ({
 
 const BASE_URL = getEventsBaseUrl();
 const OPTIMAL_BIOMASS = 150;
+const DASHBOARD_API_TIMEOUT_MS = GRAPES_API_TIMEOUT_MS;
 
 type ProfilePlotLite = {
   fastapi_plot_id?: string;
@@ -452,65 +461,39 @@ function extractPlotDataFromAgroStats(
   return null;
 }
 
-/** Same cache key as FarmCropStatus / OwnerFarmDash for full `GET /plots/agroStats` payload. */
-function agroStatsGlobalCacheKey(endDate: string): string {
-  return `agroStats_v3_${endDate}`;
+function soilMetricsToAgroRow(
+  soil: { soilPH: number | null; organicCarbonDensity: number | null }
+): { soil: { phh2o: number | null; organic_carbon_stock: number | null } } | null {
+  if (soil.soilPH == null && soil.organicCarbonDensity == null) return null;
+  return {
+    soil: {
+      phh2o: soil.soilPH,
+      organic_carbon_stock: soil.organicCarbonDensity,
+    },
+  };
 }
 
-/** Loads one plot row from agroStats for soil PH and organic carbon (optional; non-blocking for bundle). */
-async function loadAgroPlotRowForSoil(
+/** Loads soil pH + organic carbon (analyze-npk primary; agroStats fallback). */
+async function loadDashboardSoilMetrics(
   endDate: string,
   plotId: string,
-  profilePlots: ProfilePlotLite[] | undefined
-): Promise<any | null> {
-  const cacheKeys = [
-    agroStatsGlobalCacheKey(endDate),
-    `agroStats_${endDate}`,
-    `agroStats_v3_${plotId}_${endDate}`,
-    `agroStats_${plotId}_${endDate}`,
-  ];
-  let allPlots: any;
-  for (const k of cacheKeys) {
-    allPlots = getCache(k) as any;
-    if (allPlots) break;
-  }
-  if (!allPlots) {
-    try {
-      const res = await axios.get(`${BASE_URL}/plots/agroStats`, {
-        params: { end_date: endDate },
-        timeout: 180000,
-      });
-      allPlots = res.data;
-      setCache(agroStatsGlobalCacheKey(endDate), allPlots);
-    } catch (e) {
-      console.warn("FarmerDashboard: optional agroStats for soil metrics failed:", e);
-      return null;
-    }
-  }
-  const row = extractPlotDataFromAgroStats(allPlots, plotId, profilePlots);
-  if (row && (row.soil?.phh2o != null || row.soil?.organic_carbon_stock != null)) {
-    return row;
-  }
-  // Last resort: scan top-level plot entries (handles odd key casing / wrappers).
-  if (allPlots && typeof allPlots === "object" && !Array.isArray(allPlots)) {
-    const reserved = new Set(["data", "plots", "results", "metadata", "type", "features"]);
-    const norm = (s: string) => s.replace(/"/g, "").replace(/\s/g, "").toLowerCase();
-    const target = norm(plotId);
-    for (const [k, v] of Object.entries(allPlots)) {
-      if (reserved.has(k) || v == null || typeof v !== "object" || Array.isArray(v)) continue;
-      const vk = v as any;
-      const soil = vk.soil ?? vk.properties?.soil;
-      if (!soil) continue;
-      if (norm(k) === target || norm(String(k)) === target) return vk;
-    }
-  }
-  return row;
+  profile: any,
+  getApiData: (type: string, plotName: string) => unknown
+): Promise<{ soilPH: number | null; organicCarbonDensity: number | null }> {
+  return fetchDashboardSoilMetrics(
+    plotId,
+    profile,
+    endDate,
+    BASE_URL,
+    { get: getCache, set: setCache },
+    getApiData
+  );
 }
 
 /** POST /grapes/brix-time-series — fallback only when grapes bundle has no series. */
 async function getBrixTimeSeries(plotName: string) {
-  const url = `${BASE_URL}/grapes/brix-time-series?plot_name=${encodeURIComponent(plotName)}`;
-  const res = await axios.post(url, null, {
+  const url = `${BASE_URL}/grapes/brix-time-series`;
+  const res = await axios.post(url, grapesPlotFormBody(plotName), {
     timeout: 120000,
     headers: { Accept: "application/json" },
   });
@@ -889,6 +872,7 @@ const FarmerDashboard: React.FC = () => {
   hasApiDataRef.current = hasApiData;
   const dashboardLoadInFlightRef = useRef<string | null>(null);
   const [dashboardDataLoading, setDashboardDataLoading] = useState(true);
+  const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
 
   const [currentPlotId, setCurrentPlotId] = useState<string | null>(null);
   const [vigourPixelPct, setVigourPixelPct] = useState<VigourPixelPct | null>(
@@ -987,21 +971,26 @@ const FarmerDashboard: React.FC = () => {
   };
 
   // Keep API/cache plot id aligned with global plot selection (dropdown + map + localStorage).
-  // Previously currentPlotId was always the first plot while the UI showed selectedPlotName — metrics stayed "-".
   useEffect(() => {
     if (!profile || profileLoading) return;
 
-    const plotNames = (profile.plots?.map((p) => p.fastapi_plot_id).filter(Boolean) ||
-      []) as string[];
-    if (plotNames.length === 0) {
+    const plotIdOptions: string[] = [];
+    for (const p of profile.plots ?? []) {
+      if (p.fastapi_plot_id) plotIdOptions.push(String(p.fastapi_plot_id));
+      if (p.gat_number && p.plot_number) {
+        plotIdOptions.push(`${p.gat_number}_${p.plot_number}`);
+      }
+    }
+
+    if (plotIdOptions.length === 0) {
       setCurrentPlotId(null);
       return;
     }
 
     const effective =
-      selectedPlotName && plotNames.includes(selectedPlotName)
+      selectedPlotName && plotIdOptions.includes(selectedPlotName)
         ? selectedPlotName
-        : plotNames[0];
+        : plotIdOptions[0];
 
     setCurrentPlotId(effective);
     if (selectedPlotName !== effective) {
@@ -1009,12 +998,22 @@ const FarmerDashboard: React.FC = () => {
     }
   }, [profile, profileLoading, selectedPlotName, setSelectedPlotName]);
 
+  // Show my-profile data on cards immediately (field area, crop type, soil if present).
+  useEffect(() => {
+    if (!profile || profileLoading || !currentPlotId) return;
+    const fromProfile = metricsFromFarmerProfile(profile, currentPlotId);
+    setMetrics((prev) => mergeDashboardMetrics(prev, fromProfile));
+  }, [profile, profileLoading, currentPlotId]);
+
   useEffect(() => {
     if (!currentPlotId) return;
+    const profileArea = getPlotAreaAcresFromProfile(profileRef.current, currentPlotId);
+
     if (prevPlotIdRef.current !== null && prevPlotIdRef.current !== currentPlotId) {
       dataLoadedRef.current = {};
       dashboardLoadInFlightRef.current = null;
       setDashboardDataLoading(true);
+      setDashboardLoadError(null);
       setLineChartData([]);
       setAggregatedData([]);
       setCombinedChartData([]);
@@ -1023,7 +1022,7 @@ const FarmerDashboard: React.FC = () => {
         brixMin: null,
         brixMax: null,
         recovery: null,
-        area: null,
+        area: profileArea,
         biomass: null,
         totalBiomass: null,
         stressCount: null,
@@ -1038,6 +1037,8 @@ const FarmerDashboard: React.FC = () => {
         sugarYieldMax: null,
         sugarYieldMin: null,
       });
+    } else if (profileArea != null) {
+      setMetrics((prev) => (prev.area != null ? prev : { ...prev, area: profileArea }));
     }
     prevPlotIdRef.current = currentPlotId;
   }, [currentPlotId]);
@@ -1117,7 +1118,7 @@ const FarmerDashboard: React.FC = () => {
     const endDate = new Date(Date.now() - tzOffsetMs).toISOString().slice(0, 10);
     const indicesCacheKey = `indices_${currentPlotId}`;
     const cachedIndices = getCache(indicesCacheKey);
-    const grapesBundleCacheKey = `farmerDashGrapes_v1_${currentPlotId}_${endDate}`;
+    const grapesBundleCacheKey = `farmerDashGrapes_v2_${currentPlotId}_${endDate}`;
     const agroStatsCacheKeyV3 = `agroStats_v3_${currentPlotId}_${endDate}`;
     const agroStatsCacheKey = `agroStats_${currentPlotId}_${endDate}`;
     const cachedGrapesBundle =
@@ -1129,55 +1130,77 @@ const FarmerDashboard: React.FC = () => {
     const rawPlotPayload = cachedGrapesBundle || preloadedAgroStats || cachedLegacyAgro;
     const stressCacheKeyPre = `stress_${currentPlotId}_NDMI_0.15`;
     const irrigationCacheKeyPre = `irrigation_${currentPlotId}`;
+    const indicesToUse = preloadedIndices || cachedIndices || [];
 
-    const hasData = rawPlotPayload && (preloadedIndices || cachedIndices);
-
-    if (hasData) {
-      setDashboardDataLoading(true);
-      const indicesToUse = preloadedIndices || cachedIndices || [];
-      setLineChartData(indicesToUse);
-
+    if (rawPlotPayload) {
       const stressCached = getCache(stressCacheKeyPre);
       const irrigationCached = getCache(irrigationCacheKeyPre);
       const p = profileRef.current;
 
-      if (isGrapesBundlePayload(rawPlotPayload)) {
-        let cancelled = false;
-        void (async () => {
-          try {
-            const agroPlotRow = await loadAgroPlotRowForSoil(
-              endDate,
-              currentPlotId,
-              p?.plots as ProfilePlotLite[] | undefined
-            );
-            if (cancelled) return;
-            setMetrics(
-              metricsFromGrapesBundle(
-                rawPlotPayload,
-                p,
-                currentPlotId,
-                stressCached || { total_events: 0 },
-                irrigationCached || {},
-                agroPlotRow
-              )
-            );
-            const cachedSeries = extractBrixTimeSeriesFromPayload(rawPlotPayload);
-            if (cachedSeries.length > 0) {
-              setBrixTimeSeriesData(cachedSeries);
-              setBrixTimeSeriesLoading(false);
-              setBrixTimeSeriesError(null);
-            }
-          } finally {
-            if (!cancelled) {
-              dataLoadedRef.current[currentPlotId] = true;
-              setDashboardDataLoading(false);
-            }
-          }
-        })();
-        return () => {
-          cancelled = true;
-        };
+      if (indicesToUse.length > 0) {
+        setLineChartData(indicesToUse);
       }
+
+      if (isGrapesBundlePayload(rawPlotPayload)) {
+        const bundleMetrics = metricsFromGrapesBundle(
+          rawPlotPayload,
+          p,
+          currentPlotId,
+          stressCached || { total_events: 0 },
+          irrigationCached || {},
+          null
+        );
+        setMetrics(bundleMetrics);
+        const milestones = ripeningMilestonesFromPayload(rawPlotPayload.ripening);
+        if (milestones.ripeningStartDate || milestones.harvestReadyStartDate) {
+          setMilestoneState({
+            ripeningStartDate: milestones.ripeningStartDate,
+            harvestReadyStartDate: milestones.harvestReadyStartDate,
+            loading: false,
+            error: false,
+          });
+        }
+        const cachedSeries = extractBrixTimeSeriesFromPayload(rawPlotPayload);
+        if (cachedSeries.length > 0) {
+          setBrixTimeSeriesData(cachedSeries);
+          setBrixTimeSeriesLoading(false);
+          setBrixTimeSeriesError(null);
+        }
+        dataLoadedRef.current[currentPlotId] = true;
+        setDashboardDataLoading(false);
+        void loadDashboardSoilMetrics(
+          endDate,
+          currentPlotId,
+          p,
+          getApiDataRef.current
+        ).then((soil) => {
+          const agroRow = soilMetricsToAgroRow(soil);
+          if (!agroRow) return;
+          setMetrics(
+            metricsFromGrapesBundle(
+              rawPlotPayload,
+              p,
+              currentPlotId,
+              stressCached || { total_events: 0 },
+              irrigationCached || {},
+              agroRow
+            )
+          );
+        });
+        if (indicesToUse.length === 0) {
+          dashboardLoadInFlightRef.current = currentPlotId;
+          void fetchAllData()
+            .catch(() => {})
+            .finally(() => {
+              if (dashboardLoadInFlightRef.current === currentPlotId) {
+                dashboardLoadInFlightRef.current = null;
+              }
+              setDashboardDataLoading(false);
+            });
+        }
+        return;
+      }
+
       const currentPlotData = extractPlotDataFromAgroStats(
         rawPlotPayload,
         currentPlotId,
@@ -1188,10 +1211,27 @@ const FarmerDashboard: React.FC = () => {
       }
       dataLoadedRef.current[currentPlotId] = true;
       setDashboardDataLoading(false);
+      if (indicesToUse.length === 0) {
+        dashboardLoadInFlightRef.current = currentPlotId;
+        void fetchAllData()
+          .catch(() => {})
+          .finally(() => {
+            if (dashboardLoadInFlightRef.current === currentPlotId) {
+              dashboardLoadInFlightRef.current = null;
+            }
+            setDashboardDataLoading(false);
+          });
+      }
       return;
     }
 
+    const profileArea = getPlotAreaAcresFromProfile(profileRef.current, currentPlotId);
+    if (profileArea != null) {
+      setMetrics((prev) => ({ ...prev, area: profileArea }));
+    }
+
     setDashboardDataLoading(true);
+    setDashboardLoadError(null);
     dashboardLoadInFlightRef.current = currentPlotId;
     fetchAllData()
       .catch(() => { })
@@ -1380,7 +1420,7 @@ const FarmerDashboard: React.FC = () => {
       .toISOString()
       .slice(0, 10);
     const indicesCacheKey = `indices_${currentPlotId}`;
-    const grapesBundleCacheKey = `farmerDashGrapes_v1_${currentPlotId}_${endDate}`;
+    const grapesBundleCacheKey = `farmerDashGrapes_v2_${currentPlotId}_${endDate}`;
     const legacyAgroKeyV3 = `agroStats_v3_${currentPlotId}_${endDate}`;
     const legacyAgroKey = `agroStats_${currentPlotId}_${endDate}`;
 
@@ -1405,11 +1445,6 @@ const FarmerDashboard: React.FC = () => {
       const p = profileRef.current;
 
       if (isGrapesBundlePayload(preloadedPlotPayload)) {
-        const agroPlotRow = await loadAgroPlotRowForSoil(
-          endDate,
-          currentPlotId,
-          p?.plots as ProfilePlotLite[] | undefined
-        );
         setMetrics(
           metricsFromGrapesBundle(
             preloadedPlotPayload,
@@ -1417,9 +1452,28 @@ const FarmerDashboard: React.FC = () => {
             currentPlotId,
             stressCached || { total_events: 0 },
             irrigationCached || {},
-            agroPlotRow
+            null
           )
         );
+        void loadDashboardSoilMetrics(
+          endDate,
+          currentPlotId,
+          p,
+          getApiDataRef.current
+        ).then((soil) => {
+          const agroRow = soilMetricsToAgroRow(soil);
+          if (!agroRow) return;
+          setMetrics(
+            metricsFromGrapesBundle(
+              preloadedPlotPayload,
+              p,
+              currentPlotId,
+              stressCached || { total_events: 0 },
+              irrigationCached || {},
+              agroRow
+            )
+          );
+        });
       } else {
         const currentPlotData = extractPlotDataFromAgroStats(
           preloadedPlotPayload,
@@ -1434,136 +1488,165 @@ const FarmerDashboard: React.FC = () => {
       return; // Exit early, don't fetch
     }
 
-    try {
-      console.log(`📅 Calculating end date...`);
-      const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
-      const endDate = new Date(Date.now() - tzOffsetMs)
-        .toISOString()
-        .slice(0, 10);
-      console.log(`📅 End date calculated: ${endDate}`);
+    const plotIds = collectPlotApiIds(profileRef.current, currentPlotId);
+    setDashboardLoadError(null);
 
-      const soilRowPromise = loadAgroPlotRowForSoil(
+    const profileArea = getPlotAreaAcresFromProfile(profileRef.current, currentPlotId);
+    if (profileArea != null) {
+      setMetrics((prev) => ({ ...prev, area: profileArea }));
+    }
+
+    try {
+      const endDate = getLocalDateIso();
+      const stressCacheKey = `stress_${currentPlotId}_NDMI_0.15`;
+      const irrigationCacheKey = `irrigation_${currentPlotId}`;
+      const grapesBundleCacheKey = `farmerDashGrapes_v2_${currentPlotId}_${endDate}`;
+
+      const fetchIndices = async (): Promise<any[] | null> => {
+        const indicesCacheKey = `indices_${currentPlotId}`;
+        const cached = getCache(indicesCacheKey);
+        if (cached) return cached;
+        for (const id of plotIds) {
+          try {
+            const res = await axios.get(
+              `${BASE_URL}/plots/${encodeURIComponent(id)}/indices`,
+              { timeout: DASHBOARD_API_TIMEOUT_MS }
+            );
+            const mapped = res.data.map((item: any) => ({
+              date: new Date(item.date).toISOString().split("T")[0],
+              growth: item.NDVI,
+              stress: item.NDMI,
+              water: item.NDWI,
+              moisture: item.NDRE,
+            }));
+            setCache(indicesCacheKey, mapped);
+            return mapped;
+          } catch (err) {
+            console.warn(`⚠️ indices failed for plot "${id}":`, err);
+          }
+        }
+        return null;
+      };
+
+      const fetchStress = async (): Promise<any> => {
+        const cached = getCache(stressCacheKey);
+        if (cached) return cached;
+        for (const id of plotIds) {
+          try {
+            const res = await axios.get(
+              `${BASE_URL}/plots/${encodeURIComponent(id)}/stress?index_type=NDRE&threshold=0.15`,
+              { timeout: DASHBOARD_API_TIMEOUT_MS }
+            );
+            setCache(stressCacheKey, res.data);
+            return res.data;
+          } catch (err) {
+            console.warn(`⚠️ stress failed for plot "${id}":`, err);
+          }
+        }
+        return { total_events: 0, events: [] };
+      };
+
+      const fetchIrrigation = async (): Promise<any> => {
+        const cached = getCache(irrigationCacheKey);
+        if (cached) return cached;
+        for (const id of plotIds) {
+          try {
+            const res = await axios.get(
+              `${BASE_URL}/plots/${encodeURIComponent(id)}/irrigation?threshold_ndmi=0.05&threshold_ndwi=0.05&min_days_between_events=10`,
+              { timeout: DASHBOARD_API_TIMEOUT_MS }
+            );
+            setCache(irrigationCacheKey, res.data);
+            return res.data;
+          } catch (err) {
+            console.warn(`⚠️ irrigation failed for plot "${id}":`, err);
+          }
+        }
+        return { total_events: null };
+      };
+
+      const fetchGrapesBundle = async (): Promise<GrapesBundlePayload | null> => {
+        const cached = getCache(grapesBundleCacheKey);
+        if (cached && isGrapesBundlePayload(cached)) return cached;
+        try {
+          const { bundle } = await fetchGrapesEventsBundleForPlot(BASE_URL, plotIds);
+          setCache(grapesBundleCacheKey, bundle);
+          setApiDataRef.current("agroStats", currentPlotId, bundle);
+          return bundle;
+        } catch (err) {
+          console.error("❌ Error fetching grapes events bundle:", err);
+          return null;
+        }
+      };
+
+      const soilMetricsPromise = loadDashboardSoilMetrics(
         endDate,
         currentPlotId,
-        profileRef.current?.plots as ProfilePlotLite[] | undefined
+        profileRef.current,
+        getApiDataRef.current
       );
 
-      const indicesCacheKey = `indices_${currentPlotId}`;
-      let rawIndices = getCache(indicesCacheKey);
+      const [rawIndices, stressData, irrigationData, grapesBundle, soilOnly] =
+        await Promise.all([
+          fetchIndices(),
+          fetchStress(),
+          fetchIrrigation(),
+          fetchGrapesBundle(),
+          soilMetricsPromise,
+        ]);
 
-      if (!rawIndices) {
-        const indicesRes = await axios.get(
-          `${BASE_URL}/plots/${currentPlotId}/indices`,
-          { timeout: 300000 } // 5 minutes timeout
-        );
-        rawIndices = indicesRes.data.map((item: any) => ({
-          date: new Date(item.date).toISOString().split("T")[0],
-          growth: item.NDVI,
-          stress: item.NDMI,
-          water: item.NDWI,
-          moisture: item.NDRE,
-        }));
-        setCache(indicesCacheKey, rawIndices);
-      }
-
-      setLineChartData(rawIndices);
-
-      // Store in context for future use
-      setApiDataRef.current("indices", currentPlotId, rawIndices);
-
-      // Stress data - try to get from cache, but all data should come from agroStats
-      const stressCacheKey = `stress_${currentPlotId}_NDMI_0.15`;
-      let stressData = getCache(stressCacheKey);
-
-      if (!stressData) {
-        try {
-          const stressRes = await axios.get(
-            `${BASE_URL}/plots/${currentPlotId}/stress?index_type=NDRE&threshold=0.15`,
-            { timeout: 300000 } // 5 minutes timeout
-          );
-          stressData = stressRes.data;
-          setCache(stressCacheKey, stressData);
-        } catch (stressErr) {
-          console.warn("⚠️ Error fetching stress data (non-critical, using agroStats):", stressErr);
-          stressData = { total_events: 0, events: [] };
-        }
+      if (rawIndices?.length) {
+        setLineChartData(rawIndices);
+        setApiDataRef.current("indices", currentPlotId, rawIndices);
       }
 
       setStressEvents(stressData?.events ?? []);
 
-      const irrigationCacheKey = `irrigation_${currentPlotId}`;
-      let irrigationData = getCache(irrigationCacheKey);
+      const agroPlotRowForSoil = soilMetricsToAgroRow(soilOnly);
 
-      if (!irrigationData) {
-        try {
-          const irrigationRes = await axios.get(
-            `${BASE_URL}/plots/${currentPlotId}/irrigation?threshold_ndmi=0.05&threshold_ndwi=0.05&min_days_between_events=10`,
-            { timeout: 300000 } // 5 minutes timeout
-          );
-          irrigationData = irrigationRes.data;
-          setCache(irrigationCacheKey, irrigationData);
-        } catch (irrErr) {
-          console.warn("⚠️ Error fetching irrigation data (non-critical):", irrErr);
-          irrigationData = { total_events: null };
-        }
-      }
-
-      // Main metrics: POST grapes bundle (yield + ripening + brix). Soil pH / organic carbon come from GET /plots/agroStats (same source as legacy dashboards).
-      const yieldDataDate = endDate;
-      const grapesBundleCacheKey = `farmerDashGrapes_v1_${currentPlotId}_${yieldDataDate}`;
-
-      let grapesBundle = getCache(grapesBundleCacheKey);
-
-      if (!grapesBundle) {
-        try {
-          console.log(`📊 Fetching grapes metrics bundle for plot ${currentPlotId} (POST yield + ripening + brix)`);
-          grapesBundle = await fetchGrapesEventsBundle(BASE_URL, currentPlotId);
-          setCache(grapesBundleCacheKey, grapesBundle);
-          setApiDataRef.current("agroStats", currentPlotId, grapesBundle);
-        } catch (err) {
-          console.error("❌ Error fetching grapes events bundle:", err);
-          grapesBundle = null;
-        }
-      } else {
-        console.log(`✅ Using cached grapes bundle for plot: ${currentPlotId}`);
-      }
-
-      const agroPlotRowForSoil = await soilRowPromise;
-      const soilOnly = soilMetricsFromAgroPlotRow(agroPlotRowForSoil);
+      const profilePartial = metricsFromFarmerProfile(
+        profileRef.current,
+        currentPlotId
+      );
 
       const newMetrics = grapesBundle
-        ? metricsFromGrapesBundle(
-          grapesBundle,
-          profileRef.current,
-          currentPlotId,
-          stressData,
-          irrigationData,
-          agroPlotRowForSoil
-        )
-        : {
-          brix: null,
-          brixMin: null,
-          brixMax: null,
-          recovery: null,
-          area: getPlotAreaAcresFromProfile(profileRef.current, currentPlotId),
-          biomass: null,
-          totalBiomass: null,
-          daysToHarvest: null,
-          growthStage: null,
-          soilPH: soilOnly.soilPH,
-          organicCarbonDensity: soilOnly.organicCarbonDensity,
-          actualYield: null,
-          stressCount: stressData?.total_events ?? 0,
-          irrigationEvents: irrigationData?.total_events ?? null,
-          sugarYieldMean: null,
-          cnRatio: null,
-          sugarYieldMax: null,
-          sugarYieldMin: null,
-        };
+        ? mergeDashboardMetrics(
+            metricsFromGrapesBundle(
+              grapesBundle,
+              profileRef.current,
+              currentPlotId,
+              stressData,
+              irrigationData,
+              agroPlotRowForSoil
+            ) as Metrics,
+            profilePartial
+          )
+        : mergeDashboardMetrics(
+            {
+              ...emptyGrapesDashboardMetrics(),
+              stressCount: stressData?.total_events ?? 0,
+              irrigationEvents: irrigationData?.total_events ?? null,
+            },
+            profilePartial,
+            {
+              soilPH: soilOnly.soilPH,
+              organicCarbonDensity: soilOnly.organicCarbonDensity,
+            }
+          );
+
+      if (!grapesBundle && !rawIndices?.length) {
+        setDashboardLoadError(
+          ""
+        );
+      } else if (!grapesBundle) {
+        // setDashboardLoadError(
+          // "Some metrics are unavailable (grapes API timed out). Field indices chart may still load below."
+        // );
+      }
 
       console.log(`📊 Metrics from grapes bundle:`, {
         plotId: currentPlotId,
         hasBundle: !!grapesBundle,
+        hasIndices: !!rawIndices?.length,
         metrics: newMetrics,
       });
 
@@ -1577,19 +1660,29 @@ const FarmerDashboard: React.FC = () => {
           setCache(`brixTimeSeries_${currentPlotId}`, brixPayload);
           setApiDataRef.current("brixTimeSeries", currentPlotId, brixPayload);
         }
+
+        const milestones = ripeningMilestonesFromPayload(grapesBundle.ripening);
+        if (milestones.ripeningStartDate || milestones.harvestReadyStartDate) {
+          setMilestoneState({
+            ripeningStartDate: milestones.ripeningStartDate,
+            harvestReadyStartDate: milestones.harvestReadyStartDate,
+            loading: false,
+            error: false,
+          });
+        }
       }
 
       setMetrics(newMetrics);
-      // Share crop status with other screens (e.g., Map Brix overlay)
-      // so "Harvested" logic is consistent across the farmer UI.
       setApiDataRef.current("farmerDashboard", currentPlotId, {
         growthStage: newMetrics.growthStage,
       });
 
-      // Mark data as loaded to prevent re-fetching
       dataLoadedRef.current[currentPlotId] = true;
     } catch (err) {
       console.error("Error fetching data:", err);
+      setDashboardLoadError(
+        "Failed to load dashboard data. Please refresh or try again in a moment."
+      );
     }
   };
 
@@ -1736,29 +1829,42 @@ const FarmerDashboard: React.FC = () => {
     }));
 
     (async () => {
-      try {
-        const data = await fetchRipeningStageMilestones(
-          getEventsBaseUrl(),
-          currentPlotId
-        );
-        if (cancelled) return;
-        const ra = data?.ripening_analysis;
-        setMilestoneState({
-          ripeningStartDate: ra?.ripening_start_date ?? null,
-          harvestReadyStartDate: ra?.harvest_ready_start_date ?? null,
-          loading: false,
-          error: false,
-        });
-      } catch (e) {
-        console.error("Ripening milestones fetch failed:", e);
-        if (!cancelled) {
+      const plotIds = collectPlotApiIds(profileRef.current, currentPlotId);
+      let lastError: unknown = null;
+
+      for (const plotId of plotIds) {
+        try {
+          const data = await fetchRipeningStageMilestones(
+            getEventsBaseUrl(),
+            plotId
+          );
+          if (cancelled) return;
+          const milestones = ripeningMilestonesFromPayload(data);
           setMilestoneState({
-            ripeningStartDate: null,
-            harvestReadyStartDate: null,
+            ripeningStartDate: milestones.ripeningStartDate,
+            harvestReadyStartDate: milestones.harvestReadyStartDate,
             loading: false,
-            error: true,
+            error: false,
           });
+          if (milestones.cropStatus) {
+            setMetrics((prev) =>
+              mergeDashboardMetrics(prev, { growthStage: milestones.cropStatus })
+            );
+          }
+          return;
+        } catch (e) {
+          lastError = e;
         }
+      }
+
+      console.error("Ripening milestones fetch failed:", lastError);
+      if (!cancelled) {
+        setMilestoneState((s) => ({
+          ripeningStartDate: s.ripeningStartDate,
+          harvestReadyStartDate: s.harvestReadyStartDate,
+          loading: false,
+          error: !(s.ripeningStartDate || s.harvestReadyStartDate),
+        }));
       }
     })();
 
@@ -1972,7 +2078,19 @@ const FarmerDashboard: React.FC = () => {
     [vigourPixelPct]
   );
 
-  const showLoadingDataBanner = profileLoading || dashboardDataLoading;
+  const retryDashboardLoad = () => {
+    if (!currentPlotId) return;
+    dataLoadedRef.current = {};
+    dashboardLoadInFlightRef.current = null;
+    setDashboardLoadError(null);
+    setDashboardDataLoading(true);
+    void fetchAllData()
+      .catch(() => {})
+      .finally(() => setDashboardDataLoading(false));
+  };
+
+  const showLoadingDataBanner = profileLoading;
+  const showApiLoadingHint = dashboardDataLoading && !profileLoading;
 
   if (!currentPlotId && !profileLoading) {
     return (
@@ -2025,7 +2143,41 @@ const FarmerDashboard: React.FC = () => {
               marginBottom: 16,
             }}
           >
-            Loading data...
+            Loading farmer profile...
+          </div>
+        )}
+
+            {/* <span>Fetching plot metrics from server (up to 30s)…</span> */}
+      
+
+        {dashboardLoadError && !profileLoading && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              color: "#b45309",
+              fontWeight: 500,
+              padding: "8px 12px",
+              background: "#fffbeb",
+              border: "1px solid #fcd34d",
+              borderRadius: 6,
+              marginBottom: 16,
+              fontSize: "0.875rem",
+            }}
+          >
+            <span>{dashboardLoadError}</span>
+            <button
+              type="button"
+              onClick={retryDashboardLoad}
+              disabled={dashboardDataLoading}
+              className="px-3 py-1 rounded-md text-sm font-semibold bg-amber-100 hover:bg-amber-200 border border-amber-300 disabled:opacity-50"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -2412,33 +2564,27 @@ const FarmerDashboard: React.FC = () => {
                         <>
                           {/* Mobile: two-line labels using tspans */}
                           <text
-                            x="79"
+                            x="79%"
                             y="25%"
                             textAnchor="middle"
-                            className="text-xs font-left fill-green-600"
+                            className="text-xs fill-green-600"
                             style={{ fontSize: "10px" }}
                           >
-                            <tspan x="79%" dy="0">
-                              Average
-                            </tspan>
-                            <tspan x="79%" dy="12">
-                              Good ({goodRange[0].toFixed(2)} -{" "}
-                              {goodRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Good</tspan>
+                            <tspan>
+                              {" "}({goodRange[0].toFixed(2)} - {goodRange[1].toFixed(2)})
                             </tspan>
                           </text>
                           <text
-                            x="79%"
+                            x="35%"
                             y="35%"
                             textAnchor="middle"
-                            className="text-xs font-right fill-red-600"
+                            className="text-xs fill-red-600"
                             style={{ fontSize: "10px" }}
                           >
-                            <tspan x="30%" dy="0">
-                              Average
-                            </tspan>
-                            <tspan x="35%" dy="12">
-                              Bad ({badRange[0].toFixed(2)} -{" "}
-                              {badRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Bad</tspan>
+                            <tspan>
+                              {" "}({badRange[0].toFixed(2)} - {badRange[1].toFixed(2)})
                             </tspan>
                           </text>
                         </>
@@ -2448,21 +2594,25 @@ const FarmerDashboard: React.FC = () => {
                             x="95%"
                             y="25%"
                             textAnchor="end"
-                            className="text-xs font-medium fill-green-600"
+                            className="text-xs fill-green-600"
                             style={{ fontSize: "10px" }}
                           >
-                            {labelText} Good ({goodRange[0].toFixed(2)} -{" "}
-                            {goodRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Good</tspan>
+                            <tspan>
+                              {" "}({goodRange[0].toFixed(2)} - {goodRange[1].toFixed(2)})
+                            </tspan>
                           </text>
                           <text
                             x="95%"
                             y="75%"
                             textAnchor="end"
-                            className="text-xs font-medium fill-red-600"
+                            className="text-xs fill-red-600"
                             style={{ fontSize: "10px" }}
                           >
-                            {labelText} Bad ({badRange[0].toFixed(2)} -{" "}
-                            {badRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Bad</tspan>
+                            <tspan>
+                              {" "}({badRange[0].toFixed(2)} - {badRange[1].toFixed(2)})
+                            </tspan>
                           </text>
                         </>
                       )}
@@ -2654,7 +2804,12 @@ const FarmerDashboard: React.FC = () => {
           <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-emerald-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
               <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-start sm:h-[7.75rem] sm:w-[7.75rem]">
-                <img src="/Image/crop images/Organic Carbon.png" alt="" aria-hidden className="max-h-full max-w-full object-contain object-left pointer-events-none select-none" />
+                <img
+                  src="/Image/crop images/Organic Carbon.png"
+                  alt=""
+                  aria-hidden
+                  className="max-h-full max-w-full object-contain object-left pointer-events-none select-none"
+                />
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
@@ -2664,7 +2819,7 @@ const FarmerDashboard: React.FC = () => {
                     : "-"}
                 </div>
                 <div className="mt-1 text-base font-semibold leading-none text-emerald-600 sm:text-lg">
-                  g/cm{"\u00B3"}
+                  g/kg
                 </div>
               </div>
             </div>
@@ -2690,8 +2845,13 @@ const FarmerDashboard: React.FC = () => {
 
           <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-yellow-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
-              <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-start sm:h-[7.75rem] sm:w-[7.75rem]">
-                <img src="/Image/crop images/Organic Carbon.png" alt="" aria-hidden className="max-h-full max-w-full object-contain object-left pointer-events-none select-none" />
+              <div className="-ml-0.5 mt-1 flex h-[4.5rem] w-[4.5rem] shrink-0 items-end justify-start sm:-ml-1 sm:mt-1.5 sm:h-[5rem] sm:w-[5rem]">
+                <img
+                  src="/Image/crop images/Soil pH.svg"
+                  alt=""
+                  aria-hidden
+                  className="h-full w-full object-contain object-left-bottom pointer-events-none select-none"
+                />
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">

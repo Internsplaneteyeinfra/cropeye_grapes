@@ -9,6 +9,7 @@ import {
   getTeamConnect,
 } from "../api";
 import { getAuthToken } from "../utils/auth";
+import { getBackendApiBaseUrl } from "../utils/serviceUrls";
 
 type CategoryKey =
   | "farmers"
@@ -98,12 +99,8 @@ const CATEGORY_INFO: Record<
   },
 };
 
-const REMOTE_API_BASE =
-  import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api/backend' : "https://cropeye-backendd.up.railway.app/api");
-const LOCAL_API_BASE = (
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? '/api/backend' : "https://cropeye-backendd.up.railway.app/api")
-).replace(/\/api\/?$/, "");
+const REMOTE_API_BASE = getBackendApiBaseUrl();
+const LOCAL_API_BASE = getBackendApiBaseUrl().replace(/\/api\/?$/, "");
 
 const ensureArray = (payload: any): any[] => {
   if (!payload) return [];

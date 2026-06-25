@@ -7,7 +7,7 @@ import { RefreshCw } from "lucide-react";
 interface NutrientData {
   name: string;
   symbol: string;
-  value: number | string | null;
+  value: number | string | null;  
   unit: string;
   optimalRange: string;
   level: "very-low" | "low" | "medium" | "optimal" | "very-high" | "unknown";

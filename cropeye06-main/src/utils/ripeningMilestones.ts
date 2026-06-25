@@ -1,4 +1,5 @@
 import axios from "axios";
+import { grapesPlotFormBody } from "./grapesEventsBundle";
 
 /** Display e.g. `29 Mar 2026`; missing/invalid → `Not available`. */
 export function formatMilestoneDate(iso: string | null | undefined): string {
@@ -24,30 +25,21 @@ export type RipeningStageMilestoneResponse = {
 };
 
 /**
- * Fetches ripening analysis for the milestones card only.
- * API is POST in Swagger; GET is attempted first when supported.
+ * Fetches ripening analysis for the milestones card.
+ * API requires plot_name as multipart form field (not query string).
  */
 export async function fetchRipeningStageMilestones(
   baseUrl: string,
   plotName: string
 ): Promise<RipeningStageMilestoneResponse> {
-  const url = `${baseUrl.replace(/\/+$/, "")}/grapes/ripening-stage?plot_name=${encodeURIComponent(plotName)}`;
-  const cfg = {
-    timeout: 120000,
-    headers: { Accept: "application/json" as const },
-  };
-
-  try {
-    const res = await axios.get<RipeningStageMilestoneResponse>(url, cfg);
-    return res.data;
-  } catch (e) {
-    if (
-      axios.isAxiosError(e) &&
-      (e.response?.status === 405 || e.response?.status === 404)
-    ) {
-      const res = await axios.post<RipeningStageMilestoneResponse>(url, null, cfg);
-      return res.data;
+  const url = `${baseUrl.replace(/\/+$/, "")}/grapes/ripening-stage`;
+  const res = await axios.post<RipeningStageMilestoneResponse>(
+    url,
+    grapesPlotFormBody(plotName),
+    {
+      timeout: 120000,
+      headers: { Accept: "application/json" },
     }
-    throw e;
-  }
+  );
+  return res.data;
 }

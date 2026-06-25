@@ -48,7 +48,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
-import { getEventsBaseUrl } from "../utils/serviceUrls";
+import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
 import api from "../api"; // Import the authenticated api instance
 import CommonSpinner from "./CommanSpinner";
 
@@ -716,7 +716,7 @@ const OwnerFarmDash: React.FC = () => {
     try {
       // Use authenticated API call from api.ts
       const response = await api.get(
-        `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api/backend' : "https://cropeye-backendd.up.railway.app/api")}/users/owner-hierarchy/`,
+        `${getBackendApiBaseUrl()}/users/owner-hierarchy/`,
       );
       const responseData = response.data;
       const managersData = responseData.managers || [];
@@ -1314,7 +1314,7 @@ const OwnerFarmDash: React.FC = () => {
               <pre className="text-xs text-green-300 font-mono">
                 {JSON.stringify(
                   {
-                    endpoint: `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api/backend' : "https://cropeye-backendd.up.railway.app/api")}/farms/recent-farmers/`,
+                    endpoint: `${getBackendApiBaseUrl()}/farms/recent-farmers/`,
                     method: "GET",
                     bearerToken: localStorage.getItem("access_token") || localStorage.getItem("token")
                       ? "✅ Present"
@@ -2118,33 +2118,27 @@ const OwnerFarmDash: React.FC = () => {
                         <>
                           {/* Mobile: two-line labels using tspans */}
                           <text
-                            x="79"
+                            x="79%"
                             y="25%"
                             textAnchor="middle"
-                            className="text-xs font-left fill-green-600"
+                            className="text-xs fill-green-600"
                             style={{ fontSize: "10px" }}
                           >
-                            <tspan x="79%" dy="0">
-                              Average
-                            </tspan>
-                            <tspan x="79%" dy="12">
-                              Good ({goodRange[0].toFixed(2)} -{" "}
-                              {goodRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Good</tspan>
+                            <tspan>
+                              {" "}({goodRange[0].toFixed(2)} - {goodRange[1].toFixed(2)})
                             </tspan>
                           </text>
                           <text
-                            x="79%"
+                            x="35%"
                             y="35%"
                             textAnchor="middle"
-                            className="text-xs font-right fill-red-600"
+                            className="text-xs fill-red-600"
                             style={{ fontSize: "10px" }}
                           >
-                            <tspan x="30%" dy="0">
-                              Average
-                            </tspan>
-                            <tspan x="35%" dy="12">
-                              Bad ({badRange[0].toFixed(2)} -{" "}
-                              {badRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Bad</tspan>
+                            <tspan>
+                              {" "}({badRange[0].toFixed(2)} - {badRange[1].toFixed(2)})
                             </tspan>
                           </text>
                         </>
@@ -2154,21 +2148,25 @@ const OwnerFarmDash: React.FC = () => {
                             x="95%"
                             y="25%"
                             textAnchor="end"
-                            className="text-xs font-medium fill-green-600"
+                            className="text-xs fill-green-600"
                             style={{ fontSize: "10px" }}
                           >
-                            {labelText} Good ({goodRange[0].toFixed(2)} -{" "}
-                            {goodRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Good</tspan>
+                            <tspan>
+                              {" "}({goodRange[0].toFixed(2)} - {goodRange[1].toFixed(2)})
+                            </tspan>
                           </text>
                           <text
                             x="95%"
                             y="75%"
                             textAnchor="end"
-                            className="text-xs font-medium fill-red-600"
+                            className="text-xs fill-red-600"
                             style={{ fontSize: "10px" }}
                           >
-                            {labelText} Bad ({badRange[0].toFixed(2)} -{" "}
-                            {badRange[1].toFixed(2)})
+                            <tspan fontWeight="600">Bad</tspan>
+                            <tspan>
+                              {" "}({badRange[0].toFixed(2)} - {badRange[1].toFixed(2)})
+                            </tspan>
                           </text>
                         </>
                       )}

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 8 104 112" fill="none" role="img" aria-label="Soil pH">
+  <ellipse cx="64" cy="108" rx="46" ry="10" fill="#8B5E3C" opacity="0.25"/>
+  <path d="M18 88C18 74 38 66 64 66C90 66 110 74 110 88V102C110 112 92 118 64 118C36 118 18 112 18 102V88Z" fill="#C49A6C"/>
+  <path d="M64 66C90 66 110 74 110 88V102C110 112 92 118 64 118V66Z" fill="#8B5E3C"/>
+  <circle cx="38" cy="92" r="3.5" fill="#6D4C41" opacity="0.55"/>
+  <circle cx="52" cy="98" r="2.5" fill="#6D4C41" opacity="0.45"/>
+  <circle cx="82" cy="94" r="3" fill="#5D4037" opacity="0.5"/>
+  <circle cx="96" cy="100" r="2.5" fill="#5D4037" opacity="0.45"/>
+  <path d="M64 66V34" stroke="#2F9E8A" stroke-width="7" stroke-linecap="round"/>
+  <path d="M64 66V34" stroke="#5EC4B2" stroke-width="3.5" stroke-linecap="round" opacity="0.65"/>
+  <path d="M64 52L50 44" stroke="#2F9E8A" stroke-width="5" stroke-linecap="round"/>
+  <path d="M64 44L78 38" stroke="#2F9E8A" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="44" cy="40" rx="16" ry="10" fill="#4CAF50" transform="rotate(-28 44 40)"/>
+  <ellipse cx="82" cy="34" rx="15" ry="9.5" fill="#43A047" transform="rotate(24 82 34)"/>
+  <ellipse cx="64" cy="22" rx="12" ry="8" fill="#66BB6A" transform="rotate(-6 64 22)"/>
+</svg>

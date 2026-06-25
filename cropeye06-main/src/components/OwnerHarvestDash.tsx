@@ -39,7 +39,9 @@ import {
 import "leaflet/dist/leaflet.css";
 import { useMap } from "react-leaflet";
 
-const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api/backend' : "https://cropeye-backendd.up.railway.app/api")}/users/owner-hierarchy/`;
+import { getBackendApiBaseUrl } from "../utils/serviceUrls";
+
+const API_BASE_URL = `${getBackendApiBaseUrl()}/users/owner-hierarchy/`;
 
 // Chart Types
 const CHART_TYPES = {

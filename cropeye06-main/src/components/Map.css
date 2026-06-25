@@ -516,10 +516,30 @@
 
 .plot-info {
   position: absolute;
-  top: 50px;
-  left: 80%;
+  top: 56px;
+  left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
+  pointer-events: none;
+}
+
+.plot-area-marker {
+  background: transparent;
+  border: none;
+}
+
+.plot-area-marker-label {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
+  border: 1px solid #e9ecef;
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
 }
 
 .plot-area {

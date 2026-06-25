@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { AlertCircle, Beaker, Leaf, Sprout } from "lucide-react";
+import { AlertCircle, Beaker, Check, Leaf, Pencil, Sprout, X } from "lucide-react";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
+import { patchFarm } from "../api";
 import { getGrapesAdminBaseUrl } from "../utils/serviceUrls";
+import { normalizeScheduleText } from "../utils/grapesSchedule";
 import budData from "./bud.json";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -176,7 +178,7 @@ function extractScheduleDaysArray(raw: unknown): unknown[] | undefined {
 }
 
 function scheduleCellText(v: string | undefined | null): string {
-  const t = v?.trim();
+  const t = normalizeScheduleText(v?.trim() ?? "");
   return t ? t : "—";
 }
 
@@ -239,10 +241,10 @@ function mapGrapesScheduleApiRow(item: Record<string, unknown>): FertilizerEntry
     days: dayVal != null && dayVal !== "" ? String(dayVal) : "",
     stage: str(item.stage),
     scheduleType: capitalizeLabel(str(item.type)),
-    issue: str(item.issue),
-    nutrient: str(item.nutrient),
-    recommendation: str(item.recommendation),
-    organicDetail: str(item.organic),
+    issue: normalizeScheduleText(str(item.issue)),
+    nutrient: normalizeScheduleText(str(item.nutrient)),
+    recommendation: normalizeScheduleText(str(item.recommendation)),
+    organicDetail: normalizeScheduleText(str(item.organic)),
     N_kg_acre: "",
     P_kg_acre: "",
     K_kg_acre: "",
@@ -642,12 +644,20 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
   const [grapesScheduleMeta, setGrapesScheduleMeta] =
     useState<GrapesScheduleMeta | null>(null);
   const [grapesScheduleV2, setGrapesScheduleV2] = useState(false);
+  const [editingPruningDates, setEditingPruningDates] = useState(false);
+  const [foundationDateDraft, setFoundationDateDraft] = useState("");
+  const [fruitDateDraft, setFruitDateDraft] = useState("");
+  const [savingPruningDates, setSavingPruningDates] = useState(false);
+  const [pruningDateError, setPruningDateError] = useState<string | null>(null);
+  const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
   const tableRef = useRef<HTMLDivElement>(null);
   const scheduleFetchGenRef = useRef(0);
+  const skipScheduleCacheRef = useRef(false);
   const {
     profile,
     loading: profileLoading,
     error: profileError,
+    refreshProfile,
   } = useFarmerProfile();
   const { getCached, selectedPlotName, setCached } = useAppContext();
 
@@ -933,7 +943,9 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
       setNoFertilizerRequired(false);
 
       const scheduleCacheKey = `grapesSchedule_${String(plotToUse)}`;
-      const cachedSchedule = getCached(scheduleCacheKey);
+      const skipCache = skipScheduleCacheRef.current;
+      skipScheduleCacheRef.current = false;
+      const cachedSchedule = skipCache ? null : getCached(scheduleCacheKey);
       if (
         cachedSchedule != null &&
         canApplyScheduleResponse(cachedSchedule) &&
@@ -1063,7 +1075,72 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
     return () => {
       scheduleFetchGenRef.current += 1;
     };
-  }, [profile, profileLoading, selectedPlotName, getCached, setCached]);
+  }, [profile, profileLoading, selectedPlotName, getCached, setCached, scheduleRefreshKey]);
+
+  const startEditingPruningDates = () => {
+    setFoundationDateDraft(grapesScheduleMeta?.foundation_pruning_date ?? "");
+    setFruitDateDraft(grapesScheduleMeta?.fruit_pruning_date ?? "");
+    setPruningDateError(null);
+    setEditingPruningDates(true);
+  };
+
+  const cancelEditingPruningDates = () => {
+    setEditingPruningDates(false);
+    setPruningDateError(null);
+  };
+
+  const handleSavePruningDates = async () => {
+    const foundation = foundationDateDraft.trim();
+    const fruit = fruitDateDraft.trim();
+    if (!foundation || !fruit) {
+      setPruningDateError("Both Foundation and Fruit dates are required.");
+      return;
+    }
+    if (new Date(fruit) <= new Date(foundation)) {
+      setPruningDateError("Fruit date must be after Foundation date.");
+      return;
+    }
+
+    let plotToUse = selectedPlotName;
+    if (!plotToUse && profile?.plots?.length) {
+      const firstPlot = profile.plots[0];
+      plotToUse =
+        firstPlot.fastapi_plot_id ||
+        `${firstPlot.gat_number}_${firstPlot.plot_number}`;
+    }
+    const plot = plotToUse ? findPlotInProfile(profile, plotToUse) : null;
+    const farmId = plot?.farms?.[0]?.id;
+    if (!farmId) {
+      setPruningDateError("Could not find farm for this plot.");
+      return;
+    }
+
+    setSavingPruningDates(true);
+    setPruningDateError(null);
+    try {
+      await patchFarm(String(farmId), {
+        foundation_pruning_date: foundation,
+        fruit_pruning_date: fruit,
+      });
+      setGrapesScheduleMeta((prev) =>
+        prev
+          ? {
+              ...prev,
+              foundation_pruning_date: foundation,
+              fruit_pruning_date: fruit,
+            }
+          : prev
+      );
+      setEditingPruningDates(false);
+      skipScheduleCacheRef.current = true;
+      setScheduleRefreshKey((k) => k + 1);
+      void refreshProfile();
+    } catch {
+      setPruningDateError("Failed to save pruning dates. Please try again.");
+    } finally {
+      setSavingPruningDates(false);
+    }
+  };
 
   const handleDownloadPDF = async () => {
     if (tableRef.current) {
@@ -1379,28 +1456,83 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
           return grapesScheduleV2 ? (
             <div ref={tableRef} className="w-full min-w-0 flex flex-col flex-1 min-h-0">
               {grapesScheduleMeta && (
-                <div className="fertilizer-meta-strip flex flex-wrap gap-2 mb-3 shrink-0">
+                <div className="fertilizer-meta-strip flex flex-wrap items-center gap-2 mb-3 shrink-0">
                   {grapesScheduleMeta.plot && (
                     <span className="fertilizer-meta-pill">
                       <span className="fertilizer-meta-label">Plot</span>
                       {grapesScheduleMeta.plot}
                     </span>
                   )}
-                  {grapesScheduleMeta.foundation_pruning_date && (
-                    <span className="fertilizer-meta-pill">
-                      <span className="fertilizer-meta-label">Foundation</span>
-                      {grapesScheduleMeta.foundation_pruning_date}
+                  {editingPruningDates ? (
+                    <>
+                      <label className="fertilizer-meta-pill fertilizer-meta-pill--edit">
+                        <span className="fertilizer-meta-label">Foundation</span>
+                        <input
+                          type="date"
+                          className="fertilizer-meta-date-input"
+                          value={foundationDateDraft}
+                          onChange={(e) => setFoundationDateDraft(e.target.value)}
+                        />
+                      </label>
+                      <label className="fertilizer-meta-pill fertilizer-meta-pill--edit">
+                        <span className="fertilizer-meta-label">Fruit</span>
+                        <input
+                          type="date"
+                          className="fertilizer-meta-date-input"
+                          value={fruitDateDraft}
+                          onChange={(e) => setFruitDateDraft(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="fertilizer-meta-action fertilizer-meta-action--save"
+                        onClick={() => void handleSavePruningDates()}
+                        disabled={savingPruningDates}
+                        title="Save dates"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        {savingPruningDates ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className="fertilizer-meta-action fertilizer-meta-action--cancel"
+                        onClick={cancelEditingPruningDates}
+                        disabled={savingPruningDates}
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {grapesScheduleMeta.foundation_pruning_date && (
+                        <span className="fertilizer-meta-pill">
+                          <span className="fertilizer-meta-label">Foundation</span>
+                          {grapesScheduleMeta.foundation_pruning_date}
+                        </span>
+                      )}
+                      {grapesScheduleMeta.fruit_pruning_date && (
+                        <span className="fertilizer-meta-pill">
+                          <span className="fertilizer-meta-label">Fruit</span>
+                          {grapesScheduleMeta.fruit_pruning_date}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="fertilizer-meta-action fertilizer-meta-action--edit"
+                        onClick={startEditingPruningDates}
+                        title="Edit pruning dates"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit
+                      </button>
+                    </>
+                  )}
+                  {pruningDateError && (
+                    <span className="text-xs text-red-600 font-medium w-full">
+                      {pruningDateError}
                     </span>
                   )}
-                  {grapesScheduleMeta.fruit_pruning_date && (
-                    <span className="fertilizer-meta-pill">
-                      <span className="fertilizer-meta-label">Fruit</span>
-                      {grapesScheduleMeta.fruit_pruning_date}
-                    </span>
-                  )}
-                  <span className="fertilizer-meta-pill fertilizer-meta-pill--muted">
-                    {data.length} {data.length === 1 ? "day" : "days"}
-                  </span>
                 </div>
               )}
 

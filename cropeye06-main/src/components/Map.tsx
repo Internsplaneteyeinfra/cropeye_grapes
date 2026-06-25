@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Polygon, useMap, Circle, Rectangle, Marker } from "react-leaflet";
 import { divIcon } from "leaflet";
-import { LatLngTuple, LeafletMouseEvent } from "leaflet";
+import { LatLngTuple, LatLngBounds, LeafletMouseEvent } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./Map.css";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
@@ -206,8 +206,8 @@ const BrixValueMarker: React.FC<{ position: [number, number]; value: string }> =
   );
 };
 
-// Set fixed zoom level component
-const SetFixedZoom: React.FC<{ coordinates: number[][] }> = ({ coordinates }) => {
+// Center the selected plot in the map viewport
+const FitPlotToCenter: React.FC<{ coordinates: number[][] }> = ({ coordinates }) => {
   const map = useMap();
 
   useEffect(() => {
@@ -218,11 +218,26 @@ const SetFixedZoom: React.FC<{ coordinates: number[][] }> = ({ coordinates }) =>
       .map(([lng, lat]) => [lat, lng] as LatLngTuple)
       .filter((tuple: LatLngTuple) => !isNaN(tuple[0]) && !isNaN(tuple[1]));
 
-    if (latlngs.length) {
-      const centerLat = latlngs.reduce((sum, coord) => sum + coord[0], 0) / latlngs.length;
-      const centerLng = latlngs.reduce((sum, coord) => sum + coord[1], 0) / latlngs.length;
-      map.setView([centerLat, centerLng], 18, { animate: true, duration: 1.5 });
-    }
+    if (!latlngs.length) return;
+
+    const applyFit = () => {
+      map.invalidateSize();
+      if (latlngs.length === 1) {
+        map.setView(latlngs[0], 18, { animate: true });
+        return;
+      }
+      const bounds = new LatLngBounds(latlngs);
+      map.fitBounds(bounds, {
+        padding: [56, 56],
+        maxZoom: 18,
+        animate: true,
+        duration: 1,
+      });
+    };
+
+    applyFit();
+    const t = window.setTimeout(applyFit, 150);
+    return () => window.clearTimeout(t);
   }, [coordinates, map]);
 
   return null;
@@ -2060,19 +2075,21 @@ const Map: React.FC<MapProps> = ({
         const key = `${latitude.toFixed(6)}_${longitude.toFixed(6)}`;
         const brixValue = key in brixValueMap ? brixValueMap[key] : (typeof brix === 'number' ? brix : null);
         const finalBrixValue = isHarvested ? 0 : brixValue;
-        const displayValue = finalBrixValue !== null ? finalBrixValue.toFixed(1) : 'N/A';
+        const isMissingBrix = finalBrixValue === null || finalBrixValue === 0;
+
+        // Only render grid cells with missing/zero brix (00)
+        if (!isMissingBrix) return null;
 
         return (
           <React.Fragment key={`brix-grid-${index}-${latitude}-${longitude}`}>
-            {/* White grid box with transparent fill - centered on Brix coordinate */}
             <Rectangle
               bounds={bounds}
               pathOptions={{
-                fillColor: "white",
-                fillOpacity: 0, // Completely transparent fill
-                color: "rgba(255, 255, 255, 0.45)", // Faint white border
-                weight: 1, // Thin border
-                opacity: 0.45, // Faint but visible
+                fillColor: "#ef4444",
+                fillOpacity: 0.5,
+                color: "rgba(255, 255, 255, 0.8)",
+                weight: 1,
+                opacity: 0.8,
               }}
               eventHandlers={{
                 mouseover: (e: any) => {
@@ -2080,11 +2097,10 @@ const Map: React.FC<MapProps> = ({
                   if (container) {
                     container.style.cursor = 'pointer';
                   }
-                  // Show Brix value tooltip
                   setPixelTooltip({
                     layers: [{
                       layer: "Brix",
-                      label: `Brix: ${displayValue}`,
+                      label: "Brix: 00",
                       description: "",
                       percentage: 0
                     }],
@@ -2096,11 +2112,10 @@ const Map: React.FC<MapProps> = ({
                   setPixelTooltip(null);
                 },
                 mousemove: (e: any) => {
-                  // Update tooltip position as mouse moves
                   setPixelTooltip({
                     layers: [{
                       layer: "Brix",
-                      label: `Brix: ${displayValue}`,
+                      label: "Brix: 00",
                       description: "",
                       percentage: 0
                     }],
@@ -2110,13 +2125,10 @@ const Map: React.FC<MapProps> = ({
                 }
               }}
             />
-            {/* Brix value as white text in the center of grid box */}
-            {finalBrixValue !== null && (
-              <BrixValueMarker 
-                position={[latitude, longitude]} 
-                value={displayValue}
-              />
-            )}
+            <BrixValueMarker
+              position={[latitude, longitude]}
+              value="00"
+            />
           </React.Fragment>
         );
       });
@@ -2188,6 +2200,14 @@ const Map: React.FC<MapProps> = ({
   // Use plotBoundary if available (persists across layer changes), otherwise fall back to plotData
   const currentPlotFeature = plotBoundary || plotData?.features?.[0];
 
+  const plotAreaLabel = useMemo(() => {
+    const acres = currentPlotFeature?.properties?.area_acres;
+    if (typeof acres === "number" && !isNaN(acres)) {
+      return acres.toFixed(2);
+    }
+    return "0.00";
+  }, [currentPlotFeature]);
+
   const legendData = useMemo(() => {
     if (activeLayer === "Brix") {
       const pixelSummary = brixData?.pixel_summary;
@@ -2210,10 +2230,11 @@ const Map: React.FC<MapProps> = ({
       const soilBornePercentage = pestData?.pixel_summary?.SoilBorn_affected_pixel_percentage || 0;
       
       return [
-        { label: "Chewing", color: "#DC2626", percentage: Math.round(chewingPestPercentage), description: "Areas affected by chewing pests" },
-        { label: "Sucking", color: "#B91C1C", percentage: Math.round(suckingPercentage), description: "Areas affected by sucking disease" },
-        { label: "fungi", color: "#991B1B", percentage: Math.round(fungiPercentage), description: "fungi infections affecting plants" },
-        { label: "Soil Borne", color: "#7F1D1D", percentage: Math.round(soilBornePercentage), description: "Soil borne infections affecting plants" }
+        { label: "Chewing pest", color: "#DC2626", percentage: Math.round(chewingPestPercentage), description: "Areas affected by chewing pests" },
+        { label: "Sucking pest", color: "#B91C1C", percentage: Math.round(suckingPercentage), description: "Areas affected by sucking disease" },
+        { label: "fungus", color: "#991B1B", percentage: Math.round(fungiPercentage), description: "fungi infections affecting plants" },
+        { label: "Soil Borne pathozane ", color: "#7F1D1D", percentage: Math.round(soilBornePercentage), description: "Soil borne infections affecting plants" },
+        
       ];
     }
 
@@ -2860,17 +2881,11 @@ const Map: React.FC<MapProps> = ({
         </button>
 
         {(plotBoundary || currentPlotFeature) && (
-          <>
-            <div className="plot-info">
-              <div className="plot-area">
-                <span className="plot-area-value">
-                  {(plotBoundary || currentPlotFeature).properties?.area_acres 
-                    ? (plotBoundary || currentPlotFeature).properties.area_acres.toFixed(2) 
-                    : '0.00'} acre
-                </span>
-              </div>
+          <div className="plot-info">
+            <div className="plot-area">
+              <span className="plot-area-value">{plotAreaLabel} acre</span>
             </div>
-          </>
+          </div>
         )}
 
         {/* Date Navigation Arrows - Show for Growth, Water Uptake, Soil Moisture, PEST, and Brix */}
@@ -2933,7 +2948,10 @@ const Map: React.FC<MapProps> = ({
 
           {(plotBoundary || currentPlotFeature)?.geometry?.coordinates?.[0] &&
             Array.isArray((plotBoundary || currentPlotFeature).geometry.coordinates[0]) && (
-            <SetFixedZoom coordinates={(plotBoundary || currentPlotFeature).geometry.coordinates[0]} />
+            <FitPlotToCenter
+              key={selectedPlotName || "plot"}
+              coordinates={(plotBoundary || currentPlotFeature).geometry.coordinates[0]}
+            />
           )}
 
           {/* Render canopy vigour layer as background for Brix layer */}

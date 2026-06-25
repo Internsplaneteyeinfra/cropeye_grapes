@@ -8,6 +8,7 @@ import {
   weatherTodayRainCacheKey,
 } from "../services/weatherForecastService";
 import { useAppContext } from "../context/AppContext";
+import { getGrapesSefBaseUrl } from "../utils/serviceUrls";
 import { useFarmerProfile } from "./useFarmerProfile";
 
 export type ETRange = "Low" | "Medium" | "High";
@@ -36,9 +37,7 @@ export interface ScheduleTotals {
   irrigationType: string;
 }
 
-const ET_API_BASE = import.meta.env.DEV
-  ? "/api/field-analysis"
-  : "https://cropeye-grapes-sef-production.up.railway.app";
+const ET_API_BASE = getGrapesSefBaseUrl();
 
 const DEFAULT_ET = 2.5;
 

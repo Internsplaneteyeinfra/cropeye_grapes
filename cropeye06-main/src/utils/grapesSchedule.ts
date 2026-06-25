@@ -140,6 +140,12 @@ function capitalizeLabel(v: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 }
 
+/** Fix known API typos in fertilizer schedule labels (e.g. "Nuterient" → "Nutrient"). */
+export function normalizeScheduleText(value: string): string {
+  if (!value) return value;
+  return value.replace(/\bNuterient\b/gi, "Nutrient");
+}
+
 export function mapGrapesScheduleApiRow(item: Record<string, unknown>): GrapesScheduleRow {
   const str = (v: unknown) => (v == null ? "" : String(v).trim());
   const rawDate = str(item.date ?? item.schedule_date);
@@ -152,10 +158,10 @@ export function mapGrapesScheduleApiRow(item: Record<string, unknown>): GrapesSc
     days: dayVal != null && dayVal !== "" ? String(dayVal) : "",
     stage: str(item.stage),
     scheduleType: capitalizeLabel(str(item.type)),
-    issue: str(item.issue),
-    nutrient: str(item.nutrient),
-    recommendation: str(item.recommendation),
-    organic: str(item.organic),
+    issue: normalizeScheduleText(str(item.issue)),
+    nutrient: normalizeScheduleText(str(item.nutrient)),
+    recommendation: normalizeScheduleText(str(item.recommendation)),
+    organic: normalizeScheduleText(str(item.organic)),
   };
 }
 

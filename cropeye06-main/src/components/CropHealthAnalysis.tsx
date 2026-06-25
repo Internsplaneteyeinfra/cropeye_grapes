@@ -424,7 +424,7 @@ const CropHealthAnalysis: React.FC = () => {
       style={{
         backgroundImage: "url('/Image/crophealth card.png')",
         backgroundSize: 'cover',
-        backgroundPosition: 'center',
+        backgroundPosition: 'center top',
         backgroundRepeat: 'no-repeat',
         borderRadius: '1rem', 
         position: 'relative'
@@ -434,9 +434,23 @@ const CropHealthAnalysis: React.FC = () => {
       <div className="absolute inset-0 bg-white/20 z-0"></div>
       
       <div className="relative z-10 flex flex-col flex-1 min-h-0 w-full">
-        <div className="px-4 pt-4 shrink-0">
+        <div
+          className="px-4 pt-4 pb-3 shrink-0"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,0.58) 0%, rgba(0,0,0,0.35) 70%, transparent 100%)",
+          }}
+        >
           <div className="card-header flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-            <h2 className="text-lg md:text-xl font-bold" style={{ color: '#ffffff', textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)' }}>Crop Health Analysis</h2>
+            <h2
+              className="text-lg md:text-xl font-bold text-white"
+              style={{
+                textShadow:
+                  "0 2px 4px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.6)",
+              }}
+            >
+              Crop Health Analysis
+            </h2>
           {activeTab === 'pests' && (
             <button
               onClick={handleDownloadPestsPDF}
@@ -456,7 +470,13 @@ const CropHealthAnalysis: React.FC = () => {
           )}
         </div>
 
-          <div className="flex border-b mt-2 overflow-x-auto" style={{ borderColor: 'rgba(255,255,255,0.3)' }}>
+          <div
+            className="flex border-b mt-2 overflow-x-auto rounded-t-md px-1"
+            style={{
+              borderColor: "rgba(255,255,255,0.45)",
+              background: "rgba(0,0,0,0.22)",
+            }}
+          >
           {(['weeds', 'pests', 'diseases'] as const).map(tab => (
             <div
               key={tab}
@@ -467,8 +487,8 @@ const CropHealthAnalysis: React.FC = () => {
                   : ''
               }`}
               style={activeTab === tab 
-                ? { color: '#ffffff', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }
-                : { color: 'rgba(255,255,255,0.8)', textShadow: '1px 1px 2px rgba(0,0,0,0.6)' }
+                ? { color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.65)' }
+                : { color: 'rgba(255,255,255,0.95)', textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)' }
               }
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}

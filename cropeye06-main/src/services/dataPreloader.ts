@@ -325,16 +325,19 @@ const fetchBrixTimeSeriesData = async (
     const cacheKey = `brixTimeSeries_${plotName}`;
     if (getCache(cacheKey)) return;
 
-    const baseUrl = 'https://cropeye-grapes-events-production.up.railway.app';
-    const url = `${baseUrl}/grapes/brix-time-series?plot_name=${encodeURIComponent(plotName)}`;
+    const baseUrl = getEventsBaseUrl();
+    const url = `${baseUrl}/grapes/brix-time-series`;
+    const form = new FormData();
+    form.append("plot_name", plotName);
     const response = await fetch(url, {
-      method: 'POST',
-      mode: 'cors',
-      cache: 'default',
-      credentials: 'omit',
+      method: "POST",
+      mode: "cors",
+      cache: "default",
+      credentials: "omit",
       headers: {
-        Accept: 'application/json',
+        Accept: "application/json",
       },
+      body: form,
     });
 
     if (response.ok) {
@@ -438,7 +441,7 @@ const fetchFarmerDashboardData = async (
 
     // Grapes Events API: GET /plots/agroStats is not available — preload POST bundle (yield + ripening + brix).
     const endDate = getCurrentEndDate();
-    const grapesBundleCacheKey = `farmerDashGrapes_v1_${plotName}_${endDate}`;
+    const grapesBundleCacheKey = `farmerDashGrapes_v2_${plotName}_${endDate}`;
     if (!getCache(grapesBundleCacheKey)) {
       try {
         const { fetchGrapesEventsBundle } = await import('../utils/grapesEventsBundle');

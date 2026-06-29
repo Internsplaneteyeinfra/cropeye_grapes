@@ -50,6 +50,7 @@ import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
+import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import api from "../api"; // Import the authenticated api instance
 import CommonSpinner from "./CommanSpinner";
 
@@ -450,12 +451,7 @@ const ManagerFarmDash: React.FC = () => {
 
       if (!harvestData) {
         try {
-          const harvestRes = await axios.post(
-            `${BASE_URL}/grapes-harvest?plot_name=${selectedPlotId}&end_date=${today}`,
-            {},
-            { timeout: 10000 },
-          );
-          harvestData = harvestRes.data;
+          harvestData = await fetchPlotHarvestInfo(selectedPlotId, today);
           setCache(harvestCacheKey, harvestData);
         } catch (err) {
           console.warn("Harvest status fetch failed, continuing...", err);
@@ -463,12 +459,8 @@ const ManagerFarmDash: React.FC = () => {
       }
 
       if (harvestData) {
-        harvestStatus =
-          harvestData.harvest_status ||
-          harvestData.harvest_summary?.harvest_status ||
-          harvestData.features?.[0]?.properties?.harvest_status;
-        harvestDate =
-          harvestData.harvest_date || harvestData.harvest_summary?.harvest_date;
+        harvestStatus = harvestData.harvestStatus;
+        harvestDate = harvestData.harvestDate;
       }
 
       // Determine date for yield data
@@ -1511,7 +1503,14 @@ const ManagerFarmDash: React.FC = () => {
                 </div>
               </div>
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Sugar Content</p>
+            <div className="mt-auto pt-3 relative z-10">
+              <p className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</p>
+              {!loadingData && metrics.daysToHarvest != null && (
+                <p className="text-xs font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                  {metrics.daysToHarvest} days
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

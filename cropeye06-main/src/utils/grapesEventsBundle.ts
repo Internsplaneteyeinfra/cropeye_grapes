@@ -515,7 +515,7 @@ export async function fetchDashboardSoilMetrics(
 }
 
 /** Resolve one plot row from agroStats payload (keys may be fastapi id or gat_plot). */
-function extractAgroStatsPlotRow(
+export function extractAgroStatsPlotRow(
   allPlotsData: any,
   plotId: string,
   profile: any

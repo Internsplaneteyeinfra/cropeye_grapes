@@ -15,8 +15,9 @@ import SoilMoistureCard from "./Irrigation/cards/SoilMoistureCard";
 import WeatherForecast from "./WeatherForecast";
 import FertilizerTable from "./FertilizerTable";
 import { useAppContext } from "../context/AppContext";
-import { getCache, setCache } from "./utils/cache";
-import { getEventsBaseUrl } from "../utils/serviceUrls";
+import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
+import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
+import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 
 // Add custom styles for the enhanced tooltip
 const tooltipStyles = `
@@ -30,7 +31,7 @@ const tooltipStyles = `
     z-index: 1000;
     pointer-events: none;
     max-width: 200px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    box-shadow : 0 2px 8px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.2);
   }
 
@@ -206,8 +207,11 @@ const BrixValueMarker: React.FC<{ position: [number, number]; value: string }> =
   );
 };
 
-// Center the selected plot in the map viewport
-const FitPlotToCenter: React.FC<{ coordinates: number[][] }> = ({ coordinates }) => {
+// Center the selected plot in the map viewport (re-runs when layer/plot opens or resizes)
+const FitPlotToCenter: React.FC<{
+  coordinates: number[][];
+  fitKey?: string | number;
+}> = ({ coordinates, fitKey }) => {
   const map = useMap();
 
   useEffect(() => {
@@ -221,24 +225,39 @@ const FitPlotToCenter: React.FC<{ coordinates: number[][] }> = ({ coordinates })
     if (!latlngs.length) return;
 
     const applyFit = () => {
-      map.invalidateSize();
+      map.invalidateSize({ pan: false });
       if (latlngs.length === 1) {
-        map.setView(latlngs[0], 18, { animate: true });
+        map.setView(latlngs[0], 18, { animate: false });
         return;
       }
       const bounds = new LatLngBounds(latlngs);
       map.fitBounds(bounds, {
-        padding: [56, 56],
+        padding: [52, 52],
         maxZoom: 18,
-        animate: true,
-        duration: 1,
+        animate: false,
       });
     };
 
     applyFit();
-    const t = window.setTimeout(applyFit, 150);
-    return () => window.clearTimeout(t);
-  }, [coordinates, map]);
+    const timers = [100, 350, 700, 1200].map((ms) =>
+      window.setTimeout(applyFit, ms)
+    );
+
+    const container = map.getContainer();
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      const observeTarget = container?.parentElement ?? container;
+      if (observeTarget) {
+        resizeObserver = new ResizeObserver(() => applyFit());
+        resizeObserver.observe(observeTarget);
+      }
+    }
+
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      resizeObserver?.disconnect();
+    };
+  }, [coordinates, map, fitKey]);
 
   return null;
 };
@@ -381,30 +400,18 @@ const Map: React.FC<MapProps> = ({
 
   const fetchHarvestStatus = useCallback(
     async (plotName: string): Promise<string | null> => {
-      const cacheKey = `harvest_${plotName}_${currentEndDate}`;
-      const cached = getCache(cacheKey, 30 * 60 * 1000); // 30 min
-      if (cached) {
-        const props = cached?.features?.[0]?.properties || cached?.harvest_summary || cached;
-        const s = props?.harvest_status ?? props?.status ?? null;
-        return s != null ? String(s) : null;
+      const cacheKey = `harvest_status_${plotName}_${currentEndDate}`;
+      const cached = getCache(cacheKey, mapLayerCacheMaxAgeMs());
+      if (cached && !shouldBypassMapLayerCache()) {
+        return typeof cached === "string" ? cached : null;
       }
       try {
-        const url = `${getEventsBaseUrl()}/grapes-harvest?plot_name=${encodeURIComponent(
-          plotName
-        )}&end_date=${currentEndDate}`;
-        const resp = await fetchWithRetry(url, {
-          method: "POST",
-          mode: "cors",
-          cache: "default",
-          credentials: "omit",
-          headers: { Accept: "application/json" },
-        });
-        if (!resp.ok) return null;
-        const data = await resp.json();
-        setCache(cacheKey, data);
-        const props = data?.features?.[0]?.properties || data?.harvest_summary || data;
-        const s = props?.harvest_status ?? props?.status ?? null;
-        return s != null ? String(s) : null;
+        const info = await fetchPlotHarvestInfo(plotName, currentEndDate);
+        if (info.harvestStatus) {
+          setCache(cacheKey, info.harvestStatus);
+          return info.harvestStatus;
+        }
+        return null;
       } catch {
         return null;
       }
@@ -483,7 +490,7 @@ const Map: React.FC<MapProps> = ({
       }
       
       // Only show loading spinner if data doesn't exist in cache
-      if (!hasCachedData && selectedPlotName) {
+      if ((!hasCachedData || shouldBypassMapLayerCache()) && selectedPlotName) {
         setLoading(true);
       } else {
         setLoading(false); // Stop spinner if cached data exists
@@ -537,13 +544,13 @@ const Map: React.FC<MapProps> = ({
         hasStateData = true;
       }
       
-      if (hasStateData) {
+      if (hasStateData && !shouldBypassMapLayerCache()) {
         console.log(`✅ Data already exists in component state for ${dataKey} - skipping fetch`);
         return;
       }
       
       // Check if data has already been loaded
-      if (dataLoadedRef.current[dataKey]) {
+      if (dataLoadedRef.current[dataKey] && !shouldBypassMapLayerCache()) {
         console.log(`✅ Data already loaded for ${dataKey} - skipping fetch`);
         setLoading(false); // Ensure spinner is off
         return;
@@ -554,30 +561,30 @@ const Map: React.FC<MapProps> = ({
       let cachedDataFound = false;
 
       if (activeLayer === "Growth") {
-        if (hasApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${currentEndDate}`)) {
+        if (!shouldBypassMapLayerCache() && (hasApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Water Uptake") {
-        if (hasApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`)) {
+        if (!shouldBypassMapLayerCache() && (hasApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Soil Moisture") {
-        if (hasApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`)) {
+        if (!shouldBypassMapLayerCache() && (hasApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "PEST") {
-        if (hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${currentEndDate}`)) {
+        if (!shouldBypassMapLayerCache() && (hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Brix") {
-        const hasCanopy = hasApiData('canopyVigour', selectedPlotName) || getCache(`canopy_vigour_${selectedPlotName}_${currentEndDate}`);
-        const hasBrix = hasApiData('brix', selectedPlotName) || getCache(`brix_${selectedPlotName}_${currentEndDate}`);
-        const hasBrixQuality = hasApiData('brixQuality', selectedPlotName) || getCache(`brixQuality_${selectedPlotName}`);
-        if (hasCanopy && hasBrix && hasBrixQuality) {
+        const hasCanopy = hasApiData('canopyVigour', selectedPlotName) || getCache(`canopy_vigour_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
+        const hasBrix = hasApiData('brix', selectedPlotName) || getCache(`brix_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
+        const hasBrixQuality = hasApiData('brixQuality', selectedPlotName) || getCache(`brixQuality_${selectedPlotName}`, mapLayerCacheMaxAgeMs());
+        if (!shouldBypassMapLayerCache() && hasCanopy && hasBrix && hasBrixQuality) {
           shouldFetch = false;
           cachedDataFound = true;
         }
@@ -637,6 +644,12 @@ const Map: React.FC<MapProps> = ({
         
         dataLoadedRef.current[dataKey] = true;
         return; // Exit early, don't fetch
+      }
+
+      if (shouldBypassMapLayerCache() && selectedPlotName) {
+        clearMapLayerCache(selectedPlotName);
+        delete dataLoadedRef.current[`${selectedPlotName}_${activeLayer}_${currentEndDate}`];
+        console.log(`🔄 Dev: fetching fresh ${activeLayer} layer from API`);
       }
 
       // Only fetch if data doesn't exist in cache
@@ -876,6 +889,7 @@ const Map: React.FC<MapProps> = ({
         
         const response = await fetch(url, {
           ...options,
+          cache: import.meta.env.DEV ? "no-store" : options.cache ?? "default",
           signal: controller?.signal,
         });
         
@@ -925,9 +939,9 @@ const Map: React.FC<MapProps> = ({
   // Helper function to fetch agroStats data for a specific plot
   const fetchAgroStatsData = async (plotName: string): Promise<any> => {
     const cacheKey = `agroStats_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached agroStats data for ${plotName}`);
       return cachedData;
     }
@@ -1070,7 +1084,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('growth', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Growth data from context for ${plotName}`);
       setGrowthData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1082,9 +1096,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `growth_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Growth data for ${plotName}`);
       setGrowthData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1100,7 +1114,7 @@ const Map: React.FC<MapProps> = ({
     try {
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_plot_combined_analyze_Growth_post
-      const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+      const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/analyze_Growth?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
       
       console.log(`🌱 Fetching Growth data from: ${url}`);
@@ -1173,7 +1187,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('waterUptake', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Water Uptake data from context for ${plotName}`);
       setWaterUptakeData(preloadedData);
       setLoading(false);
@@ -1182,9 +1196,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `wateruptake_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Water Uptake data for ${plotName}`);
       setWaterUptakeData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1200,7 +1214,7 @@ const Map: React.FC<MapProps> = ({
     try {
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_water_uptake_wateruptake_post
-      const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+      const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
       
       console.log(`💧 Fetching Water Uptake data from: ${url}`);
@@ -1273,7 +1287,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('soilMoisture', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Soil Moisture data from context for ${plotName}`);
       setSoilMoistureData(preloadedData);
       setLoading(false);
@@ -1282,9 +1296,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `soilmoisture_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Soil Moisture data for ${plotName}`);
       setSoilMoistureData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1300,7 +1314,7 @@ const Map: React.FC<MapProps> = ({
     try {
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_plot_combined_SoilMoisture_post
-      const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+      const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/SoilMoisture?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
       
       console.log(`🌍 Fetching Soil Moisture data from: ${url}`);
@@ -1374,7 +1388,7 @@ const Map: React.FC<MapProps> = ({
 
     const currentDate = getCurrentDate();
     // Use direct API URL as per API documentation: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_Growth_analyze_Growth_post
-    const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+    const baseUrl = getGrapesAdminBaseUrl();
     // Endpoint: /analyze_Growth (from API documentation)
     const url = `${baseUrl}/analyze_Growth?plot_name=${encodeURIComponent(plotName)}&end_date=${currentDate}&days_back=7`;
 
@@ -1460,7 +1474,7 @@ const Map: React.FC<MapProps> = ({
     try {
       const currentDate = getCurrentDate();
       // Use direct API URL - CORS is handled on the backend
-      const baseUrl = 'https://cropeye-grapes-sef-production.up.railway.app';
+      const baseUrl = getGrapesSefBaseUrl();
       const url = `${baseUrl}/analyze?plot_name=${plotName}&end_date=${currentDate}&days_back=7`;
       
       console.log(`🔍 Fetching field analysis from: ${url}`);
@@ -1538,7 +1552,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('pest', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Pest Detection data from context for ${plotName}`);
       setPestData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1550,9 +1564,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `pest_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Pest Detection data for ${plotName}`);
       setPestData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1568,7 +1582,7 @@ const Map: React.FC<MapProps> = ({
     try {
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/pest_detection_by_crop_pest_detection_post
-      const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+      const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/pest-detection?plot_name=${encodeURIComponent(plotName)}`;
       
       console.log(`🐛 Fetching Pest Detection data from: ${url}`);
@@ -1670,7 +1684,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('canopyVigour', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Canopy Vigour data from context for ${plotName}`);
       setCanopyVigourData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1681,9 +1695,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `canopy_vigour_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Canopy Vigour data for ${plotName}`);
       setCanopyVigourData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1696,7 +1710,7 @@ const Map: React.FC<MapProps> = ({
     setError(null);
 
     // Use direct API URL - CORS is handled on the backend
-    const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+    const baseUrl = getGrapesAdminBaseUrl();
     // Endpoint: /grapes/canopy-vigour1 (for Brix layer background)
     const url = `${baseUrl}/grapes/canopy-vigour1?plot_name=${plotName}`;
 
@@ -1781,7 +1795,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('brix', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Brix data from context for ${plotName}`);
       setBrixData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1793,9 +1807,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `brix_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Brix data for ${plotName}`);
       setBrixData(cachedData);
       if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
@@ -1810,7 +1824,7 @@ const Map: React.FC<MapProps> = ({
 
     // Use direct API URL - CORS is handled on the backend
     // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/grapes_brix_grid_values_grapes_brix_grid_values_post
-    const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+    const baseUrl = getGrapesAdminBaseUrl();
     // Correct endpoint: /grapes/brix-grid-values (POST method)
     const url = `${baseUrl}/grapes/brix-grid-values?plot_name=${encodeURIComponent(plotName)}`;
 
@@ -1905,7 +1919,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('brixQuality', plotName);
-    if (preloadedData) {
+    if (preloadedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Brix Quality data from context for ${plotName}`);
       setBrixQualityData(preloadedData);
       return Promise.resolve(); // Return resolved promise to mark as loaded
@@ -1913,9 +1927,9 @@ const Map: React.FC<MapProps> = ({
 
     // Check cache second
     const cacheKey = `brixQuality_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
+    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
     
-    if (cachedData) {
+    if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Brix Quality data for ${plotName}`);
       setBrixQualityData(cachedData);
       return Promise.resolve(); // Return resolved promise to mark as loaded
@@ -1923,7 +1937,7 @@ const Map: React.FC<MapProps> = ({
 
     try {
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/grapes_brix_grid_values_grapes_brix_grid_values_post
-      const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
+      const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/grapes/brix-grid-values?plot_name=${encodeURIComponent(plotName)}`;
 
       console.log(`🍇 Fetching Brix Quality data from: ${url}`);
@@ -2949,25 +2963,13 @@ const Map: React.FC<MapProps> = ({
           {(plotBoundary || currentPlotFeature)?.geometry?.coordinates?.[0] &&
             Array.isArray((plotBoundary || currentPlotFeature).geometry.coordinates[0]) && (
             <FitPlotToCenter
-              key={selectedPlotName || "plot"}
+              key={`${selectedPlotName || "plot"}-${activeLayer}-${layerChangeKey}`}
+              fitKey={`${selectedPlotName || "plot"}-${activeLayer}-${layerChangeKey}`}
               coordinates={(plotBoundary || currentPlotFeature).geometry.coordinates[0]}
             />
           )}
 
-          {/* Render canopy vigour layer as background for Brix layer */}
-          {activeLayer === "Brix" && canopyVigourData && (() => {
-            const canopyUrl = extractTileUrl(canopyVigourData);
-            return canopyUrl ? (
-              <CustomTileLayer
-                key={`canopy-vigour-background-${layerChangeKey}`}
-                url={canopyUrl}
-                opacity={0.7}
-                tileKey={`canopy-vigour-background-${layerChangeKey}`}
-              />
-            ) : null;
-          })()}
-
-          {/* Render active layer tile (for other layers only - Brix uses canopy layer above) */}
+          {/* Render active layer tile (Brix shows satellite base + grid only) */}
           {activeUrl && activeLayer !== "Brix" && (
             <CustomTileLayer
               key={`${activeLayer}-layer-${layerChangeKey}`}

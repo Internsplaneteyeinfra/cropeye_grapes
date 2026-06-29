@@ -20,9 +20,9 @@ const IrrigationSchedule: React.FC = () => {
   } = useIrrigationSchedule(true);
 
   return (
-    <div className="irrigation-schedule-card bg-white rounded-2xl overflow-hidden shadow h-full min-h-[520px] min-w-0 w-full max-w-full flex flex-col">
-      <div className="bg-green-600 text-white px-3 py-2.5 flex items-center shrink-0">
-        <h2 className="text-sm font-semibold">7-Day Irrigation Schedule</h2>
+    <div className="irrigation-schedule-card bg-white rounded-2xl overflow-hidden shadow h-full min-h-[300px] min-w-0 w-full max-w-full flex flex-col">
+      <div className="bg-white border-b border-gray-100 px-3 py-2.5 flex items-center shrink-0">
+        <h2 className="text-sm font-semibold text-green-700">7-Day Irrigation Schedule</h2>
       </div>
 
       {error && (
@@ -83,7 +83,7 @@ const IrrigationSchedule: React.FC = () => {
                   </span>
                 </td>
                 <td>
-                  {etLoading && day.isToday ? (
+                  {etLoading && day.isToday && day.etDisplayed <= 0 ? (
                     <div className="loading-spinner-small" />
                   ) : (
                     <span
@@ -101,8 +101,19 @@ const IrrigationSchedule: React.FC = () => {
                   </span>
                 </td>
                 <td>
-                  <span className="text-blue-600 font-semibold tabular-nums">
-                    {day.waterRequired.toLocaleString()}
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      day.waterRequired > 0 ? "text-blue-600" : "text-gray-400"
+                    }`}
+                    title={
+                      day.waterRequired > 0
+                        ? `${day.waterRequired.toLocaleString()} liters per acre`
+                        : day.rainfall >= day.etDisplayed
+                          ? `No irrigation — rainfall (${day.rainfall.toFixed(1)} mm) covers ET (${day.etDisplayed.toFixed(1)} mm)`
+                          : "No irrigation needed"
+                    }
+                  >
+                    {day.waterRequired > 0 ? day.waterRequired.toLocaleString() : "0"}
                   </span>
                 </td>
                 <td>

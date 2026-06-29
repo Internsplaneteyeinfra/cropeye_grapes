@@ -74,8 +74,8 @@ export const IrrigationScheduleTable: React.FC<{
   plotName?: string;
   error?: string | null;
 }> = ({ schedule, irrigationType, getETRangeColor, loading, plotName, error }) => (
-  <div className="mt-4 rounded-lg overflow-hidden border border-green-200 shadow-sm">
-    <div className="bg-green-600 text-white px-3 py-2 text-sm font-semibold">
+  <div className="mt-4 rounded-lg overflow-hidden border border-white-200 shadow-sm">
+    <div className="bg-white-600 text-white px-3 py-2 text-sm font-semibold">
       7-Day Irrigation Schedule
     </div>
     {loading ? (

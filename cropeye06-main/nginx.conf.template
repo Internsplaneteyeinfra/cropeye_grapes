@@ -5,7 +5,11 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
-  # Grapes Events API — same-origin as SPA (matches getEventsBaseUrl() -> /api/events).
+  gzip on;
+  gzip_types text/plain text/css application/javascript application/json application/xml text/xml;
+  gzip_min_length 256;
+
+  # Grapes Events API — same-origin (matches getEventsBaseUrl() -> /api/events).
   location /api/events/ {
     proxy_http_version 1.1;
     proxy_set_header Host cropeye-grapes-events-production.up.railway.app;
@@ -17,9 +21,109 @@ server {
     proxy_pass https://cropeye-grapes-events-production.up.railway.app/;
   }
 
+  # Backend REST API + WebSocket notifications.
+  location /api/backend/ws/ {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host cropeye-backendd.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-backendd.up.railway.app;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_pass https://cropeye-backendd.up.railway.app/ws/;
+  }
+
+  location /api/backend/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host cropeye-backendd.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-backendd.up.railway.app;
+    proxy_pass https://cropeye-backendd.up.railway.app/api/;
+  }
+
+  # Weather APIs.
+  location /api/weather/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host weather-cropeye.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name weather-cropeye.up.railway.app;
+    proxy_pass https://weather-cropeye.up.railway.app/;
+  }
+
+  location /api/forecast-weather/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host currentforecast-production.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name currentforecast-production.up.railway.app;
+    proxy_pass https://currentforecast-production.up.railway.app/;
+  }
+
+  # Grapes Admin API — fertilizer schedule, Brix, plot boundaries.
+  location /api/dev-plot/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host cropeye-grapes-admin-production.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-grapes-admin-production.up.railway.app;
+    proxy_connect_timeout 180s;
+    proxy_read_timeout 180s;
+    proxy_send_timeout 180s;
+    proxy_pass https://cropeye-grapes-admin-production.up.railway.app/;
+  }
+
+  # Grapes Main API — soil NPK / analyze-npk.
+  location /api/grapes-main/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host cropeye-grapes-main-production.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-grapes-main-production.up.railway.app;
+    proxy_pass https://cropeye-grapes-main-production.up.railway.app/;
+  }
+
+  # Grapes SEF API — field analysis, ET, water uptake.
+  location /api/field-analysis/ {
+    proxy_http_version 1.1;
+    proxy_set_header Host cropeye-grapes-sef-production.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-grapes-sef-production.up.railway.app;
+    proxy_pass https://cropeye-grapes-sef-production.up.railway.app/;
+  }
+
+  # AgroStats shortcut.
+  location /api/agroStats {
+    proxy_http_version 1.1;
+    proxy_set_header Host cropeye-grapes-events-production.up.railway.app;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_ssl_server_name on;
+    proxy_ssl_name cropeye-grapes-events-production.up.railway.app;
+    proxy_pass https://cropeye-grapes-events-production.up.railway.app/plots/agroStats;
+  }
+
   # SPA routing
   location / {
     try_files $uri $uri/ /index.html;
   }
 }
-

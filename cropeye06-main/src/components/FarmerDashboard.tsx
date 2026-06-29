@@ -47,6 +47,7 @@ import { getCache, setCache } from "../utils/cache";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
+import { publicAsset } from "../utils/publicAsset";
 import {
   extractBrixTimeSeriesFromPayload,
   emptyGrapesDashboardMetrics,
@@ -2354,7 +2355,15 @@ const FarmerDashboard: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-200 relative z-10">
-              <span className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</span>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</span>
+                {!(metrics.growthStage || "").toLowerCase().includes("harvested") &&
+                  metrics.daysToHarvest != null && (
+                    <span className="text-xs font-medium" style={{ color: '#94a3b8' }}>
+                      {metrics.daysToHarvest} days
+                    </span>
+                  )}
+              </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-semibold" style={{ color: '#ef4444' }}>Min:</span>
@@ -2391,7 +2400,7 @@ const FarmerDashboard: React.FC = () => {
 
           <ChartLegend />
 
-          <div className="h-80 sm:h-96 md:h-[28rem] bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg px-0 sm:px-3 -mx-2 sm:mx-0">
+          <div className="h-64 sm:h-72 md:h-80 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg px-0 sm:px-3 -mx-2 sm:mx-0">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={combinedChartData}
@@ -2805,7 +2814,7 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
               <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-start sm:h-[7.75rem] sm:w-[7.75rem]">
                 <img
-                  src="/Image/crop images/Organic Carbon.png"
+                  src={publicAsset("Image/crop images/Organic Carbon.png")}
                   alt=""
                   aria-hidden
                   className="max-h-full max-w-full object-contain object-left pointer-events-none select-none"
@@ -2845,12 +2854,11 @@ const FarmerDashboard: React.FC = () => {
 
           <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-yellow-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
-              <div className="-ml-0.5 mt-1 flex h-[4.5rem] w-[4.5rem] shrink-0 items-end justify-start sm:-ml-1 sm:mt-1.5 sm:h-[5rem] sm:w-[5rem]">
-                <img
-                  src="/Image/crop images/Soil pH.svg"
-                  alt=""
+              <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-center sm:h-[7.75rem] sm:w-[7.75rem]">
+                <Beaker
+                  className="h-16 w-16 text-amber-500 sm:h-[4.5rem] sm:w-[4.5rem]"
+                  strokeWidth={1.75}
                   aria-hidden
-                  className="h-full w-full object-contain object-left-bottom pointer-events-none select-none"
                 />
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
@@ -3014,7 +3022,7 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center gap-2 mb-3 sm:mb-4 shrink-0">
               <Users className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600 shrink-0" />
               <h3 className="text-base sm:text-lg font-semibold text-gray-800">
-                canopy vigour
+                Canopy vigour
               </h3>
             </div>
 

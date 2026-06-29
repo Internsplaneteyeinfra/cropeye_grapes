@@ -49,6 +49,7 @@ import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
+import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import api from "../api"; // Import the authenticated api instance
 import CommonSpinner from "./CommanSpinner";
 
@@ -472,31 +473,17 @@ const OwnerFarmDash: React.FC = () => {
 
       if (!harvestData) {
         try {
-          const harvestRes = await axios.post(
-            `${BASE_URL}/grapes-harvest?plot_name=${selectedPlotId}&end_date=${endDate}`,
-          );
-          harvestData = harvestRes.data;
+          harvestData = await fetchPlotHarvestInfo(selectedPlotId, endDate);
           setCache(harvestCacheKey, harvestData);
         } catch (harvestErr) {
           console.error("Error fetching harvest status:", harvestErr);
         }
       }
 
-      // Extract harvest_status and harvest_date from response
       if (harvestData) {
-        const harvestProperties =
-          harvestData?.features?.[0]?.properties ||
-          harvestData?.harvest_summary;
-
-        harvestStatus =
-          harvestProperties?.harvest_status ||
-          harvestData?.harvest_summary?.harvest_status ||
-          null;
-
-        harvestDate = harvestProperties?.harvest_date || null;
-        isHarvested =
-          harvestProperties?.has_harvest === true &&
-          harvestProperties?.harvest_status === "harvested";
+        harvestStatus = harvestData.harvestStatus;
+        harvestDate = harvestData.harvestDate;
+        isHarvested = harvestData.isHarvested;
       }
 
       // Step 2: Determine which date to use for fetching yield data
@@ -1604,7 +1591,14 @@ const OwnerFarmDash: React.FC = () => {
                 </div>
               </div>
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Sugar Content</p>
+            <div className="mt-auto pt-3 relative z-10">
+              <p className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</p>
+              {!loadingData && metrics.daysToHarvest != null && (
+                <p className="text-xs font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                  {metrics.daysToHarvest} days
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

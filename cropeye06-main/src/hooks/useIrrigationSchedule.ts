@@ -7,6 +7,7 @@ import {
   resolveForecastLatLon,
   weatherTodayRainCacheKey,
 } from "../services/weatherForecastService";
+import { fetchCurrentWeather } from "../services/weatherService";
 import { useAppContext } from "../context/AppContext";
 import { getGrapesSefBaseUrl } from "../utils/serviceUrls";
 import { useFarmerProfile } from "./useFarmerProfile";
@@ -37,9 +38,68 @@ export interface ScheduleTotals {
   irrigationType: string;
 }
 
-const ET_API_BASE = getGrapesSefBaseUrl();
+const ET_API_BASE = getGrapesSefBaseUrl().replace(/\/+$/, "");
+
+const ET_FETCH_BASES = [
+  ET_API_BASE,
+  "/api/field-analysis",
+  "https://cropeye-grapes-sef-production.up.railway.app",
+].filter((v, i, arr) => arr.indexOf(v) === i);
 
 const DEFAULT_ET = 2.5;
+
+async function fetchPlotEtValue(plot: string): Promise<number> {
+  let lastErr: Error | null = null;
+
+  for (const base of ET_FETCH_BASES) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const url = `${base}/plots/${encodeURIComponent(plot)}/compute-et/`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-cache",
+        credentials: "omit",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`ET API ${response.status}`);
+      }
+
+      const data = await response.json();
+      const et = data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et ?? 0;
+      const finalEt = Number(et) > 0 ? Number(et) : DEFAULT_ET;
+      return finalEt;
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      lastErr = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastErr || new Error("Failed to load ET data");
+}
+
+async function resolveTodayRainfallMm(
+  lat: number,
+  lon: number,
+  forecastTodayRain: number
+): Promise<number> {
+  try {
+    const current = await fetchCurrentWeather(lat, lon, true);
+    if (Number.isFinite(current.precip_mm)) {
+      return Number(current.precip_mm);
+    }
+  } catch {
+    /* fall back to forecast */
+  }
+  return forecastTodayRain;
+}
 
 export interface IrrigationPlotConfig {
   irrigationTypeCode: string;
@@ -267,8 +327,9 @@ export function useIrrigationSchedule(syncToAppState = false) {
           getCached,
           setCached
         );
+        const todayRain = await resolveTodayRainfallMm(lat, lon, todayRainfall);
         if (!cancelled) {
-          setRainfallMm(todayRainfall);
+          setRainfallMm(todayRain);
           setForecastRainfall(irrigationRainfallFromChartDays(chartDays));
           setAppState((prev: any) => ({
             ...prev,
@@ -352,10 +413,19 @@ export function useIrrigationSchedule(syncToAppState = false) {
     const todayRain = getCached(weatherTodayRainCacheKey(lat, lon));
     if (typeof todayRain !== "number") return;
 
-    setRainfallMm(todayRain);
-    setForecastRainfall(irrigationRainfallFromChartDays(chartDays));
-    setWeatherLoading(false);
+    void resolveTodayRainfallMm(lat, lon, todayRain).then((resolvedTodayRain) => {
+      setRainfallMm(resolvedTodayRain);
+      setForecastRainfall(irrigationRainfallFromChartDays(chartDays));
+      setWeatherLoading(false);
+    });
   }, [appState?.weatherChartData, profile, selectedPlotName, getCached]);
+
+  useEffect(() => {
+    if (appState?.etValue && Number(appState.etValue) > 0) {
+      setEtValue(Number(appState.etValue));
+      setEtLoading(false);
+    }
+  }, [appState?.etValue]);
 
   useEffect(() => {
     if (!plotName) return;
@@ -372,6 +442,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
     if (appState?.etValue && Number(appState.etValue) > 0) {
       setEtValue(Number(appState.etValue));
       setEtLoading(false);
+      return;
     }
 
     let cancelled = false;
@@ -379,29 +450,12 @@ export function useIrrigationSchedule(syncToAppState = false) {
     setError(null);
 
     void (async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
       try {
-        const apiUrl = `${ET_API_BASE}/plots/${encodeURIComponent(plotName)}/compute-et/`;
-        const response = await fetch(apiUrl, {
-          method: "POST",
-          mode: "cors",
-          cache: "no-cache",
-          credentials: "omit",
-          headers: { Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) throw new Error(`ET API ${response.status}`);
-        const data = await response.json();
-        const et = data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et ?? 0;
-        const finalEt = Number(et) > 0 ? Number(et) : DEFAULT_ET;
+        const finalEt = await fetchPlotEtValue(plotName);
         if (!cancelled) {
           setEtValue(finalEt);
           setCached(cacheKey, { etValue: finalEt });
+          setAppState((prev: any) => ({ ...prev, etValue: finalEt }));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -409,10 +463,11 @@ export function useIrrigationSchedule(syncToAppState = false) {
           setError((prev) => prev ?? message);
           if (appState?.etValue && Number(appState.etValue) > 0) {
             setEtValue(Number(appState.etValue));
+          } else {
+            setEtValue(DEFAULT_ET);
           }
         }
       } finally {
-        clearTimeout(timeoutId);
         if (!cancelled) setEtLoading(false);
       }
     })();
@@ -420,7 +475,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
     return () => {
       cancelled = true;
     };
-  }, [plotName, getCached, setCached, appState?.etValue]);
+  }, [plotName, getCached, setCached, setAppState, appState?.etValue]);
 
   const rainfallReady = rainfallMm !== null && forecastRainfall !== null;
 

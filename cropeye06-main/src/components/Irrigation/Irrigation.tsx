@@ -237,12 +237,12 @@ const Irrigation: React.FC<IrrigationProps> = ({
       <div className="refresh-section">
         <button
           onClick={() => {
-            // Find selected plot or use first plot
             let selectedPlot = null;
             if (activePlotName) {
-              selectedPlot = profile?.plots?.find((p: any) =>
-                p.fastapi_plot_id === activePlotName ||
-                `${p.gat_number}_${p.plot_number}` === activePlotName
+              selectedPlot = profile?.plots?.find(
+                (p: { fastapi_plot_id?: string; gat_number?: string; plot_number?: string }) =>
+                  p.fastapi_plot_id === activePlotName ||
+                  `${p.gat_number}_${p.plot_number}` === activePlotName
               );
             }
 
@@ -254,10 +254,12 @@ const Irrigation: React.FC<IrrigationProps> = ({
               const [longitude, latitude] = selectedPlot.coordinates.location.coordinates;
               fetchWeatherData(latitude, longitude);
             }
+
+            window.dispatchEvent(new CustomEvent("irrigation-refresh-soil-moisture"));
           }}
-          // className="refresh-button"
+          className="refresh-button"
         >
-          {/* Refresh Data */}
+          Refresh Data
         </button>
         <span className="last-updated">
           Last updated: {lastUpdated.toLocaleTimeString()}

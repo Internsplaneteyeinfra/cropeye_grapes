@@ -1073,3 +1073,18 @@
 .dashboard-cards-row .dashboard-card-soil .moisture-percentage-text-empty {
   font-size: 0.7rem;
 }
+
+.trend-card-row {
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.moisture-trend-chart-plot {
+  min-height: 380px;
+}
+
+.soil-moisture-trend-card .trend-card-header h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+}

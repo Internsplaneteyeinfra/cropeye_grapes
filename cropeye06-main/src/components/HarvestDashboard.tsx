@@ -5,6 +5,10 @@ import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
 import {
+  fetchPlotHarvestInfo,
+  harvestInfoFromAgroStatsBatch,
+} from "../utils/harvestStatusService";
+import {
   MapPin,
   ChevronDown,
   Calendar,
@@ -676,40 +680,36 @@ const HarvestDashboard: React.FC = () => {
           }
 
           if (uniquePlotIds.length > 0) {
-            // Fetch harvest status for all plots in parallel with caching
-            const harvestPromises = uniquePlotIds.map(async (plotId) => {
-              // Check cache first
+            const batchHarvest = harvestInfoFromAgroStatsBatch(
+              allPlotsYieldData,
+              uniquePlotIds
+            );
+            batchHarvest.forEach((info, plotId) => {
+              if (info.harvestStatus) {
+                harvestStatusMap.set(plotId, info.harvestStatus);
+                setCache(`harvest_status_${plotId}_${today}`, info.harvestStatus);
+              }
+            });
+
+            const missingPlotIds = uniquePlotIds.filter(
+              (plotId) => !harvestStatusMap.has(plotId)
+            );
+
+            const harvestPromises = missingPlotIds.map(async (plotId) => {
               const cacheKey = `harvest_status_${plotId}_${today}`;
               const cachedStatus = getCache(cacheKey);
-
               if (cachedStatus) {
                 harvestStatusMap.set(plotId, cachedStatus);
                 return;
               }
 
               try {
-                const harvestRes = await axios.post(
-                  `${BASE_URL}/grapes-harvest?plot_name=${plotId}&end_date=${today}`,
-                  {},
-                  {
-                    timeout: 30000, // 30 seconds timeout
-                  },
-                );
-                const harvestData = harvestRes.data;
-
-                // Extract harvest_status from response - check multiple possible locations
-                const harvestStatus =
-                  harvestData?.harvest_status || // Direct access (primary)
-                  harvestData?.harvest_summary?.harvest_status || // Nested in harvest_summary
-                  harvestData?.features?.[0]?.properties?.harvest_status || // Nested in features
-                  null;
-
-                if (harvestStatus) {
-                  harvestStatusMap.set(plotId, harvestStatus);
-                  // Cache the result
-                  setCache(cacheKey, harvestStatus);
+                const info = await fetchPlotHarvestInfo(plotId, today);
+                if (info.harvestStatus) {
+                  harvestStatusMap.set(plotId, info.harvestStatus);
+                  setCache(cacheKey, info.harvestStatus);
                 }
-              } catch (err: any) {
+              } catch {
                 // Keep default status if API call fails
               }
             });

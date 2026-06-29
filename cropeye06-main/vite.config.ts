@@ -165,7 +165,7 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/agroStats/, '/plots/agroStats'),
         configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+          proxy.on('proxyReq', (proxyReq, req:any, _res) => {
             proxyReq.setHeader('Origin', 'https://cropeye-grapes-events-production.up.railway.app');
           });
 

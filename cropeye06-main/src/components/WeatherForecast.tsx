@@ -22,11 +22,129 @@ import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import {
   ForecastChartDay,
   forecastChartHasValues,
+  formatWindDirectionLabel,
   getOrFetchWeatherChartDays,
   resolveForecastLatLon,
   weatherChartCacheKey,
 } from "../services/weatherForecastService";
 import "./WeatherForecast.css";
+
+type WindArrowTip = {
+  row: ForecastChartDay;
+  x: number;
+  y: number;
+};
+
+type DateWindTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+  chartData: ForecastChartDay[];
+  fontSize: number;
+  showPerDayArrows: boolean;
+  onWindArrowHover?: (tip: WindArrowTip | null) => void;
+};
+
+const WindArrowSvg: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 18 }) => {
+  const rotation = (degrees + 180) % 360;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden
+      style={{ transform: `rotate(${rotation}deg)`, display: "block" }}
+    >
+      <path
+        d="M12 3 L12 21 M12 3 L7 11 M12 3 L17 11"
+        stroke="#10b981"
+        strokeWidth="2.5"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+const DateWithWindTick: React.FC<DateWindTickProps> = ({
+  x = 0,
+  y = 0,
+  payload,
+  chartData,
+  fontSize,
+  showPerDayArrows,
+  onWindArrowHover,
+}) => {
+  const label = payload?.value ?? "";
+  const row = chartData.find((d) => d.date === label);
+  const dir = row?.windDirectionDeg;
+  const arrowRotation = dir != null ? (dir + 180) % 360 : 0;
+  const directionLabel =
+    row?.windDirectionLabel ??
+    (dir != null && Number.isFinite(dir) ? formatWindDirectionLabel(dir) : null);
+
+  const handleArrowEnter = (event: React.MouseEvent<SVGGElement>) => {
+    if (!row || dir == null || !onWindArrowHover) return;
+    onWindArrowHover({ row, x: event.clientX, y: event.clientY });
+  };
+
+  const handleArrowMove = (event: React.MouseEvent<SVGGElement>) => {
+    if (!row || dir == null || !onWindArrowHover) return;
+    onWindArrowHover({ row, x: event.clientX, y: event.clientY });
+  };
+
+  const showArrow = showPerDayArrows && dir != null && Number.isFinite(dir);
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="#6b7280" fontSize={fontSize} dy={14}>
+        {label}
+      </text>
+      {showArrow && (
+        <g
+          transform="translate(0, 26)"
+          style={{ cursor: "pointer" }}
+          onMouseEnter={handleArrowEnter}
+          onMouseMove={handleArrowMove}
+          onMouseLeave={() => onWindArrowHover?.(null)}
+        >
+          <rect x={-14} y={-14} width={28} height={28} fill="transparent" />
+          <title>
+            {directionLabel
+              ? `Wind direction: ${directionLabel}`
+              : `Wind direction: ${Math.round(dir)}°`}
+          </title>
+          <g transform={`rotate(${arrowRotation})`}>
+            <path
+              d="M0 -7 L0 7 M0 -7 L-4 -1 M0 -7 L4 -1"
+              stroke="#10b981"
+              strokeWidth="2"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </g>
+        </g>
+      )}
+    </g>
+  );
+};
+
+function getWindDirectionMode(chartData: ForecastChartDay[]): {
+  mode: "none" | "shared" | "perDay";
+  sharedDay?: ForecastChartDay;
+} {
+  const withDir = chartData.filter(
+    (d) => d.windDirectionDeg != null && Number.isFinite(d.windDirectionDeg)
+  );
+  if (withDir.length === 0) return { mode: "none" };
+  const unique = new Set(withDir.map((d) => Math.round(d.windDirectionDeg!)));
+  if (unique.size === 1) {
+    return { mode: "shared", sharedDay: withDir[0] };
+  }
+  return { mode: "perDay" };
+}
 
 
 interface WeatherForecastProps {
@@ -50,6 +168,8 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
   const [loadingForecast, setLoadingForecast] = useState(false);
   const [forecastError, setForecastError] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [windArrowTip, setWindArrowTip] = useState<WindArrowTip | null>(null);
+  const chartWrapRef = useRef<HTMLDivElement>(null);
   const fetchGenRef = useRef(0);
 
   useEffect(() => {
@@ -60,7 +180,27 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
   const isNarrow = viewportWidth <= 425; // includes 320, 375, 425
   const isMobile = viewportWidth <= 768; // includes all mobile views
-  const chartMargin = isNarrow ? { top: 4, right: 6, left: 0, bottom: -5 } : isMobile ? { top: 6, right: 10, left: 5, bottom: -3 } : { top: 20, right: 30, left: 20, bottom: 5 };
+
+  const windDirectionMode = useMemo(() => getWindDirectionMode(chartData), [chartData]);
+  const showPerDayArrows = windDirectionMode.mode === "perDay";
+  const sharedWindDay = windDirectionMode.mode === "shared" ? windDirectionMode.sharedDay : null;
+
+  const chartMargin = isNarrow
+    ? { top: 4, right: 6, left: 0, bottom: showPerDayArrows ? 28 : 8 }
+    : isMobile
+      ? { top: 6, right: 10, left: 5, bottom: showPerDayArrows ? 32 : 10 }
+      : { top: 20, right: 30, left: 20, bottom: showPerDayArrows ? 36 : 12 };
+  const xAxisHeight = showPerDayArrows
+    ? isNarrow
+      ? 52
+      : isMobile
+        ? 56
+        : 60
+    : isNarrow
+      ? 28
+      : isMobile
+        ? 32
+        : 36;
 
 
   // Fetch farmer coordinates from profile - update when plot selection changes
@@ -235,6 +375,9 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             <p className="text-sm">
               <span className="inline-block w-3 h-3 bg-green-500 rounded-full mr-2"></span>
               Wind: {(Number(data.wind) || 0).toFixed(2)} km/h
+              {data.windDirectionLabel ? (
+                <span className="text-gray-600"> · {data.windDirectionLabel}</span>
+              ) : null}
             </p>
             <p className="text-sm">
               <span className="inline-block w-3 h-3 bg-purple-500 rounded-full mr-2"></span>
@@ -245,6 +388,19 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
       );
     }
     return null;
+  };
+
+  const handleWindArrowHover = (tip: WindArrowTip | null) => {
+    if (!tip || !chartWrapRef.current) {
+      setWindArrowTip(null);
+      return;
+    }
+    const rect = chartWrapRef.current.getBoundingClientRect();
+    setWindArrowTip({
+      row: tip.row,
+      x: tip.x - rect.left,
+      y: tip.y - rect.top,
+    });
   };
 
   const handleChartClick = (data: any) => {
@@ -386,7 +542,14 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
                 >
                   {(Number(currentWeather.wind) || 0).toFixed(2)} km/h
                 </div>
-                <div className="text-sm opacity-75">Wind Speed</div>
+                <div className="text-sm opacity-75">
+                  Wind Speed
+                  {currentWeather.windDirectionLabel ? (
+                    <span className="block text-xs mt-0.5 font-semibold">
+                      {currentWeather.windDirectionLabel}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
@@ -428,7 +591,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
 
-          <div className="w-full h-[300px] sm:h-[320px] md:h-[400px] relative">
+          <div ref={chartWrapRef} className="w-full h-[300px] sm:h-[340px] md:h-[420px] relative">
             {/* Refresh Icon */}
             <button
               className="absolute top-1 right-1 sm:top-2 sm:right-2 z-10 bg-white rounded-full p-2 shadow hover:bg-gray-100 transition w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
@@ -450,8 +613,17 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
                   dataKey="date"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: "#6b7280", fontSize: isNarrow ? 10 : isMobile ? 12 : 14 }}
-                  tickMargin={isNarrow ? 2 : isMobile ? 4 : 8}
+                  height={xAxisHeight}
+                  interval={0}
+                  tick={(props) => (
+                    <DateWithWindTick
+                      {...props}
+                      chartData={chartData}
+                      fontSize={isNarrow ? 10 : isMobile ? 12 : 14}
+                      showPerDayArrows={showPerDayArrows}
+                      onWindArrowHover={handleWindArrowHover}
+                    />
+                  )}
                 />
                 <YAxis
                   axisLine={false}
@@ -513,6 +685,56 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
                 />
               </ComposedChart>
             </ResponsiveContainer>
+            {sharedWindDay?.windDirectionDeg != null && (
+              <div
+                className="wind-direction-shared"
+                onMouseEnter={(e) =>
+                  handleWindArrowHover({
+                    row: sharedWindDay,
+                    x: e.clientX,
+                    y: e.clientY,
+                  })
+                }
+                onMouseMove={(e) =>
+                  handleWindArrowHover({
+                    row: sharedWindDay,
+                    x: e.clientX,
+                    y: e.clientY,
+                  })
+                }
+                onMouseLeave={() => handleWindArrowHover(null)}
+                title={
+                  sharedWindDay.windDirectionLabel
+                    ? `Wind direction: ${sharedWindDay.windDirectionLabel}`
+                    : undefined
+                }
+              >
+                <WindArrowSvg degrees={sharedWindDay.windDirectionDeg} size={22} />
+                <span className="wind-direction-shared-label">Wind direction</span>
+              </div>
+            )}
+            {windArrowTip && (
+              <div
+                className="wind-arrow-hover-tip"
+                style={{
+                  left: windArrowTip.x,
+                  top: windArrowTip.y,
+                }}
+              >
+                <p className="wind-arrow-hover-tip-title">{windArrowTip.row.date}</p>
+                <p className="wind-arrow-hover-tip-line">
+                  <span className="inline-block w-2.5 h-2.5 bg-green-500 rounded-full mr-1.5" />
+                  Wind direction:{" "}
+                  {windArrowTip.row.windDirectionLabel ??
+                    (windArrowTip.row.windDirectionDeg != null
+                      ? formatWindDirectionLabel(windArrowTip.row.windDirectionDeg)
+                      : "—")}
+                </p>
+                <p className="wind-arrow-hover-tip-line text-gray-500">
+                  Speed: {(Number(windArrowTip.row.wind) || 0).toFixed(2)} km/h
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

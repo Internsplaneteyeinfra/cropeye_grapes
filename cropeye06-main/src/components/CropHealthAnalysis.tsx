@@ -402,56 +402,26 @@ const CropHealthAnalysis: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-full flex flex-col min-h-[520px] rounded-2xl shadow-md w-full max-w-full min-w-0 p-4 bg-white" style={{ borderRadius: '1rem' }}>
+      <div
+        className="h-full flex flex-col min-h-[300px] rounded-2xl shadow-md w-full max-w-full min-w-0 p-4 bg-white"
+        style={{ borderRadius: "1rem" }}
+      >
         <div className="card-header">
           <h2 className="text-xl font-bold text-green-700">Crop Health Analysis</h2>
         </div>
         <div className="flex items-center justify-center flex-1">
-          <div className="text-center">
-            <div className="animate-spin mx-auto mb-4">
-              {/* <Satellite className="h-12 w-12 text-blue-500" /> */}
-            </div>
-            <p className="text-gray-600">Loading risk assessment...</p>
-          </div>
+          <p className="text-gray-600">Loading risk assessment...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div 
-      className="h-full flex flex-col min-h-[520px] rounded-2xl relative overflow-hidden shadow-md w-full max-w-full min-w-0" 
-      style={{
-        backgroundImage: "url('/Image/crophealth card.png')",
-        backgroundSize: 'cover',
-        backgroundPosition: 'center top',
-        backgroundRepeat: 'no-repeat',
-        borderRadius: '1rem', 
-        position: 'relative'
-      }}
-    >
-      {/* Background overlay for better text readability */}
-      <div className="absolute inset-0 bg-white/20 z-0"></div>
-      
-      <div className="relative z-10 flex flex-col flex-1 min-h-0 w-full">
-        <div
-          className="px-4 pt-4 pb-3 shrink-0"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(0,0,0,0.58) 0%, rgba(0,0,0,0.35) 70%, transparent 100%)",
-          }}
-        >
-          <div className="card-header flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-            <h2
-              className="text-lg md:text-xl font-bold text-white"
-              style={{
-                textShadow:
-                  "0 2px 4px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.6)",
-              }}
-            >
-              Crop Health Analysis
-            </h2>
-          {activeTab === 'pests' && (
+    <div className="h-full flex flex-col min-h-[300px] rounded-2xl relative overflow-hidden shadow-md w-full max-w-full min-w-0 bg-white border border-gray-100">
+      <div className="bg-white border-b border-gray-100 shrink-0">
+        <div className="px-3 py-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+          <h2 className="text-sm font-semibold text-green-700">Crop Health Analysis</h2>
+          {activeTab === "pests" && (
             <button
               onClick={handleDownloadPestsPDF}
               className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm w-full md:w-auto justify-center"
@@ -459,7 +429,7 @@ const CropHealthAnalysis: React.FC = () => {
               <Download className="w-4 h-4" />
             </button>
           )}
-          {activeTab === 'diseases' && (
+          {activeTab === "diseases" && (
             <button
               onClick={handleDownloadDiseasesPDF}
               className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm w-full md:w-auto justify-center"
@@ -470,34 +440,24 @@ const CropHealthAnalysis: React.FC = () => {
           )}
         </div>
 
-          <div
-            className="flex border-b mt-2 overflow-x-auto rounded-t-md px-1"
-            style={{
-              borderColor: "rgba(255,255,255,0.45)",
-              background: "rgba(0,0,0,0.22)",
-            }}
-          >
-          {(['weeds', 'pests', 'diseases'] as const).map(tab => (
+        <div className="flex border-b border-gray-200 overflow-x-auto px-2">
+          {(["weeds", "pests", "diseases"] as const).map((tab) => (
             <div
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`cursor-pointer px-3 md:px-4 py-2 text-sm md:text-base whitespace-nowrap font-bold ${
+              className={`cursor-pointer px-3 md:px-4 py-2 text-sm whitespace-nowrap font-semibold ${
                 activeTab === tab
-                  ? 'border-b-2 border-white'
-                  : ''
+                  ? "border-b-2 border-green-600 text-green-700"
+                  : "text-gray-600 hover:text-green-700"
               }`}
-              style={activeTab === tab 
-                ? { color: '#ffffff', textShadow: '0 2px 4px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.65)' }
-                : { color: 'rgba(255,255,255,0.95)', textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.55)' }
-              }
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </div>
           ))}
         </div>
-        </div>
+      </div>
 
-        <div className="p-2 md:p-4 flex-1 overflow-hidden w-full min-h-0 flex flex-col mt-2 rounded-t-lg" style={{ backgroundColor: 'rgba(255,255,255,0.95)' }}>
+      <div className="p-2 md:p-4 flex-1 overflow-auto w-full min-h-0 flex flex-col bg-white">
           {activeTab === 'pests' && (
           <div className="overflow-x-auto w-full scroll-hide pest-tab-scroll">
             {pestControls.length === 0 ? (
@@ -512,7 +472,7 @@ const CropHealthAnalysis: React.FC = () => {
                     <tr>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Pest</th>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Probability</th>
-                      <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Organic Control</th>
+                      <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Organic Action</th>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Chemical Control</th>
                     </tr>
                   </thead>
@@ -557,7 +517,7 @@ const CropHealthAnalysis: React.FC = () => {
                     <tr>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Disease</th>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Probability</th>
-                      <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Organic Control</th>
+                      <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Organic Action</th>
                       <th className="py-1 md:py-2 px-1 md:px-2 font-bold text-left">Chemical Control</th>
                     </tr>
                   </thead>
@@ -639,7 +599,6 @@ const CropHealthAnalysis: React.FC = () => {
             </table>
           </div>
         )}
-        </div>
       </div>
     </div>
   );

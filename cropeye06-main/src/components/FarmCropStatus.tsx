@@ -53,6 +53,7 @@ import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
+import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import { getRecentFarmers } from "../api";
 import { getUserRole } from "../utils/auth";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
@@ -551,28 +552,15 @@ const OfficerDashboard: React.FC = () => {
 
       if (!harvestData) {
         try {
-          const harvestRes = await axios.post(
-            `${BASE_URL}/grapes-harvest?plot_name=${selectedPlotId}&end_date=${today}`,
-          );
-          harvestData = harvestRes.data;
+          harvestData = await fetchPlotHarvestInfo(selectedPlotId, today);
           setCache(harvestCacheKey, harvestData);
         } catch (harvestErr) { }
       }
 
       if (harvestData) {
-        const harvestProperties =
-          harvestData?.features?.[0]?.properties ||
-          harvestData?.harvest_summary;
-
-        harvestStatus =
-          harvestProperties?.harvest_status ||
-          harvestData?.harvest_summary?.harvest_status ||
-          null;
-
-        harvestDate = harvestProperties?.harvest_date || null;
-        isHarvested =
-          harvestProperties?.has_harvest === true &&
-          harvestProperties?.harvest_status === "harvested";
+        harvestStatus = harvestData.harvestStatus;
+        harvestDate = harvestData.harvestDate;
+        isHarvested = harvestData.isHarvested;
       }
 
       // Determine which date to use for fetching yield data

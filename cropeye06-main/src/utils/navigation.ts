@@ -19,6 +19,22 @@ export const setNavigationCallback = (callback: (path: string) => void) => {
  * Navigate to a path without causing a full page reload
  */
 export const navigateToLogin = () => {
+  // Demo/mock auth or frontend role preview: never bounce to login on API 401
+  try {
+    const { USE_MOCK_AUTH } = require("../config/authConfig");
+    if (USE_MOCK_AUTH) {
+      console.warn("⚠️ Navigation: mock auth active — skip redirect to /login");
+      return;
+    }
+    const { isFrontendRolePreview } = require("./frontendRolePreview");
+    if (isFrontendRolePreview()) {
+      console.warn("⚠️ Navigation: frontend role preview — skip redirect to /login");
+      return;
+    }
+  } catch {
+    // continue with normal logout redirect
+  }
+
   const now = Date.now();
   
   // Prevent rapid redirects (infinite loop protection)
@@ -66,9 +82,7 @@ export const navigateToLogin = () => {
         } catch (e) {
           console.warn('Could not clear auth data:', e);
         }
-        // Redirect to centralized gateway login (prevents blank internal /login screens)
         try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const { gatewayLogout } = require('./gatewayAuth');
           gatewayLogout();
         } catch {

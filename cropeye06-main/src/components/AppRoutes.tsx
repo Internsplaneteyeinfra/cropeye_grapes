@@ -6,13 +6,12 @@ import {
   Navigate,
   useNavigate,
 } from "react-router-dom";
-// import Login from "../components/Login";
+import Login from "../components/Login";
 import App from "../App";
 import CommonSpinner from "../components/CommanSpinner";
 import {
   getAuthToken,
   getUserRole,
-  // clearAuthData,
   clearAllLocalStorage,
   setAuthData,
   isValidToken,
@@ -21,31 +20,9 @@ import { getCurrentUser } from "../api";
 import { initializeTokenRefresh } from "../utils/tokenManager";
 import { USE_MOCK_AUTH } from "../config/authConfig";
 import { setNavigationCallback, resetRedirectFlag } from "../utils/navigation";
-import { GATEWAY_URL } from "../utils/gatewayAuth";
 import { clearAllCache } from "../components/utils/cache";
 import { useAppContext } from "../context/AppContext";
-
-const getGatewayOrigin = () => {
-  try {
-    return new URL(GATEWAY_URL).origin;
-  } catch {
-    return GATEWAY_URL;
-  }
-};
-
-const isOnGatewayPath = () => {
-  try {
-    return window.location.pathname.startsWith("/login");
-  } catch {
-    return false;
-  }
-};
-
-const getGatewayLoginUrl = (logout = false) => {
-  const base = getGatewayOrigin().replace(/\/+$/, "");
-  const url = `${base}/login/`;
-  return logout ? `${url}?logout=1` : url;
-};
+import { clearFrontendRolePreview } from "../utils/frontendRolePreview";
 
 const bootstrapTokensFromUrl = () => {
   try {
@@ -104,47 +81,64 @@ const AppRoutesContent: React.FC = () => {
       checkInProgress = true;
 
       try {
-    // Check authentication status on app start
-    bootstrapTokensFromUrl();
-    const token = getAuthToken();
-    const savedRole = getUserRole() as UserRole | null;
+        bootstrapTokensFromUrl();
+        const token = getAuthToken();
+        const savedRole = getUserRole() as UserRole | null;
 
-        // Gateway enforcement: if no token, send to centralized login (except when already leaving)
-        if (!token) {
-          if (isMounted) setLoading(false);
-          // Always route unauthenticated users to gateway (no internal login)
-          if (window.location.origin !== getGatewayOrigin() || !isOnGatewayPath()) {
-            window.location.assign(getGatewayLoginUrl(true));
-          }
-          checkInProgress = false;
-          return;
-        }
-
-        // If on login page and no token, skip validation
-        if (window.location.pathname === "/login") {
-          // Internal login disabled -> send to gateway
-          if (window.location.origin !== getGatewayOrigin() || !isOnGatewayPath()) {
-            window.location.assign(getGatewayLoginUrl(true));
-          }
-          checkInProgress = false;
-          return;
-        }
-
-    if (USE_MOCK_AUTH) {
+        // Grapes mock auth: use internal /login (no gateway, no backend users)
+        if (USE_MOCK_AUTH) {
           const mod = await import("../mockAuth/mockAuthService");
           const mockUser = mod.getMockUser();
-          if (mockUser && mockUser.role && isMounted) {
-            setUserRole(mockUser.role as UserRole);
+          const roleFromStorage = (savedRole || mockUser?.role) as UserRole | null;
+          if (token && roleFromStorage && isMounted) {
+            // Keep authUser in sync if only role/token survived
+            if (!mockUser && savedRole) {
+              localStorage.setItem(
+                "authUser",
+                JSON.stringify({
+                  phone_number: "",
+                  password: "",
+                  role: savedRole,
+                  name: savedRole,
+                })
+              );
+            }
+            setUserRole(roleFromStorage);
             setIsAuthenticated(true);
+          } else if (isMounted) {
+            setIsAuthenticated(false);
+            setUserRole(null);
+            if (window.location.pathname !== "/login") {
+              navigate("/login", { replace: true });
+            }
           }
-        } else {
-          if (token) {
-            // IMPORTANT: After coming from gateway, role may not be stored yet.
-            // Always validate token to fetch role and avoid blank/loop screens.
-            await validateToken(token, (savedRole || "farmer") as UserRole);
-          } else {
-            if (isMounted) setLoading(false);
+          if (isMounted) setLoading(false);
+          checkInProgress = false;
+          return;
+        }
+
+        if (!token) {
+          if (isMounted) {
+            setIsAuthenticated(false);
+            setUserRole(null);
+            setLoading(false);
+            if (window.location.pathname !== "/login") {
+              navigate("/login", { replace: true });
+            }
           }
+          checkInProgress = false;
+          return;
+        }
+
+        if (window.location.pathname === "/login") {
+          // Already on internal login with a token — validate below or stay for re-login
+          if (isMounted) setLoading(false);
+        }
+
+        if (token) {
+          await validateToken(token, (savedRole || "farmer") as UserRole);
+        } else if (isMounted) {
+          setLoading(false);
         }
       } catch (error) {
         console.error('❌ Auth check error:', error);
@@ -163,13 +157,11 @@ const AppRoutesContent: React.FC = () => {
     };
   }, []);
 
-  // Initialize token refresh when authenticated
+  // Initialize token refresh when authenticated (skip mock — no real JWT)
   useEffect(() => {
+    if (USE_MOCK_AUTH) return;
     if (isAuthenticated && userRole) {
-      // Set up automatic token refresh
       const cleanup = initializeTokenRefresh();
-      
-      // Cleanup on unmount or when authentication changes
       return cleanup;
     }
   }, [isAuthenticated, userRole]);
@@ -177,9 +169,7 @@ const AppRoutesContent: React.FC = () => {
   const validateToken = async (token: string, role: UserRole) => {
     const currentPath = window.location.pathname;
     if (currentPath === "/login") {
-      if (window.location.origin !== getGatewayOrigin() || !isOnGatewayPath()) {
-        window.location.assign(`${GATEWAY_URL}/login?logout=1`);
-      }
+      // Stay on internal login — do not redirect to gateway
       setLoading(false);
       return;
     }
@@ -220,7 +210,10 @@ const AppRoutesContent: React.FC = () => {
         userData.role.name
       ) {
         // If role is an object with name property, use the name
-        normalizedRole = userData.role.name.toLowerCase() as UserRole;
+        const name = String(userData.role.name).toLowerCase().replace(/[\s_-]/g, "");
+        if (name === "fieldofficer" || name === "fo") normalizedRole = "fieldofficer";
+        else if (name === "admin") normalizedRole = "admin";
+        else normalizedRole = userData.role.name.toLowerCase() as UserRole;
       } else if (
         userData.role &&
         typeof userData.role === "object" &&
@@ -230,10 +223,15 @@ const AppRoutesContent: React.FC = () => {
         normalizedRole = roleMap[userData.role.id] || "farmer";
       } else if (userData.role && typeof userData.role === "string") {
         // If role is a string, use it directly
-        normalizedRole = userData.role.toLowerCase() as UserRole;
+        const name = userData.role.toLowerCase().replace(/[\s_-]/g, "");
+        if (name === "fieldofficer" || name === "fo") normalizedRole = "fieldofficer";
+        else if (name === "admin") normalizedRole = "admin";
+        else normalizedRole = userData.role.toLowerCase() as UserRole;
       } else if (userData.role_id && typeof userData.role_id === "number") {
         // If role_id is a number, map it to role string
         normalizedRole = roleMap[userData.role_id] || "farmer";
+      } else if (userData.role_id != null) {
+        normalizedRole = roleMap[Number(userData.role_id)] || "farmer";
       } else {
         // Fallback: check if role is already a number
         const roleId = userData.role || userData.role_id;
@@ -313,35 +311,25 @@ const AppRoutesContent: React.FC = () => {
     }
   };
 
-  // const handleLoginSuccess = (role: UserRole, token: string) => {
-  //   const normalizedRole = role.toLowerCase() as UserRole;
-
-  //   // Store authentication data using utility function
-  //   setAuthData(token, normalizedRole);
-
-  //   // Update state
-  //   setUserRole(normalizedRole);
-  //   setIsAuthenticated(true);
-
-  //   // Auto-redirect to dashboard
-  //   navigate("/dashboard");
-  // };
+  const handleLoginSuccess = (role: UserRole, _token: string) => {
+    const normalizedRole = role.toLowerCase() as UserRole;
+    setUserRole(normalizedRole);
+    setIsAuthenticated(true);
+    setLoading(false);
+    // Force dashboard route after mock login (farmer Map fires APIs that used to bounce back)
+    navigate("/dashboard", { replace: true });
+  };
 
   const handleLogout = () => {
     clearApiCache();
     clearAllCache();
-    
-    // Clear ALL localStorage data (auth, cache, app state, etc.)
+    clearFrontendRolePreview();
     clearAllLocalStorage();
 
-    // Reset state
     setUserRole(null);
     setIsAuthenticated(false);
-    
-    // Redirect to centralized login
-    if (window.location.origin !== getGatewayOrigin() || !isOnGatewayPath()) {
-      window.location.assign(getGatewayLoginUrl(true));
-    }
+
+    navigate("/login", { replace: true });
   };
 
   // Show loading screen while checking authentication
@@ -355,46 +343,46 @@ const AppRoutesContent: React.FC = () => {
 
   return (
     <Routes>
-      {/* Login Route */}
       <Route
         path="/login"
         element={
-          <div />
+          isAuthenticated && userRole ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <Login onLoginSuccess={handleLoginSuccess} />
+          )
         }
       />
 
-      {/* Dashboard Route */}
       <Route
         path="/dashboard"
         element={
           isAuthenticated && userRole ? (
             <App userRole={userRole} onLogout={handleLogout} />
           ) : (
-            <div />
+            <Navigate to="/login" replace />
           )
         }
       />
 
-      {/* Root Route */}
       <Route
         path="/"
         element={
           isAuthenticated ? (
             <Navigate to="/dashboard" replace />
           ) : (
-            <div />
+            <Navigate to="/login" replace />
           )
         }
       />
 
-      {/* Catch all route */}
       <Route
         path="*"
         element={
           isAuthenticated ? (
             <Navigate to="/dashboard" replace />
           ) : (
-            <div />
+            <Navigate to="/login" replace />
           )
         }
       />

@@ -204,7 +204,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       case "Farm Crop Status":
       case "farm-crop-status":
         // Use ManagerFarmDash for manager/owner, FarmCropStatus for field officer
-        if (userRole === "owner") {
+        if (userRole === "owner" || userRole === "admin") {
           nextView = View.OwnerFarmDash;
         } else if (userRole === "manager") {
           nextView = View.ManagerFarmDash;
@@ -213,7 +213,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
         }
         break;
       case "Harvesting Planning":
-        if (userRole === "owner") {
+        if (userRole === "owner" || userRole === "admin") {
           nextView = View.OwnerHarvestDash;
         } else {
           nextView = View.HarvestDashboard;
@@ -382,6 +382,8 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
           />
         );
       case "owner":
+      case "admin":
+        // Backend often labels owners as "admin" (role_id 4)
         return <OwnerHomeGrid onMenuClick={handleMenuSelect} />;
       case "fieldofficer":
         return (

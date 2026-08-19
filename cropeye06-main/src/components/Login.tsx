@@ -19,8 +19,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Clear any stale/invalid tokens when login page loads
+  // Clear any stale/invalid tokens when login page loads (real auth only)
   useEffect(() => {
+    if (USE_MOCK_AUTH) return;
     // Only clear if we're actually on the login page
     if (window.location.pathname === '/login') {
       const token = getAuthToken();
@@ -230,6 +231,37 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // };
 
   // NEW: Username and Password Login
+  const completeMockLogin = async (phoneOrAlias: string, pass: string) => {
+    setLoading(true);
+    setError("");
+    try {
+      const { mockLogin, MOCK_ACCESS_TOKEN } = await import("../mockAuth/mockAuthService.js");
+      const user = mockLogin(phoneOrAlias.trim(), pass.trim());
+      if (!user) {
+        setError("Invalid login. Use a valid phone number and password.");
+        return;
+      }
+      const userRole = user.role as UserRole;
+      const token = MOCK_ACCESS_TOKEN;
+      setPhoneNumber(user.phone_number);
+      setPassword(pass.trim());
+      // Persist mock session (also drops stale refresh_token inside mockLogin)
+      localStorage.setItem("authUser", JSON.stringify(user));
+      setAuthData(token, userRole, {
+        first_name: user.name,
+        last_name: "",
+        phone_number: user.phone_number,
+        username: user.phone_number,
+        id: 0,
+      });
+      onLoginSuccess(userRole, token);
+    } catch (err: any) {
+      setError(err?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -237,22 +269,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     try {
       if (USE_MOCK_AUTH) {
-        const { mockLogin } = await import("../mockAuth/mockAuthService.js");
-        const user = mockLogin(phone_number.trim(), password.trim());
-        if (!user) {
-          setError("Invalid credentials");
-          return;
-        }
-        const userRole = user.role as UserRole;
-        const token = "mock-token";
-        setAuthData(token, userRole, {
-          first_name: user.name,
-          last_name: "",
-          phone_number: user.phone_number,
-          username: user.phone_number,
-          id: 0,
-        });
-        onLoginSuccess(userRole, token);
+        await completeMockLogin(phone_number, password);
         return;
       }
       // Using the API function to login with email as username
@@ -269,26 +286,34 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       // User data is already included in the login response
       const userData = result.user;
 
-      // Handle role determination from the response format
-      let userRole: UserRole;
+      // Handle role determination (string role, role_id, or role object)
+      const roleMap: { [key: number]: UserRole } = {
+        1: 'farmer',
+        2: 'fieldofficer',
+        3: 'manager',
+        4: 'owner',
+      };
+      let userRole: UserRole | null = null;
 
-      if (userData.role && typeof userData.role === 'object' && userData.role.name) {
-        userRole = userData.role.name.toLowerCase() as UserRole;
-      } else if (userData.role && typeof userData.role === 'object' && userData.role.id) {
-        const roleMap: { [key: number]: UserRole } = {
-          1: 'farmer',
-          2: 'fieldofficer',
-          3: 'manager',
-          4: 'owner'
-        };
-        userRole = roleMap[userData.role.id] || 'farmer';
-      } else {
-        userRole = 'farmer';
-        console.warn('Could not determine user role, defaulting to farmer');
+      if (userData?.role && typeof userData.role === 'object' && userData.role.name) {
+        userRole = String(userData.role.name).toLowerCase() as UserRole;
+      } else if (userData?.role && typeof userData.role === 'object' && userData.role.id != null) {
+        userRole = roleMap[Number(userData.role.id)] || null;
+      } else if (typeof userData?.role === 'string') {
+        const r = userData.role.toLowerCase().replace(/[\s_-]/g, '');
+        if (r === 'fieldofficer' || r === 'fo') userRole = 'fieldofficer';
+        else if (r === 'manager') userRole = 'manager';
+        else if (r === 'owner' || r === 'admin') userRole = r === 'admin' ? 'admin' : 'owner';
+        else if (r === 'farmer') userRole = 'farmer';
+        else userRole = userData.role.toLowerCase() as UserRole;
+      } else if (typeof userData?.role === 'number') {
+        userRole = roleMap[userData.role] || null;
+      } else if (userData?.role_id != null) {
+        userRole = roleMap[Number(userData.role_id)] || null;
       }
 
-      // Validate role
       if (!userRole || !['manager', 'admin', 'fieldofficer', 'farmer', 'owner'].includes(userRole)) {
+        console.error('Could not determine user role from login user:', userData);
         throw new Error('Invalid user role');
       }
 
@@ -409,30 +434,31 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               animate={{ opacity: 1, x: 0 }}
               style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}
             >
-              <h3 className="text-3xl font-bold text-gray-800 mb-8 text-center">
+              <h3 className="text-3xl font-bold text-gray-800 mb-6 text-center">
                 Login
               </h3>
 
               {/* Error Display */}
               {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 w-full max-w-sm text-sm">
                   {error}
                 </div>
               )}
 
               {/* Login Form */}
-              <form onSubmit={handleLogin} className="space-y-6 w-[50%]">
+              <form onSubmit={handleLogin} className="space-y-6 w-full max-w-sm">
                 <div className="relative">
                   <div className="flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-500">
                     <Mail className="w-5 h-5 mr-3 text-gray-500" />
                     <input
-                      type="tel"
+                      type="text"
                       placeholder="Enter phone number"
                       value={phone_number}
                       onChange={(e) => setPhoneNumber(e.target.value)}
                       className="w-full outline-none text-gray-700"
                       required
                       disabled={loading}
+                      autoComplete="username"
                     />
                   </div>
                 </div>

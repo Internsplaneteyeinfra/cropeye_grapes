@@ -4,7 +4,7 @@
  * come from GET /plots/agroStats or analyze-npk `soil_statistics` (fallback).
  */
 
-import { getGrapesMainBaseUrl } from "./serviceUrls";
+import { getGrapesMainBaseUrl, getGrapesSefBaseUrl } from "./serviceUrls";
 
 export const GRAPES_BUNDLE_SOURCE = "grapes-bundle-v2" as const;
 
@@ -143,17 +143,45 @@ export async function postGrapesPlotEndpoint(
   }
 }
 
-/** POST with form body; plot_name is required in the body for these routes. */
+/** POST with form body; plot_name is required in the body for these routes.
+ *  Uses allSettled so one failing endpoint (e.g. yield-estimation 500)
+ *  does not drop ripening / brix data.
+ */
 export async function fetchGrapesEventsBundle(
   baseUrl: string,
   plotName: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<GrapesBundlePayload> {
-  const paths = ["/grapes/yield-estimation", "/grapes/ripening-stage", "/grapes/brix-time-series"] as const;
-  const results = await Promise.all(
+  const paths = [
+    "/grapes/yield-estimation",
+    "/grapes/ripening-stage",
+    "/grapes/brix-time-series",
+  ] as const;
+
+  const settled = await Promise.allSettled(
     paths.map((p) => postGrapesPlotEndpoint(baseUrl, p, plotName, fetchImpl))
   );
-  return buildGrapesBundle(results[0], results[1], results[2]);
+
+  const values = settled.map((result, i) => {
+    if (result.status === "fulfilled") return result.value;
+    console.warn(
+      `⚠️ Grapes endpoint ${paths[i]} failed for "${plotName}":`,
+      result.reason
+    );
+    return null;
+  });
+
+  // Only throw if every endpoint failed — partial data is still useful
+  if (values.every((v) => v == null)) {
+    const firstReason = settled.find((r) => r.status === "rejected") as
+      | PromiseRejectedResult
+      | undefined;
+    throw firstReason?.reason instanceof Error
+      ? firstReason.reason
+      : new Error(`All grapes endpoints failed for "${plotName}"`);
+  }
+
+  return buildGrapesBundle(values[0], values[1], values[2]);
 }
 
 export function collectPlotApiIds(profile: any, plotId: string): string[] {
@@ -286,6 +314,8 @@ export function mergeDashboardMetrics<T extends object>(
     if (!partial) continue;
     for (const [key, value] of Object.entries(partial)) {
       if (value === null || value === undefined || value === "") continue;
+      if (key === "daysToHarvest" && value === 0) continue;
+      if (key === "brixDays" && value === 0) continue;
       (next as Record<string, unknown>)[key] = value;
     }
   }
@@ -382,7 +412,153 @@ function daysUntilHarvestFromRipening(ra: any): number | null {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   d.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.ceil((d.getTime() - today.getTime()) / 86400000));
+  const remaining = Math.ceil((d.getTime() - today.getTime()) / 86400000);
+  return remaining > 0 ? remaining : null;
+}
+
+function getRawBrixTimeSeries(payload: unknown): unknown[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (typeof payload !== "object") return [];
+  const root = payload as Record<string, unknown>;
+  if (isGrapesBundlePayload(payload)) {
+    const brix = (payload as GrapesBundlePayload).brix;
+    if (Array.isArray(brix?.time_series)) return brix.time_series;
+    if (Array.isArray(brix)) return brix;
+  }
+  if (Array.isArray(root.time_series)) return root.time_series;
+  if (root.brix && typeof root.brix === "object") {
+    const nested = (root.brix as Record<string, unknown>).time_series;
+    if (Array.isArray(nested)) return nested;
+  }
+  return [];
+}
+
+/** Days on the Brix card — from brix API `Days` / plantation day count (e.g. 80). */
+function deepFindDaysInPayload(obj: unknown, depth = 0): number | null {
+  if (depth > 8 || obj == null) return null;
+  if (typeof obj === "object" && !Array.isArray(obj)) {
+    const rec = obj as Record<string, unknown>;
+    for (const key of [
+      "Days",
+      "days_since_plantation",
+      "days_since_planting",
+      "days",
+      "day_count",
+    ]) {
+      if (key in rec) {
+        const n = typeof rec[key] === "number" ? rec[key] : Number(rec[key]);
+        if (Number.isFinite(n) && n > 0 && n < 2000) return n;
+      }
+    }
+    for (const v of Object.values(rec)) {
+      const found = deepFindDaysInPayload(v, depth + 1);
+      if (found != null) return found;
+    }
+  }
+  if (Array.isArray(obj)) {
+    for (let i = obj.length - 1; i >= 0; i--) {
+      const found = deepFindDaysInPayload(obj[i], depth + 1);
+      if (found != null) return found;
+    }
+  }
+  return null;
+}
+
+export function daysSincePlantationFromProfile(
+  profile: any,
+  plotId: string
+): number | null {
+  const plot = findPlotInFarmerProfile(profile, plotId);
+  const raw = plot?.farms?.[0]?.plantation_date;
+  if (!raw) return null;
+  const iso = String(raw).split("T")[0];
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  const elapsed = Math.ceil((today.getTime() - d.getTime()) / 86400000);
+  return elapsed > 0 ? elapsed : null;
+}
+
+export function pickBrixDaysFromApi(brixPayload: unknown): number | null {
+  const deep = deepFindDaysInPayload(brixPayload);
+  if (deep != null) return deep;
+
+  if (brixPayload && typeof brixPayload === "object" && !Array.isArray(brixPayload)) {
+    const root = brixPayload as Record<string, unknown>;
+    const topLevel = pickNumber(
+      root,
+      "Days",
+      "days",
+      "days_since_planting",
+      "days_since_plantation",
+      "day_count"
+    );
+    if (topLevel != null && topLevel > 0) return topLevel;
+
+    const summary = root.brix_summary ?? root.brixSummary;
+    if (summary && typeof summary === "object") {
+      const fromSummary = pickNumber(
+        summary as Record<string, unknown>,
+        "Days",
+        "days",
+        "days_after_ripening",
+        "days_since_ripening",
+        "days_since_plantation",
+        "day_count"
+      );
+      if (fromSummary != null && fromSummary > 0) return fromSummary;
+    }
+  }
+
+  const fromBrixSummary = pickNumber(
+    extractBrixSummary(brixPayload),
+    "Days",
+    "days",
+    "days_after_ripening",
+    "days_since_ripening",
+    "days_since_plantation",
+    "day_count"
+  );
+  if (fromBrixSummary != null && fromBrixSummary > 0) return fromBrixSummary;
+
+  const rawSeries = getRawBrixTimeSeries(brixPayload);
+  for (let i = rawSeries.length - 1; i >= 0; i--) {
+    const row = rawSeries[i];
+    if (row && typeof row === "object") {
+      const dayNum = pickNumber(
+        row as Record<string, unknown>,
+        "Days",
+        "days",
+        "day_number",
+        "days_since_planting",
+        "days_since_plantation"
+      );
+      if (dayNum != null && dayNum > 0) return dayNum;
+    }
+  }
+
+  return null;
+}
+
+/** Resolve brix-card day count: brix API → analyze-npk → plantation date. */
+export function resolveBrixDaysForDashboard(
+  brixPayload: unknown,
+  profile: any,
+  plotId: string,
+  soilAnalyzePayload?: unknown
+): number | null {
+  const fromBrix = pickBrixDaysFromApi(brixPayload);
+  if (fromBrix != null && fromBrix > 0) return fromBrix;
+
+  if (soilAnalyzePayload) {
+    const fromSoil = deepFindDaysInPayload(soilAnalyzePayload);
+    if (fromSoil != null && fromSoil > 0) return fromSoil;
+  }
+
+  return daysSincePlantationFromProfile(profile, plotId);
 }
 
 function parseSoilMetricNumber(v: unknown): number | null {
@@ -431,15 +607,23 @@ export async function fetchDashboardSoilMetrics(
   eventsBaseUrl: string,
   cache: DashboardSoilCache,
   getApiData?: (type: string, plotName: string) => unknown
-): Promise<{ soilPH: number | null; organicCarbonDensity: number | null }> {
-  const empty = { soilPH: null, organicCarbonDensity: null };
+): Promise<{
+  soilPH: number | null;
+  organicCarbonDensity: number | null;
+  soilPayload: unknown;
+}> {
+  const empty = {
+    soilPH: null as number | null,
+    organicCarbonDensity: null as number | null,
+    soilPayload: null as unknown,
+  };
 
   const soilCacheKey = `soilData_${plotId}`;
   const cachedAnalyze = cache.get(soilCacheKey);
   if (cachedAnalyze) {
     const fromCache = soilMetricsFromPayload(cachedAnalyze);
     if (fromCache.soilPH != null || fromCache.organicCarbonDensity != null) {
-      return fromCache;
+      return { ...fromCache, soilPayload: cachedAnalyze };
     }
   }
 
@@ -447,7 +631,7 @@ export async function fetchDashboardSoilMetrics(
   if (ctxSoil) {
     const fromCtx = soilMetricsFromPayload(ctxSoil);
     if (fromCtx.soilPH != null || fromCtx.organicCarbonDensity != null) {
-      return fromCtx;
+      return { ...fromCtx, soilPayload: ctxSoil };
     }
   }
 
@@ -472,7 +656,7 @@ export async function fetchDashboardSoilMetrics(
       if (!res.ok) return empty;
       const data = await res.json();
       cache.set(soilCacheKey, data);
-      return soilMetricsFromPayload(data);
+      return { ...soilMetricsFromPayload(data), soilPayload: data };
     } catch (e) {
       console.warn(`analyze-npk soil metrics failed for "${plotId}":`, e);
       return empty;
@@ -503,14 +687,18 @@ export async function fetchDashboardSoilMetrics(
     for (const id of plotIds) {
       const row = extractAgroStatsPlotRow(allPlots, id, profile);
       const m = soilMetricsFromPayload(row);
-      if (m.soilPH != null || m.organicCarbonDensity != null) return m;
+      if (m.soilPH != null || m.organicCarbonDensity != null) {
+        return { ...m, soilPayload: row };
+      }
     }
     return empty;
   };
 
   const [npk, agro] = await Promise.all([fromAnalyzeNpk(), fromAgroStats()]);
   if (npk.soilPH != null || npk.organicCarbonDensity != null) return npk;
-  if (agro.soilPH != null || agro.organicCarbonDensity != null) return agro;
+  if (agro.soilPH != null || agro.organicCarbonDensity != null) {
+    return agro;
+  }
   return empty;
 }
 
@@ -592,19 +780,84 @@ export function emptyGrapesDashboardMetrics() {
   recovery: null as number | null,
   area: null as number | null,
   biomass: null as number | null,
+  biomassMax: null as number | null,
+  biomassMin: null as number | null,
   totalBiomass: null as number | null,
   daysToHarvest: null as number | null,
+  brixDays: null as number | null,
   growthStage: null as string | null,
   soilPH: null as number | null,
   organicCarbonDensity: null as number | null,
   actualYield: null as number | null,
   stressCount: 0 as number | null,
+  stressTotalDays: 0 as number | null,
   irrigationEvents: null as number | null,
   sugarYieldMean: null as number | null,
   cnRatio: null as number | null,
   sugarYieldMax: null as number | null,
   sugarYieldMin: null as number | null,
+  fieldScore: null as number | null,
+  cci: null as number | null,
   };
+}
+
+/** Sum stress event day spans; falls back to total_days / total_events. */
+export function stressTotalDaysFromPayload(stressData: any): number {
+  const explicit = Number(stressData?.total_days ?? stressData?.totalDays);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+
+  const events = Array.isArray(stressData?.events) ? stressData.events : [];
+  let days = 0;
+  for (const event of events) {
+    const start = new Date(event?.from_date ?? event?.fromDate ?? event?.start);
+    const end = new Date(event?.to_date ?? event?.toDate ?? event?.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    const span = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+    days += Math.max(1, span);
+  }
+  if (days > 0) return days;
+
+  const eventsCount = Number(stressData?.total_events ?? stressData?.totalEvents);
+  return Number.isFinite(eventsCount) ? eventsCount : 0;
+}
+
+async function fetchFieldScoreForPlot(
+  plotId: string,
+  endDate: string,
+  requestTimeoutMs: number
+): Promise<number | null> {
+  try {
+    const baseUrl = getGrapesSefBaseUrl().replace(/\/+$/, "");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const res = await fetch(
+      `${baseUrl}/analyze?plot_name=${encodeURIComponent(plotId)}&end_date=${encodeURIComponent(endDate)}&days_back=7`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json();
+    let fieldData: any = null;
+    if (Array.isArray(data)) {
+      const match = data.find((item: any) => {
+        const name = String(item?.plot_name || item?.plot || item?.name || "");
+        return name === plotId;
+      });
+      fieldData = match ?? data[0] ?? null;
+    } else if (data && typeof data === "object") {
+      fieldData = data;
+    }
+    const score = Number(
+      fieldData?.overall_health ?? fieldData?.health_score ?? fieldData?.field_score
+    );
+    return Number.isFinite(score) ? score : null;
+  } catch {
+    return null;
+  }
 }
 
 function pickNumber(obj: Record<string, unknown>, ...keys: string[]): number | null {
@@ -631,7 +884,8 @@ export function metricsFromGrapesBundle(
   plotId: string,
   stressData: any,
   irrigationData: any,
-  agroPlotRowForSoil?: any | null
+  agroPlotRowForSoil?: any | null,
+  soilAnalyzePayload?: unknown
 ) {
   const y = bundle.yield || {};
   const ra = extractRipeningAnalysis(bundle.ripening);
@@ -647,6 +901,7 @@ export function metricsFromGrapesBundle(
     {
       ...emptyGrapesDashboardMetrics(),
       stressCount: stressData?.total_events ?? 0,
+      stressTotalDays: stressTotalDaysFromPayload(stressData),
       irrigationEvents: irrigationData?.total_events ?? null,
     },
     profileMetrics,
@@ -657,8 +912,28 @@ export function metricsFromGrapesBundle(
       recovery: lastTa ?? null,
       area: getPlotAreaAcresFromProfile(profile, plotId),
       biomass: pickNumber(y, "underground_biomass_tons", "underground_biomass"),
+      biomassMax: pickNumber(
+        y,
+        "underground_biomass_max_tons",
+        "underground_biomass_max",
+        "biomass_max",
+        "max_biomass"
+      ),
+      biomassMin: pickNumber(
+        y,
+        "underground_biomass_min_tons",
+        "underground_biomass_min",
+        "biomass_min",
+        "min_biomass"
+      ),
       totalBiomass: pickNumber(y, "total_biomass_tons", "total_biomass"),
       daysToHarvest: daysUntilHarvestFromRipening(ra),
+      brixDays: resolveBrixDaysForDashboard(
+        bundle.brix,
+        profile,
+        plotId,
+        soilAnalyzePayload
+      ),
       growthStage: pickString(ra, "crop_status", "cropStatus"),
       soilPH: soil.soilPH ?? profileMetrics.soilPH ?? null,
       organicCarbonDensity:
@@ -667,4 +942,193 @@ export function metricsFromGrapesBundle(
       sugarYieldMean: pickNumber(y, "expected_yield_ton_per_ha", "expected_yield", "yield"),
     }
   );
+}
+
+export function soilMetricsToAgroRow(
+  soil: { soilPH: number | null; organicCarbonDensity: number | null }
+): { soil: { phh2o: number | null; organic_carbon_stock: number | null } } | null {
+  if (soil.soilPH == null && soil.organicCarbonDensity == null) return null;
+  return {
+    soil: {
+      phh2o: soil.soilPH,
+      organic_carbon_stock: soil.organicCarbonDensity,
+    },
+  };
+}
+
+export type GrapesLineChartPoint = {
+  date: string;
+  growth: number;
+  stress: number;
+  water: number;
+  moisture: number;
+};
+
+/** Fetches grapes bundle + indices + stress + irrigation + soil for dashboard cards. */
+export async function fetchGrapesPlotDashboardData(
+  plotId: string,
+  profile: any | null,
+  eventsBaseUrl: string,
+  cache: DashboardSoilCache,
+  getApiData?: (type: string, plotName: string) => unknown,
+  requestTimeoutMs: number = GRAPES_API_TIMEOUT_MS
+): Promise<{
+  metrics: ReturnType<typeof metricsFromGrapesBundle>;
+  lineChartData: GrapesLineChartPoint[];
+  stressEvents: any[];
+}> {
+  const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
+  const endDate = new Date(Date.now() - tzOffsetMs).toISOString().slice(0, 10);
+  const plotIds = collectPlotApiIds(profile, plotId);
+  const grapesBundleCacheKey = `farmerDashGrapes_v2_${plotId}_${endDate}`;
+  const indicesCacheKey = `indices_${plotId}`;
+  const stressCacheKey = `stress_${plotId}_NDRE_0.15`;
+  const irrigationCacheKey = `irrigation_${plotId}`;
+
+  const fetchIndices = async (): Promise<GrapesLineChartPoint[]> => {
+    const cached = cache.get(indicesCacheKey);
+    if (Array.isArray(cached)) return cached as GrapesLineChartPoint[];
+    for (const id of plotIds) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+        const res = await fetch(
+          `${eventsBaseUrl.replace(/\/+$/, "")}/plots/${encodeURIComponent(id)}/indices`,
+          { headers: { Accept: "application/json" }, signal: controller.signal }
+        );
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const mapped = data.map((item: any) => ({
+          date: new Date(item.date).toISOString().split("T")[0],
+          growth: item.NDVI,
+          stress: item.NDMI,
+          water: item.NDWI,
+          moisture: item.NDRE,
+        }));
+        cache.set(indicesCacheKey, mapped);
+        return mapped;
+      } catch {
+        /* try next plot id */
+      }
+    }
+    return [];
+  };
+
+  const fetchStress = async (): Promise<any> => {
+    const cached = cache.get(stressCacheKey);
+    if (cached) return cached;
+    for (const id of plotIds) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+        const res = await fetch(
+          `${eventsBaseUrl.replace(/\/+$/, "")}/plots/${encodeURIComponent(id)}/stress?index_type=NDRE&threshold=0.15`,
+          { headers: { Accept: "application/json" }, signal: controller.signal }
+        );
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const data = await res.json();
+        cache.set(stressCacheKey, data);
+        return data;
+      } catch {
+        /* try next plot id */
+      }
+    }
+    return { total_events: 0, events: [] };
+  };
+
+  const fetchIrrigation = async (): Promise<any> => {
+    const cached = cache.get(irrigationCacheKey);
+    if (cached) return cached;
+    for (const id of plotIds) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+        const res = await fetch(
+          `${eventsBaseUrl.replace(/\/+$/, "")}/plots/${encodeURIComponent(id)}/irrigation?threshold_ndmi=0.05&threshold_ndwi=0.05&min_days_between_events=10`,
+          { headers: { Accept: "application/json" }, signal: controller.signal }
+        );
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const data = await res.json();
+        cache.set(irrigationCacheKey, data);
+        return data;
+      } catch {
+        /* try next plot id */
+      }
+    }
+    return { total_events: null };
+  };
+
+  const fetchGrapesBundle = async (): Promise<GrapesBundlePayload | null> => {
+    const cached = cache.get(grapesBundleCacheKey);
+    if (cached && isGrapesBundlePayload(cached)) return cached;
+    try {
+      const { bundle } = await fetchGrapesEventsBundleForPlot(eventsBaseUrl, plotIds);
+      cache.set(grapesBundleCacheKey, bundle);
+      return bundle;
+    } catch (err) {
+      console.error("fetchGrapesPlotDashboardData: grapes bundle failed", err);
+      return null;
+    }
+  };
+
+  const [rawIndices, stressData, irrigationData, grapesBundle, soilOnly, fieldScore] =
+    await Promise.all([
+      fetchIndices(),
+      fetchStress(),
+      fetchIrrigation(),
+      fetchGrapesBundle(),
+      fetchDashboardSoilMetrics(plotId, profile, endDate, eventsBaseUrl, cache, getApiData),
+      fetchFieldScoreForPlot(plotId, endDate, requestTimeoutMs),
+    ]);
+
+  const lastIndex = rawIndices.length > 0 ? rawIndices[rawIndices.length - 1] : null;
+  const cciFromNdvi =
+    lastIndex && Number.isFinite(Number(lastIndex.growth))
+      ? Number(Number(lastIndex.growth).toFixed(3))
+      : null;
+  // Field score fallback: NDVI scaled to 0–100 when SEF analyze is unavailable
+  const fieldScoreResolved =
+    fieldScore ??
+    (cciFromNdvi != null
+      ? Math.max(0, Math.min(100, Number((cciFromNdvi * 100).toFixed(1))))
+      : null);
+
+  const agroRow = soilMetricsToAgroRow(soilOnly);
+  const metrics = grapesBundle
+    ? mergeDashboardMetrics(
+        metricsFromGrapesBundle(
+          grapesBundle,
+          profile,
+          plotId,
+          stressData,
+          irrigationData,
+          agroRow,
+          soilOnly.soilPayload
+        ),
+        {
+          fieldScore: fieldScoreResolved,
+          cci: cciFromNdvi,
+          stressTotalDays: stressTotalDaysFromPayload(stressData),
+        }
+      )
+    : mergeDashboardMetrics(
+        {
+          ...emptyGrapesDashboardMetrics(),
+          stressCount: stressData?.total_events ?? 0,
+          stressTotalDays: stressTotalDaysFromPayload(stressData),
+          irrigationEvents: irrigationData?.total_events ?? null,
+          fieldScore: fieldScoreResolved,
+          cci: cciFromNdvi,
+        },
+        metricsFromFarmerProfile(profile, plotId)
+      );
+
+  return {
+    metrics,
+    lineChartData: rawIndices,
+    stressEvents: stressData?.events ?? [],
+  };
 }

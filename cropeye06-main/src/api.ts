@@ -10,6 +10,8 @@ import {
 import { checkAndRefreshToken, isTokenExpired, decodeToken } from "./utils/tokenManager";
 import { navigateToLogin } from "./utils/navigation";
 import { getBackendApiBaseUrl } from "./utils/serviceUrls";
+import { USE_MOCK_AUTH } from "./config/authConfig";
+import { isFrontendRolePreview } from "./utils/frontendRolePreview";
 
 // Live Railway backend API
 const getBaseURL = () => `${getBackendApiBaseUrl()}/`;
@@ -51,9 +53,8 @@ api.interceptors.request.use(
     // Check and refresh token if needed before making request
     const token = getAccessToken();
     if (token) {
-      // If token is expired or expiring soon, try to refresh it
-      if (isTokenExpired(token, 300)) {
-        // Token is expired or expiring within 5 minutes, refresh it
+  // Demo mode: never refresh — mock / preview token is not a real JWT for the backend
+      if (!USE_MOCK_AUTH && !isFrontendRolePreview() && isTokenExpired(token, 300)) {
         await checkAndRefreshToken(300);
       }
 
@@ -131,13 +132,29 @@ api.interceptors.response.use(
       typeof originalRequest?.url === "string" &&
       originalRequest.url.includes(refreshPath);
 
+    // Demo/mock login or frontend role preview: never clear session or redirect on 401
+    if (
+      (USE_MOCK_AUTH || isFrontendRolePreview()) &&
+      error.response?.status === 401
+    ) {
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry && !isRefreshCall) {
       // Check if it's a token validation error
       const errorData = error.response?.data;
+      const detail =
+        typeof errorData?.detail === "string"
+          ? errorData.detail
+          : JSON.stringify(errorData?.detail || "");
       const isTokenError =
         errorData?.code === "token_not_valid" ||
-        errorData?.detail?.includes("token") ||
-        errorData?.messages;
+        detail.toLowerCase().includes("token") ||
+        detail.toLowerCase().includes("credentials") ||
+        detail.toLowerCase().includes("authentication") ||
+        !!errorData?.messages ||
+        // Backend sometimes returns empty/unknown 401 bodies
+        !errorData;
 
       if (isTokenError) {
         if (isRefreshing) {
@@ -195,8 +212,6 @@ api.interceptors.response.use(
             processQueue(refreshError, null);
             isRefreshing = false;
             clearAuthData();
-
-            // Use navigation utility instead of window.location.href to prevent reload loops
             navigateToLogin();
 
             return Promise.reject(refreshError);
@@ -206,8 +221,6 @@ api.interceptors.response.use(
           processQueue(error, null);
           isRefreshing = false;
           clearAuthData();
-
-          // Use navigation utility instead of window.location.href to prevent reload loops
           navigateToLogin();
         }
       }
@@ -299,6 +312,388 @@ export const getTasksForUser = (userId: number) => {
 
 export const getFarmersByFieldOfficer = () => {
   return api.get(`/farms/my-farmers/`); // Aligned with official ref: no ID needed, uses logged in FO
+};
+
+/** Owner/Manager: farmers under a specific field officer (same as sugarcane). */
+export const getFarmersByFieldOfficerId = (
+  fieldOfficerId: number | string
+) => {
+  const id = encodeURIComponent(String(fieldOfficerId));
+  return api.get(`/users/farmers-by-field-officer/${id}/`, { timeout: 60_000 });
+};
+
+/**
+ * Owner: field officers for one manager.
+ * GET /users/owner-hierarchy/?manager_id=…
+ * Deep-reads nested field_officers + farmers from whatever shape the backend returns.
+ */
+export const getFieldOfficersByManager = async (
+  managerId: number | string
+): Promise<{ data: any }> => {
+  const id = String(managerId);
+  const enc = encodeURIComponent(id);
+
+  const asArray = (value: unknown): any[] => {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return [];
+    const obj = value as Record<string, unknown>;
+    for (const key of [
+      "results",
+      "data",
+      "farmers",
+      "farmer_list",
+      "field_officers",
+      "fieldOfficers",
+      "items",
+      "users",
+    ]) {
+      if (Array.isArray(obj[key]) && (obj[key] as any[]).length > 0) {
+        return obj[key] as any[];
+      }
+    }
+    return [];
+  };
+
+  const pickList = (...candidates: unknown[]): any[] => {
+    let fallback: any[] = [];
+    for (const c of candidates) {
+      const arr = asArray(c);
+      if (arr.length > 0) return arr;
+      if (Array.isArray(c) && fallback.length === 0) fallback = c;
+    }
+    return fallback;
+  };
+
+  const entityId = (row: any): string | null => {
+    const v = row?.id ?? row?.user_id ?? row?.userId ?? row?.farmer_id ?? row?.farmerId;
+    return v == null || v === "" ? null : String(v);
+  };
+
+  const normalizeFarmerRow = (row: any): any => {
+    if (!row || typeof row !== "object") return row;
+    const user = row.user && typeof row.user === "object" ? row.user : null;
+    return {
+      ...user,
+      ...row,
+      id:
+        row.id ??
+        row.farmer_id ??
+        row.farmerId ??
+        row.user_id ??
+        user?.id ??
+        null,
+      first_name: row.first_name ?? user?.first_name ?? row.name,
+      last_name: row.last_name ?? user?.last_name ?? "",
+      plots: Array.isArray(row.plots)
+        ? row.plots
+        : Array.isArray(row.plot_list)
+          ? row.plot_list
+          : Array.isArray(row.farms)
+            ? row.farms
+            : Array.isArray(user?.plots)
+              ? user.plots
+              : [],
+    };
+  };
+
+  /** Trust arrays under farmer keys — do not drop rows missing first_name/plots. */
+  const looksLikeFarmer = (row: any): boolean => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    // Explicit farmer markers
+    if (
+      row.farmer_id != null ||
+      row.farmerId != null ||
+      Array.isArray(row.plots) ||
+      Array.isArray(row.plot_list) ||
+      Array.isArray(row.farms)
+    ) {
+      return true;
+    }
+    const role = String(
+      row.role?.name ?? row.role_name ?? row.role ?? row.user_type ?? "",
+    ).toLowerCase();
+    if (role.includes("farmer")) return true;
+    // Any identifiable user-like row (name/phone/username/id)
+    return (
+      entityId(row) != null ||
+      entityId(row?.user) != null ||
+      row.first_name != null ||
+      row.last_name != null ||
+      row.username != null ||
+      row.name != null ||
+      row.phone_number != null ||
+      row.phone != null
+    );
+  };
+
+  const extractFarmersFromNode = (node: any): any[] => {
+    const direct = pickList(
+      node?.farmers,
+      node?.farmer_list,
+      node?.farmer,
+      node?.assigned_farmers,
+      node?.farmer_details,
+      node?.farmer_profiles,
+      node?.my_farmers,
+      node?.farmer_set,
+      node?.farmers_data,
+      node?.all_farmers,
+    );
+    if (direct.length > 0) {
+      // Named farmer arrays: keep every object row (backend already scoped them)
+      return direct
+        .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+        .map(normalizeFarmerRow);
+    }
+    if (Array.isArray(node?.users)) {
+      return node.users.filter(looksLikeFarmer).map(normalizeFarmerRow);
+    }
+    return [];
+  };
+
+  const farmerLinkIds = (farmer: any): string[] => {
+    const links = [
+      farmer?.field_officer_id,
+      farmer?.field_officer?.id,
+      farmer?.fieldOfficerId,
+      farmer?.fo_id,
+      farmer?.foId,
+      farmer?.parent_id,
+      farmer?.created_by?.id,
+      typeof farmer?.created_by === "number" || typeof farmer?.created_by === "string"
+        ? farmer.created_by
+        : null,
+      farmer?.created_by_id,
+    ];
+    return links
+      .filter((v) => v != null && v !== "")
+      .map((v) => String(v));
+  };
+
+  /** Walk payload and collect FO-like + farmer-like nodes. */
+  const deepCollect = (root: any) => {
+    const officers: any[] = [];
+    const farmers: any[] = [];
+    const seenFo = new Set<string>();
+    const seenFarmer = new Set<string>();
+
+    const visit = (node: any, depth: number) => {
+      if (!node || typeof node !== "object" || depth > 8) return;
+
+      if (Array.isArray(node)) {
+        node.forEach((item) => visit(item, depth + 1));
+        return;
+      }
+
+      // FO arrays by known keys
+      for (const key of [
+        "field_officers",
+        "fieldOfficers",
+        "fo_list",
+        "field_officer_list",
+        "officers",
+      ]) {
+        const arr = asArray(node[key]);
+        arr.forEach((fo) => {
+          const foId = entityId(fo) ?? entityId(fo?.user);
+          if (foId && !seenFo.has(foId)) {
+            seenFo.add(foId);
+            officers.push(fo?.user && !fo?.id ? { ...fo.user, ...fo } : fo);
+          }
+          extractFarmersFromNode(fo).forEach((farmer) => {
+            const fid = entityId(farmer);
+            if (fid && !seenFarmer.has(fid)) {
+              seenFarmer.add(fid);
+              farmers.push(farmer);
+            }
+          });
+          visit(fo, depth + 1);
+        });
+      }
+
+      // Farmer arrays by known keys
+      for (const key of [
+        "farmers",
+        "farmer_list",
+        "assigned_farmers",
+        "farmer_details",
+        "my_farmers",
+        "farmer_set",
+        "farmers_data",
+        "all_farmers",
+      ]) {
+        const arr = asArray(node[key]);
+        arr.forEach((farmer) => {
+          if (!farmer || typeof farmer !== "object" || Array.isArray(farmer)) {
+            return;
+          }
+          const normalized = normalizeFarmerRow(farmer);
+          const fid = entityId(normalized);
+          if (fid && !seenFarmer.has(fid)) {
+            seenFarmer.add(fid);
+            farmers.push(normalized);
+          } else if (!fid && looksLikeFarmer(normalized)) {
+            farmers.push(normalized);
+          }
+        });
+      }
+
+      // Recurse object values (skip huge primitives)
+      Object.keys(node).forEach((key) => {
+        if (
+          [
+            "field_officers",
+            "fieldOfficers",
+            "farmers",
+            "farmer_list",
+            "assigned_farmers",
+          ].includes(key)
+        ) {
+          return;
+        }
+        const val = node[key];
+        if (val && typeof val === "object") visit(val, depth + 1);
+      });
+    };
+
+    visit(root, 0);
+    return { officers, farmers };
+  };
+
+  const res = await api.get(`/users/owner-hierarchy/?manager_id=${enc}`, {
+    timeout: 60_000,
+  });
+  const data = res.data ?? {};
+
+  const managers = pickList(
+    data?.managers,
+    data?.manager,
+    data?.results,
+    data?.data?.managers,
+    Array.isArray(data) ? data : null,
+  );
+
+  const match =
+    managers.find((m: any) => String(m?.id ?? m?.user_id ?? "") === id) ??
+    managers[0];
+
+  const selfIsManager =
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    (String(data?.id ?? data?.user_id ?? "") === id ||
+      pickList(data?.field_officers, data?.fieldOfficers).length > 0);
+
+  const source = match ?? (selfIsManager ? data : data);
+
+  // Prefer manager-scoped FO list, then deep collect from whole payload
+  let list = pickList(
+    source?.field_officers,
+    source?.fieldOfficers,
+    source?.fo_list,
+    source?.field_officer_list,
+    data?.field_officers,
+    data?.fieldOfficers,
+    data?.data?.field_officers,
+  );
+
+  const collected = deepCollect(data);
+  if (list.length === 0 && collected.officers.length > 0) {
+    list = collected.officers;
+  }
+
+  // Keep FOs for this manager when link fields exist; otherwise keep all found
+  const filtered = list.filter((fo: any) => {
+    const mid =
+      fo?.manager_id ??
+      fo?.manager?.id ??
+      fo?.managerId ??
+      fo?.created_by?.id ??
+      (typeof fo?.created_by === "number" || typeof fo?.created_by === "string"
+        ? fo.created_by
+        : null) ??
+      fo?.created_by_id;
+    return mid == null || String(mid) === id;
+  });
+  if (filtered.length > 0) list = filtered;
+
+  const flatFarmers = [
+    ...pickList(
+      source?.farmers,
+      source?.farmer_list,
+      data?.farmers,
+      data?.farmer_list,
+      data?.data?.farmers,
+    ),
+    ...collected.farmers,
+  ];
+
+  // Dedupe farmers
+  const farmerMap = new Map<string, any>();
+  const farmersWithoutId: any[] = [];
+  flatFarmers.forEach((farmer) => {
+    const normalized = normalizeFarmerRow(farmer);
+    const fid = entityId(normalized);
+    if (fid) farmerMap.set(fid, normalized);
+    else farmersWithoutId.push(normalized);
+  });
+  const allFarmers = [...Array.from(farmerMap.values()), ...farmersWithoutId];
+
+  // Precompute linked farmers per FO so we only fall back when linking failed
+  const linkedByFo = new Map<string, any[]>();
+  list.forEach((fo: any) => {
+    const foId = entityId(fo) ?? entityId(fo?.user) ?? "";
+    if (!foId) return;
+    linkedByFo.set(
+      foId,
+      allFarmers.filter((farmer) => farmerLinkIds(farmer).includes(foId)),
+    );
+  });
+  const anyLinked = Array.from(linkedByFo.values()).some((arr) => arr.length > 0);
+  const unlinkedFarmers = allFarmers.filter(
+    (farmer) => farmerLinkIds(farmer).length === 0,
+  );
+
+  list = list.map((fo: any) => {
+    const foId = entityId(fo) ?? entityId(fo?.user) ?? "";
+    const nested = extractFarmersFromNode(fo);
+    const linked = linkedByFo.get(foId) ?? [];
+    let farmers =
+      nested.length > 0 ? nested : linked.length > 0 ? linked : [];
+
+    // Payload has farmers but this FO row is empty
+    if (farmers.length === 0 && allFarmers.length > 0) {
+      if (list.length === 1) {
+        farmers = allFarmers;
+      } else if (!anyLinked && unlinkedFarmers.length > 0) {
+        // No FO links at all → share unlinked list so UI can show response data
+        farmers = unlinkedFarmers;
+      } else if (!anyLinked) {
+        farmers = allFarmers;
+      } else if (unlinkedFarmers.length > 0) {
+        farmers = unlinkedFarmers;
+      }
+    }
+
+    return {
+      ...fo,
+      id: fo?.id ?? fo?.user_id ?? fo?.userId ?? fo?.user?.id,
+      first_name: fo?.first_name ?? fo?.user?.first_name,
+      last_name: fo?.last_name ?? fo?.user?.last_name,
+      manager_id:
+        fo?.manager_id ?? fo?.manager?.id ?? fo?.managerId ?? id,
+      farmers: farmers.map(normalizeFarmerRow),
+    };
+  });
+
+  return {
+    data: {
+      field_officers: list,
+      managers: managers.length > 0 ? managers : source ? [source] : [],
+      farmers: allFarmers.map(normalizeFarmerRow),
+      _raw: data,
+    },
+  };
 };
 
 export const getMyFarmers = () => {
@@ -1486,6 +1881,10 @@ const convertSinglePlotToAllInOneFormat = (formData: any, plot: any) => {
         formData.fruit_pruning_date || plot.plantation_Date || "2024-01-15",
       last_harvesting_date:
         formData.last_harvesting_date || plot.plantation_Date || "2024-01-15",
+      weight: formData.weight || "",
+      price: formData.price || "",
+      harvest_weight: formData.weight || "",
+      market_price: formData.price || "",
       row_spacing: formData.row_spacing || plot.spacing_A || "3.50",
       plant_spacing: formData.plant_spacing || plot.spacing_B || "3.20",
       variety_type: "seasonal",
@@ -1538,6 +1937,10 @@ const convertSinglePlotToAllInOneFormat = (formData: any, plot: any) => {
         formData.fruit_pruning_date || plot.plantation_Date || "2024-01-15",
       last_harvesting_date:
         formData.last_harvesting_date || plot.plantation_Date || "2024-01-15",
+      weight: formData.weight || "",
+      price: formData.price || "",
+      harvest_weight: formData.weight || "",
+      market_price: formData.price || "",
       irrigation_type: plot.irrigation_Type || "drip",
       intercropping: formData.intercropping || "no",
       intercropping_crop_name: formData.intercropping === "yes" ? formData.intercropping_crop_name : undefined,

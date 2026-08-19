@@ -83,7 +83,7 @@ const IrrigationSchedule: React.FC = () => {
                   </span>
                 </td>
                 <td>
-                  {etLoading && day.isToday && day.etDisplayed <= 0 ? (
+                  {etLoading && day.isToday ? (
                     <div className="loading-spinner-small" />
                   ) : (
                     <span
@@ -101,19 +101,8 @@ const IrrigationSchedule: React.FC = () => {
                   </span>
                 </td>
                 <td>
-                  <span
-                    className={`font-semibold tabular-nums ${
-                      day.waterRequired > 0 ? "text-blue-600" : "text-gray-400"
-                    }`}
-                    title={
-                      day.waterRequired > 0
-                        ? `${day.waterRequired.toLocaleString()} liters per acre`
-                        : day.rainfall >= day.etDisplayed
-                          ? `No irrigation — rainfall (${day.rainfall.toFixed(1)} mm) covers ET (${day.etDisplayed.toFixed(1)} mm)`
-                          : "No irrigation needed"
-                    }
-                  >
-                    {day.waterRequired > 0 ? day.waterRequired.toLocaleString() : "0"}
+                  <span className="text-blue-600 font-semibold tabular-nums">
+                    {day.waterRequired.toLocaleString()}
                   </span>
                 </td>
                 <td>

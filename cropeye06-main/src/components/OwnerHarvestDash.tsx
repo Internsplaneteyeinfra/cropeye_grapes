@@ -1,15 +1,15 @@
-import api from "../api";
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import api, { getFieldOfficersByManager } from "../api";
 import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
+import { getCache, setCache } from "../utils/cache";
 import {
   MapPin,
   ChevronDown,
   Calendar,
   TrendingUp,
   BarChart3,
-  PieChart,
-  Activity,
+  LayoutGrid,
   Maximize2,
 } from "lucide-react";
 import {
@@ -17,7 +17,6 @@ import {
   Pie,
   Cell,
   ResponsiveContainer,
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -39,7 +38,12 @@ import {
 import "leaflet/dist/leaflet.css";
 import { useMap } from "react-leaflet";
 
-import { getBackendApiBaseUrl } from "../utils/serviceUrls";
+import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
+import { extractAgroStatsPlotRow } from "../utils/grapesEventsBundle";
+import {
+  fetchPlotHarvestInfo,
+  harvestInfoFromAgroStatsBatch,
+} from "../utils/harvestStatusService";
 
 const API_BASE_URL = `${getBackendApiBaseUrl()}/users/owner-hierarchy/`;
 
@@ -52,7 +56,6 @@ const CHART_TYPES = {
 
 type ChartType = (typeof CHART_TYPES)[keyof typeof CHART_TYPES];
 
-// Type definitions
 interface Filters {
   manager: string;
   region: string;
@@ -75,7 +78,7 @@ interface HarvestData {
   "Grapes Status": string;
   "Area (Hect)": number;
   Days: number;
-  "Prediction Yield (T/acer)": number;
+  "Prediction Yield (T/acre)": number;
   "Brix (Degree)": number;
   "Recovery (Degree)": number;
   "Distance (km)": number;
@@ -83,25 +86,12 @@ interface HarvestData {
   Region: string;
   "Grapes Type": string;
   Variety: string;
+  areaAcres: number;
   representative?: string;
   representativeUrl?: string;
   boundaryCoordinates?: [number, number][];
-}
-
-interface PlotPoint {
-  id: string | number;
-  position: [number, number];
-  status: string;
-  plotNo: string;
-  area: string;
-  raw: HarvestData;
-  boundaryCoordinates?: [number, number][];
-}
-
-interface StatusData {
-  name: string;
-  value: number;
-  color: string;
+  managerName?: string;
+  plotId?: string;
 }
 
 interface BrixData {
@@ -118,12 +108,6 @@ interface StageDistribution {
   stage: string;
   plots: number;
   color: string;
-}
-
-interface KeyMetric {
-  label: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
 }
 
 interface FilterDropdownProps {
@@ -160,7 +144,6 @@ interface CombinedChartProps {
   setActiveChart: (chart: ChartType) => void;
 }
 
-// Pie chart color palette (used for both pie and map points)
 const STATUS_COLOR_PALETTE = [
   "#3B82F6",
   "#60A5FA",
@@ -170,6 +153,265 @@ const STATUS_COLOR_PALETTE = [
   "#eab308",
   "#888",
 ];
+
+const HECTARES_TO_ACRES = 2.47105;
+
+function pickArray(...candidates: unknown[]): any[] {
+  let fallback: any[] | null = null;
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      if (c.length > 0) return c;
+      if (fallback == null) fallback = c;
+      continue;
+    }
+    if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>;
+      for (const key of [
+        "results",
+        "data",
+        "farmers",
+        "farmer_list",
+        "plots",
+        "plot_list",
+        "farms",
+        "items",
+      ]) {
+        const nested = obj[key];
+        if (Array.isArray(nested) && nested.length > 0) return nested;
+        if (Array.isArray(nested) && fallback == null) fallback = nested;
+      }
+      if (obj.id != null || obj.farmer_id != null || obj.farmerId != null) {
+        return [c];
+      }
+    }
+  }
+  return fallback ?? [];
+}
+
+function resolveFarmAreaAcres(farm: any, plot?: any): number {
+  const acres = parseFloat(
+    String(
+      farm?.area_acres ??
+        farm?.area_in_acres ??
+        plot?.area_acres ??
+        plot?.area_in_acres ??
+        ""
+    )
+  );
+  if (Number.isFinite(acres) && acres > 0) return acres;
+
+  const size = parseFloat(
+    String(farm?.area_size ?? farm?.area_size_numeric ?? "0")
+  );
+  if (!Number.isFinite(size) || size <= 0) return 0;
+  return size * HECTARES_TO_ACRES;
+}
+
+/** Prefer API distance fields (meters → km). Never use Math.random. */
+function resolveDistanceKm(plot: any, farm?: any): number {
+  const candidates = [
+    plot?.distance_km,
+    plot?.distance,
+    farm?.distance_km,
+    farm?.distance,
+  ];
+  for (const c of candidates) {
+    const n = parseFloat(String(c ?? ""));
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  const meters = [
+    plot?.distance_motor_to_plot_m,
+    farm?.distance_motor_to_plot_m,
+    plot?.distance_From_Motor,
+    farm?.distance_From_Motor,
+    plot?.irrigation_details?.distance_motor_to_plot_m,
+    farm?.irrigation_details?.distance_motor_to_plot_m,
+  ];
+  for (const m of meters) {
+    const n = parseFloat(String(m ?? ""));
+    if (Number.isFinite(n) && n >= 0) return n / 1000;
+  }
+  return 0;
+}
+
+function readAgroYieldBrix(plotRow: any): {
+  yieldTPerAcre: number | null;
+  brix: number | null;
+  recovery: number | null;
+} {
+  if (!plotRow || typeof plotRow !== "object") {
+    return { yieldTPerAcre: null, brix: null, recovery: null };
+  }
+  const row =
+    plotRow.brix_sugar != null
+      ? plotRow
+      : plotRow.properties && typeof plotRow.properties === "object"
+        ? plotRow.properties
+        : plotRow;
+  const bs = row.brix_sugar ?? row.brixSugar ?? {};
+  const sugarYield = bs.sugar_yield ?? bs.yield ?? bs.predicted_yield;
+  const yieldTPerAcre =
+    typeof sugarYield?.mean === "number"
+      ? sugarYield.mean
+      : typeof sugarYield?.min === "number"
+        ? sugarYield.min
+        : typeof sugarYield === "number"
+          ? sugarYield
+          : null;
+  const brixRaw = bs.brix ?? bs.tss ?? bs.brix_mean ?? row.brix;
+  const brix =
+    typeof brixRaw?.mean === "number"
+      ? brixRaw.mean
+      : typeof brixRaw === "number"
+        ? brixRaw
+        : typeof brixRaw?.min === "number"
+          ? brixRaw.min
+          : null;
+  const recoveryRaw = bs.recovery ?? bs.ta ?? row.recovery;
+  const recovery =
+    typeof recoveryRaw?.mean === "number"
+      ? recoveryRaw.mean
+      : typeof recoveryRaw === "number"
+        ? recoveryRaw
+        : null;
+  return { yieldTPerAcre, brix, recovery };
+}
+
+function extractOfficers(manager: any): any[] {
+  return pickArray(
+    manager?.field_officers,
+    manager?.fieldOfficers,
+    manager?.fo_list,
+    manager?.field_officer_list,
+    manager?.officers,
+  );
+}
+
+function extractFarmers(officer: any): any[] {
+  return pickArray(
+    officer?.farmers,
+    officer?.farmer_list,
+    officer?.farmer,
+    officer?.assigned_farmers,
+    officer?.farmer_details,
+    officer?.farmer_profiles,
+    officer?.my_farmers,
+    officer?.all_farmers,
+  );
+}
+
+function extractPlots(farmer: any): any[] {
+  const direct = pickArray(
+    farmer?.plots,
+    farmer?.plot_list,
+    farmer?.plot,
+  );
+  if (direct.length > 0) return direct;
+  // Grapes: farmer.farms may be the plot rows (no nested plots[])
+  const farms = pickArray(farmer?.farms, farmer?.farm_list);
+  if (farms.length === 0) return [];
+  const nestedPlots = farms.flatMap((f: any) =>
+    pickArray(f?.plots, f?.plot_list),
+  );
+  return nestedPlots.length > 0 ? nestedPlots : farms;
+}
+
+/** Prefer plot.farms; if missing, treat the plot itself as one farm row. */
+function extractFarms(plot: any): any[] {
+  const farms = pickArray(plot?.farms, plot?.farm_list, plot?.farm);
+  if (farms.length > 0) return farms;
+  return [plot];
+}
+
+function buildHarvestPoint(
+  managerName: string,
+  representativeName: string,
+  plot: any,
+  farm: any,
+): HarvestData {
+  const coordinates = plot.boundary?.coordinates?.[0] || [];
+  let centerLat = 0;
+  let centerLng = 0;
+
+  if (coordinates.length > 0) {
+    coordinates.forEach((coord: number[]) => {
+      centerLng += coord[0];
+      centerLat += coord[1];
+    });
+    centerLat /= coordinates.length;
+    centerLng /= coordinates.length;
+  }
+
+  let days = 0;
+  if (farm.plantation_date || plot.plantation_date) {
+    const plantationDate = new Date(
+      farm.plantation_date || plot.plantation_date,
+    );
+    if (!isNaN(plantationDate.getTime())) {
+      const today = new Date();
+      days = Math.floor(
+        (today.getTime() - plantationDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+    }
+  }
+
+  let stage = "Germination Stage";
+  if (days > 150) stage = "Maturity Stage";
+  else if (days > 90) stage = "Grand Growth Stage";
+  else if (days > 30) stage = "Tillering Stage";
+
+  let status = "Growing";
+  if (days > 270) status = "Ready to Harvest";
+
+  // Yield / brix filled from agroStats after hierarchy load
+  const brix = 0;
+  const recovery = 0;
+  const yieldPerAcre = 0;
+  const distanceKm = resolveDistanceKm(plot, farm);
+
+  const areaAcres = resolveFarmAreaAcres(farm, plot);
+  const areaHect = areaAcres > 0 ? areaAcres / HECTARES_TO_ACRES : 0;
+
+  const boundaryCoords: [number, number][] | undefined =
+    coordinates.length > 0
+      ? coordinates.map(
+          (coord: number[]) => [coord[1], coord[0]] as [number, number],
+        )
+      : undefined;
+
+  const plotId =
+    plot.fastapi_plot_id || farm.fastapi_plot_id || plot.id || farm.id || "";
+
+  return {
+    id: `${plot.id ?? plot.fastapi_plot_id ?? "plot"}-${farm.id ?? farm.farm_id ?? "farm"}`,
+    "Plot No": plot.plot_number || plot.fastapi_plot_id || String(plotId),
+    Latitude: centerLat,
+    Longitude: centerLng,
+    "Grapes Status": status,
+    "Area (Hect)": areaHect,
+    areaAcres,
+    Days: days,
+    "Prediction Yield (T/acre)": yieldPerAcre,
+    "Brix (Degree)": brix,
+    "Recovery (Degree)": recovery,
+    "Distance (km)": distanceKm,
+    Stage: stage,
+    Region: plot.taluka || plot.district || "Unknown",
+    "Grapes Type":
+      farm.plantation_type || plot.plantation_type || "Unknown",
+    Variety:
+      farm?.grafted_variety ||
+      farm?.variety ||
+      plot?.grafted_variety ||
+      plot?.variety ||
+      "Phule 265",
+    representative: representativeName,
+    representativeUrl: "",
+    boundaryCoordinates: boundaryCoords,
+    managerName,
+    plotId: String(plotId),
+  };
+}
 
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value);
@@ -225,7 +467,6 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
   const BrixTooltip: React.FC<BrixTooltipProps> = ({
     active,
     payload,
-    label,
   }) => {
     if (active && payload && payload.length) {
       const entry = payload[0].payload;
@@ -256,7 +497,6 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
   const HarvestTooltip: React.FC<HarvestTooltipProps> = ({
     active,
     payload,
-    label,
   }) => {
     if (active && payload && payload.length) {
       const entry = payload[0].payload;
@@ -395,7 +635,7 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
                 dataKey="stage"
-                tick={{ fontSize: 10, angle: 0, dy: 10 }}
+                tick={{ fontSize: 10 }}
                 axisLine={{ stroke: "#e5e7eb" }}
               />
               <YAxis
@@ -480,14 +720,15 @@ const HarvestDashboard: React.FC = () => {
     variety: "All",
   });
   const [dateRange, setDateRange] = useState<DateRange>({
-    start: "2024-12-14",
-    end: "2024-12-14",
+    start: new Date().toISOString().slice(0, 10),
+    end: new Date().toISOString().slice(0, 10),
   });
   const [harvestRange, setHarvestRange] = useState<[number, number]>([
     -50, 100,
   ]);
   const [loading, setLoading] = useState<boolean>(true);
   const [rawData, setRawData] = useState<HarvestData[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Dynamic filter options
   const [managerOptions, setManagerOptions] = useState<string[]>(["All"]);
@@ -501,7 +742,6 @@ const HarvestDashboard: React.FC = () => {
   const [varietyOptions] = useState<string[]>(["All", "Phule 265"]);
 
   // Debounce non-representative filters
-  const debouncedManager = useDebouncedValue(filters.manager, 300);
   const debouncedRegion = useDebouncedValue(filters.region, 300);
   const debouncedGrapesType = useDebouncedValue(filters.grapesType, 300);
   const debouncedVariety = useDebouncedValue(filters.variety, 300);
@@ -509,134 +749,292 @@ const HarvestDashboard: React.FC = () => {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setLoadError(null);
       try {
-        const response = await api.get(API_BASE_URL);
-        const apiData = response.data;
+        // 1) Owner list: GET /users/owner-hierarchy/
+        const response = await api.get(API_BASE_URL, { timeout: 60_000 });
+        const apiData = response.data ?? {};
+        const managers = pickArray(
+          apiData.managers,
+          apiData.manager,
+          apiData.results,
+          apiData.data?.managers,
+        );
 
-        if (apiData && apiData.managers) {
-          let allData: HarvestData[] = [];
+        if (managers.length === 0) {
+          setRawData([]);
+          setLoadError(
+            "Owner hierarchy API returned no managers. Check that managers are linked under this owner.",
+          );
+          return;
+        }
 
-          const managerSet = new Set<string>();
-          const talukaSet = new Set<string>();
-          const representativeSet = new Set<string>();
-          const plantationTypeSet = new Set<string>();
+        let allData: HarvestData[] = [];
+        const managerSet = new Set<string>();
+        const talukaSet = new Set<string>();
+        const representativeSet = new Set<string>();
+        const plantationTypeSet = new Set<string>();
 
-          apiData.managers.forEach((manager: any) => {
-            const managerName = `${manager.first_name} ${manager.last_name}`;
+        // 2) For each manager: GET /users/owner-hierarchy/?manager_id=…
+        //    (same as Owner Farm Crop Status / getFieldOfficersByManager)
+        const enriched = await Promise.all(
+          managers.map(async (manager: any) => {
+            const mid = manager?.id ?? manager?.user_id ?? manager?.userId;
+            const managerName =
+              `${manager.first_name || ""} ${manager.last_name || ""}`.trim() ||
+              manager?.username ||
+              "Manager";
             managerSet.add(managerName);
 
-            manager.field_officers.forEach((officer: any) => {
-              const representativeName = `${officer.first_name} ${officer.last_name}`;
-              representativeSet.add(representativeName);
+            let officers = extractOfficers(manager);
+            let payloadFarmers: any[] = [];
 
-              officer.farmers.forEach((farmer: any) => {
-                farmer.plots.forEach((plot: any) => {
-                  if (plot.taluka) {
-                    talukaSet.add(plot.taluka);
-                  }
+            if (mid != null) {
+              try {
+                const detail = await getFieldOfficersByManager(mid);
+                const detailData = detail?.data ?? {};
+                const detailOfficers = pickArray(
+                  detailData.field_officers,
+                  detailData.fieldOfficers,
+                );
+                if (detailOfficers.length > 0) {
+                  officers = detailOfficers;
+                }
+                payloadFarmers = pickArray(
+                  detailData.farmers,
+                  detailData.farmer_list,
+                  detailData.all_farmers,
+                  detailData._raw?.farmers,
+                );
+              } catch (err) {
+                console.warn(
+                  `OwnerHarvestDash: failed owner-hierarchy?manager_id=${mid}`,
+                  err,
+                );
+              }
+            }
 
-                  plot.farms.forEach((farm: any) => {
-                    if (farm.plantation_type) {
-                      plantationTypeSet.add(farm.plantation_type);
-                    }
+            // Attach payload-level farmers onto FOs when FO.farmers is empty
+            if (payloadFarmers.length > 0) {
+              const anyLinked = payloadFarmers.some((farmer: any) => {
+                const link =
+                  farmer?.field_officer_id ??
+                  farmer?.field_officer?.id ??
+                  farmer?.created_by?.id ??
+                  farmer?.created_by ??
+                  farmer?.created_by_id ??
+                  farmer?.fo_id;
+                return link != null && link !== "";
+              });
 
-                    const coordinates = plot.boundary?.coordinates?.[0] || [];
-                    let centerLat = 0;
-                    let centerLng = 0;
+              officers = officers.map((officer: any) => {
+                const existing = extractFarmers(officer);
+                if (existing.length > 0) {
+                  return { ...officer, farmers: existing };
+                }
+                const foId = String(officer?.id ?? officer?.user_id ?? "");
+                const linked = payloadFarmers.filter((farmer: any) => {
+                  const link =
+                    farmer?.field_officer_id ??
+                    farmer?.field_officer?.id ??
+                    farmer?.created_by?.id ??
+                    farmer?.created_by ??
+                    farmer?.created_by_id ??
+                    farmer?.fo_id;
+                  return link != null && String(link) === foId;
+                });
+                if (linked.length > 0) {
+                  return { ...officer, farmers: linked };
+                }
+                if (officers.length === 1 || !anyLinked) {
+                  return { ...officer, farmers: payloadFarmers };
+                }
+                return officer;
+              });
+            } else {
+              officers = officers.map((officer: any) => ({
+                ...officer,
+                farmers: extractFarmers(officer),
+              }));
+            }
 
-                    if (coordinates.length > 0) {
-                      coordinates.forEach((coord: number[]) => {
-                        centerLng += coord[0];
-                        centerLat += coord[1];
-                      });
-                      centerLat /= coordinates.length;
-                      centerLng /= coordinates.length;
-                    }
+            return { managerName, officers };
+          }),
+        );
 
-                    const plantationDate = new Date(farm.plantation_date);
-                    const today = new Date();
-                    const days = Math.floor(
-                      (today.getTime() - plantationDate.getTime()) /
-                      (1000 * 60 * 60 * 24),
-                    );
+        enriched.forEach(({ managerName, officers }) => {
+          officers.forEach((officer: any) => {
+            const representativeName =
+              `${officer.first_name || ""} ${officer.last_name || ""}`.trim() ||
+              officer?.username ||
+              "Field Officer";
+            representativeSet.add(representativeName);
 
-                    let stage = "Germination Stage";
-                    if (days > 150) stage = "Maturity Stage";
-                    else if (days > 90) stage = "Grand Growth Stage";
-                    else if (days > 30) stage = "Tillering Stage";
+            extractFarmers(officer).forEach((farmer: any) => {
+              extractPlots(farmer).forEach((plot: any) => {
+                if (plot.taluka) talukaSet.add(plot.taluka);
+                else if (plot.district) talukaSet.add(plot.district);
 
-                    let status = "Growing";
-                    if (days > 300) status = "Ready to Harvest";
-                    else if (days > 270) status = "Partially Harvested";
+                extractFarms(plot).forEach((farm: any) => {
+                  const plantationType =
+                    farm.plantation_type || plot.plantation_type;
+                  if (plantationType) plantationTypeSet.add(plantationType);
 
-                    const brix = Math.min(15 + days / 10, 25);
-                    const recovery = Math.min(8 + days / 30, 12);
-
-                    const area = parseFloat(farm.area_size || "0");
-                    const yieldPerHa = Math.min(60 + days / 3, 100);
-
-                    // Only add data point if we have valid coordinates
-                    if (
-                      centerLat &&
-                      centerLng &&
-                      centerLat !== 0 &&
-                      centerLng !== 0
-                    ) {
-                      // Convert boundary coordinates from [lng, lat] to [lat, lng] for Leaflet
-                      const boundaryCoords: [number, number][] | undefined =
-                        coordinates.length > 0
-                          ? coordinates.map(
-                            (coord: number[]) =>
-                              [coord[1], coord[0]] as [number, number],
-                          )
-                          : undefined;
-
-                      const dataPoint: HarvestData = {
-                        id: `${plot.id}-${farm.id}`,
-                        "Plot No": plot.plot_number || "",
-                        Latitude: centerLat,
-                        Longitude: centerLng,
-                        "Grapes Status": status,
-                        "Area (Hect)": area,
-                        Days: days,
-                        "Prediction Yield (T/acre)": yieldPerHa,
-                        "Brix (Degree)": brix,
-                        "Recovery (Degree)": recovery,
-                        "Distance (km)": Math.random() * 10 + 1,
-                        Stage: stage,
-                        Region: plot.taluka || "Unknown",
-                        "Grapes Type": farm.plantation_type || "Unknown",
-                        Variety: "Phule 265",
-                        representative: representativeName,
-                        representativeUrl: "",
-                        boundaryCoordinates: boundaryCoords,
-                      };
-
-                      allData.push(dataPoint);
-                    }
-                  });
+                  allData.push(
+                    buildHarvestPoint(
+                      managerName,
+                      representativeName,
+                      plot,
+                      farm,
+                    ),
+                  );
                 });
               });
             });
           });
+        });
 
-          setManagerOptions(["All", ...Array.from(managerSet).sort()]);
-          setRegionOptions(["All", ...Array.from(talukaSet).sort()]);
-          setRepresentativeOptions([
-            "All",
-            ...Array.from(representativeSet).sort(),
-          ]);
-          setGrapesTypeOptions([
-            "All",
-            ...Array.from(plantationTypeSet).sort(),
-          ]);
+        setManagerOptions(["All", ...Array.from(managerSet).sort()]);
+        setRegionOptions(["All", ...Array.from(talukaSet).sort()]);
+        setRepresentativeOptions([
+          "All",
+          ...Array.from(representativeSet).sort(),
+        ]);
+        setGrapesTypeOptions([
+          "All",
+          ...Array.from(plantationTypeSet).sort(),
+        ]);
 
-          setRawData(allData);
-        } else {
-          setRawData([]);
+        // Enrich yield / brix / harvest status from events agroStats
+        const today = new Date().toISOString().slice(0, 10);
+        const uniquePlotIds = Array.from(
+          new Set(
+            allData
+              .map((d) => d.plotId)
+              .filter((id): id is string => !!id && id !== "undefined"),
+          ),
+        );
+        const eventsBase = getEventsBaseUrl().replace(/\/+$/, "");
+        const agroStatsCacheKey = `agroStats_${today}`;
+        let allPlotsYieldData = getCache(agroStatsCacheKey);
+        if (!allPlotsYieldData) {
+          try {
+            const agroStatsRes = await axios.get(
+              `${eventsBase}/plots/agroStats`,
+              {
+                params: { end_date: today },
+                timeout: 60_000,
+                headers: { Accept: "application/json" },
+              },
+            );
+            allPlotsYieldData = agroStatsRes.data;
+            setCache(agroStatsCacheKey, allPlotsYieldData);
+          } catch (err) {
+            console.warn("OwnerHarvestDash: agroStats fetch failed", err);
+            allPlotsYieldData = null;
+          }
         }
-      } catch (err) {
+
+        const harvestStatusMap = new Map<string, string>();
+        if (allPlotsYieldData && uniquePlotIds.length > 0) {
+          uniquePlotIds.forEach((plotId) => {
+            const plotData = extractAgroStatsPlotRow(
+              allPlotsYieldData,
+              plotId,
+              null,
+            );
+            const metrics = readAgroYieldBrix(plotData);
+            allData.forEach((dp) => {
+              if (dp.plotId !== plotId) return;
+              if (metrics.yieldTPerAcre != null) {
+                dp["Prediction Yield (T/acre)"] = metrics.yieldTPerAcre;
+              }
+              if (metrics.brix != null) {
+                dp["Brix (Degree)"] = metrics.brix;
+              }
+              if (metrics.recovery != null) {
+                dp["Recovery (Degree)"] = metrics.recovery;
+              }
+            });
+          });
+
+          const batchHarvest = harvestInfoFromAgroStatsBatch(
+            allPlotsYieldData,
+            uniquePlotIds,
+          );
+          batchHarvest.forEach((info, plotId) => {
+            if (info.harvestStatus) {
+              harvestStatusMap.set(plotId, info.harvestStatus);
+            }
+          });
+
+          const missing = uniquePlotIds.filter(
+            (id) => !harvestStatusMap.has(id),
+          );
+          await Promise.allSettled(
+            missing.map(async (plotId) => {
+              try {
+                const info = await fetchPlotHarvestInfo(plotId, today);
+                if (info.harvestStatus) {
+                  harvestStatusMap.set(plotId, info.harvestStatus);
+                }
+              } catch {
+                // keep default Growing
+              }
+            }),
+          );
+
+          allData.forEach((dp) => {
+            const apiStatus = dp.plotId
+              ? harvestStatusMap.get(dp.plotId)
+              : undefined;
+            if (!apiStatus) return;
+            const normalized = apiStatus
+              .toLowerCase()
+              .replace(/_/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (
+              normalized.includes("partially") &&
+              normalized.includes("harvested")
+            ) {
+              dp["Grapes Status"] = "Harvested";
+            } else if (
+              normalized.includes("harvested") &&
+              !normalized.includes("partially")
+            ) {
+              dp["Grapes Status"] = "Harvested";
+            } else if (normalized.includes("ready")) {
+              dp["Grapes Status"] = "Ready to Harvest";
+            } else if (normalized.includes("growing")) {
+              dp["Grapes Status"] = "Growing";
+            }
+          });
+        }
+
+        setRawData(allData);
+        if (allData.length === 0) {
+          setLoadError(
+            "Owner hierarchy loaded, but no farms/plots were found under managers → field officers → farmers. Check that farmers have plots nested in owner-hierarchy?manager_id=.",
+          );
+        }
+      } catch (err: any) {
+        console.error("OwnerHarvestDash fetch failed:", err);
         setRawData([]);
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          setLoadError(
+            "Not authorized to load owner hierarchy (login may have expired). Please log in again.",
+          );
+        } else if (!err?.response) {
+          setLoadError(
+            "Network/timeout while loading owner hierarchy. The backend may be slow — try refresh.",
+          );
+        } else {
+          setLoadError(
+            `Failed to load owner hierarchy (${status || "error"}).`,
+          );
+        }
       } finally {
         setLoading(false);
       }
@@ -647,16 +1045,10 @@ const HarvestDashboard: React.FC = () => {
 
   const filteredData = useMemo(
     () =>
-      rawData
-        .filter((item) => {
-          // This part is tricky without manager name in HarvestData.
-          // For now, we can't filter by manager.
-          // To fix this, we would need to add managerName to HarvestData during processing.
-          // Let's assume for now we can't filter by manager directly on the flat list.
-          // The filtering will happen by re-calculating representatives.
-          return true;
-        })
-        .filter((item) => {
+      rawData.filter((item) => {
+          const managerMatch =
+            filters.manager === "All" ||
+            item.managerName === filters.manager;
           const regionMatch =
             debouncedRegion === "All" || item.Region === debouncedRegion;
           const repMatch =
@@ -667,10 +1059,17 @@ const HarvestDashboard: React.FC = () => {
             item["Grapes Type"] === debouncedGrapesType;
           const varietyMatch =
             debouncedVariety === "All" || item.Variety === debouncedVariety;
-          return regionMatch && repMatch && typeMatch && varietyMatch;
+          return (
+            managerMatch &&
+            regionMatch &&
+            repMatch &&
+            typeMatch &&
+            varietyMatch
+          );
         }),
     [
       rawData,
+      filters.manager,
       debouncedRegion,
       filters.representative,
       debouncedGrapesType,
@@ -681,7 +1080,6 @@ const HarvestDashboard: React.FC = () => {
   const FIXED_STATUS_LABELS = [
     "Harvested",
     "Growing",
-    "Partially Harvested",
     "Ready to Harvest",
   ];
 
@@ -821,25 +1219,34 @@ const HarvestDashboard: React.FC = () => {
 
   const keyMetrics = useMemo(() => {
     const totalArea = filteredData.reduce(
-      (sum, item) => sum + (item["Area (Hect)"] || 0),
+      (sum, item) => sum + (item.areaAcres || 0),
       0,
     );
-    const avgYield = filteredData.length
-      ? (
-        filteredData.reduce(
+    const totalPlots = filteredData.length;
+    const avgDistance = (() => {
+      const withDistance = filteredData.filter(
+        (item) => (item["Distance (km)"] || 0) > 0,
+      );
+      if (withDistance.length === 0) return "-";
+      return (
+        withDistance.reduce(
+          (sum, item) => sum + (item["Distance (km)"] || 0),
+          0,
+        ) / withDistance.length
+      ).toFixed(2);
+    })();
+    const avgYield = (() => {
+      const withYield = filteredData.filter(
+        (item) => (item["Prediction Yield (T/acre)"] || 0) > 0,
+      );
+      if (withYield.length === 0) return "-";
+      return (
+        withYield.reduce(
           (sum, item) => sum + (item["Prediction Yield (T/acre)"] || 0),
           0,
-        ) / filteredData.length
-      ).toFixed(2)
-      : "-";
-    const avgRecovery = filteredData.length
-      ? (
-        filteredData.reduce(
-          (sum, item) => sum + (item["Recovery (Degree)"] || 0),
-          0,
-        ) / filteredData.length
-      ).toFixed(2)
-      : "-";
+        ) / withYield.length
+      ).toFixed(2);
+    })();
 
     return [
       {
@@ -848,26 +1255,19 @@ const HarvestDashboard: React.FC = () => {
         icon: BarChart3,
       },
       {
+        label: "Total plots",
+        value: totalPlots ? `${totalPlots} plots` : "-",
+        icon: LayoutGrid,
+      },
+      {
         label: "Avg. Distance (KM)",
-        value: filteredData.length
-          ? (
-            filteredData.reduce(
-              (sum, item) => sum + (item["Distance (km)"] || 0),
-              0,
-            ) / filteredData.length
-          ).toFixed(2)
-          : "-",
+        value: avgDistance,
         icon: MapPin,
       },
       {
         label: "Expected Yield (T/acre)",
         value: avgYield,
         icon: TrendingUp,
-      },
-      {
-        label: "Recovery % (Expected)",
-        value: avgRecovery,
-        icon: Activity,
       },
     ];
   }, [filteredData]);
@@ -945,10 +1345,14 @@ const HarvestDashboard: React.FC = () => {
     </div>
   );
 
-  if (loading || rawData.length === 0) {
+  if (loading) {
     return (
-      <div className="min-h-screen dashboard-bg flex items-center justify-center">
+      <div className="min-h-screen dashboard-bg flex flex-col items-center justify-center gap-3 px-4">
         <CommonSpinner />
+        <p className="text-sm text-gray-600 text-center max-w-md">
+          Loading owner hierarchy… this can take up to a minute when many
+          managers and plots are linked.
+        </p>
       </div>
     );
   }
@@ -956,6 +1360,12 @@ const HarvestDashboard: React.FC = () => {
   return (
     <div className="min-h-screen dashboard-bg p-4 lg:p-6">
       <div className="max-w-7xl mx-auto">
+        {rawData.length === 0 && (
+          <div className="mb-4 text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-3">
+            {loadError ||
+              "No harvest planning plots found yet. Select managers with linked field officers, farmers, and plots."}
+          </div>
+        )}
         <div className="mb-8">
           <div className="flex flex-wrap items-center gap-4 mb-6">
             <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border shadow-sm">
@@ -1156,7 +1566,7 @@ const HarvestDashboard: React.FC = () => {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {plotStatusData.map((entry, index) => (
+                        {plotStatusData.map((_entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={

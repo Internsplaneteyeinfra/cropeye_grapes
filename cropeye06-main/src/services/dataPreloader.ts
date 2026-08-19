@@ -1,14 +1,15 @@
 /**
  * Data Preloader Service
- * Pre-loads ALL agricultural data endpoints after farmer login
- * to improve user experience and prevent repeated API calls
+ * Pre-loads dashboard data after farmer login so pages open faster.
+ * Map layer endpoints load on demand when the user opens the Map.
  */
 
 import { getCache, setCache } from '../components/utils/cache';
 import { getFarmerMyProfile } from '../api';
 import { fetchCurrentWeather } from './weatherService';
 import { buildForecastChartDays, fetchWeatherForecast } from './weatherForecastService';
-import { getGrapesMainBaseUrl } from '../utils/serviceUrls';
+import { getGrapesMainBaseUrl, getEventsBaseUrl } from '../utils/serviceUrls';
+import { grapesPlotFormBody } from '../utils/grapesEventsBundle';
 import { normalizeNpkFromApi } from '../utils/npkNormalize';
 
 // Import context - will be passed as parameter to avoid circular dependencies
@@ -301,8 +302,9 @@ const fetchBrixData = async (
       cache: 'default',
       credentials: 'omit',
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
+      body: grapesPlotFormBody(plotName),
     });
 
     if (response.ok) {
@@ -363,98 +365,103 @@ const fetchFarmerDashboardData = async (
   const BASE_URL = getEventsBaseUrl();
   
   try {
-    // Fetch indices
-    const indicesCacheKey = `indices_${plotName}`;
-    if (!getCache(indicesCacheKey)) {
-      try {
-        const response = await fetch(`${BASE_URL}/plots/${plotName}/indices`, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'default',
-          credentials: 'omit',
-          headers: { 'Accept': 'application/json' },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const processed = data.map((item: any) => ({
-            date: new Date(item.date).toISOString().split("T")[0],
-            growth: item.NDVI,
-            stress: item.NDMI,
-            water: item.NDWI,
-            moisture: item.NDRE,
-          }));
-          cacheData(indicesCacheKey, processed);
-          if (context) {
-            context.setApiData('indices', plotName, processed);
-          }
-        }
-      } catch (err) {
-        console.warn(`Failed to preload indices for ${plotName}:`, err);
-      }
-    }
-
-    // Fetch stress data
-    const stressCacheKey = `stress_${plotName}_NDMI_0.15`;
-    if (!getCache(stressCacheKey)) {
-      try {
-        const response = await fetch(`${BASE_URL}/plots/${plotName}/stress?index_type=NDRE&threshold=0.15`, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'default',
-          credentials: 'omit',
-          headers: { 'Accept': 'application/json' },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          cacheData(stressCacheKey, data);
-          if (context) {
-            context.setApiData('stress', plotName, data);
-          }
-        }
-      } catch (err) {
-        console.warn(`Failed to preload stress data for ${plotName}:`, err);
-      }
-    }
-
-    // Fetch irrigation data
-    const irrigationCacheKey = `irrigation_${plotName}`;
-    if (!getCache(irrigationCacheKey)) {
-      try {
-        const response = await fetch(`${BASE_URL}/plots/${plotName}/irrigation`, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'default',
-          credentials: 'omit',
-          headers: { 'Accept': 'application/json' },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          cacheData(irrigationCacheKey, data);
-          if (context) {
-            context.setApiData('irrigation', plotName, data);
-          }
-        }
-      } catch (err) {
-        console.warn(`Failed to preload irrigation data for ${plotName}:`, err);
-      }
-    }
-
-    // Grapes Events API: GET /plots/agroStats is not available — preload POST bundle (yield + ripening + brix).
     const endDate = getCurrentEndDate();
+    const indicesCacheKey = `indices_${plotName}`;
+    const stressCacheKey = `stress_${plotName}_NDRE_0.15`;
+    const irrigationCacheKey = `irrigation_${plotName}`;
     const grapesBundleCacheKey = `farmerDashGrapes_v2_${plotName}_${endDate}`;
-    if (!getCache(grapesBundleCacheKey)) {
-      try {
-        const { fetchGrapesEventsBundle } = await import('../utils/grapesEventsBundle');
-        const bundle = await fetchGrapesEventsBundle(BASE_URL, plotName);
-        cacheData(grapesBundleCacheKey, bundle);
-        if (context) {
-          context.setApiData('agroStats', plotName, bundle);
+
+    // Parallel preload — matches FarmerDashboard critical path (was sequential before)
+    await Promise.allSettled([
+      (async () => {
+        if (getCache(indicesCacheKey)) return;
+        try {
+          const response = await fetch(`${BASE_URL}/plots/${plotName}/indices`, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'default',
+            credentials: 'omit',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const processed = data.map((item: any) => ({
+              date: new Date(item.date).toISOString().split("T")[0],
+              growth: item.NDVI,
+              stress: item.NDMI,
+              water: item.NDWI,
+              moisture: item.NDRE,
+            }));
+            cacheData(indicesCacheKey, processed);
+            if (context) {
+              context.setApiData('indices', plotName, processed);
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to preload indices for ${plotName}:`, err);
         }
-        console.log(`✅ Preloaded grapes bundle for ${plotName}`);
-      } catch (err) {
-        console.warn(`Failed to preload grapes bundle for ${plotName}:`, err);
-      }
-    }
+      })(),
+      (async () => {
+        if (getCache(stressCacheKey)) return;
+        try {
+          const response = await fetch(`${BASE_URL}/plots/${plotName}/stress?index_type=NDRE&threshold=0.15`, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'default',
+            credentials: 'omit',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            cacheData(stressCacheKey, data);
+            if (context) {
+              context.setApiData('stress', plotName, data);
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to preload stress data for ${plotName}:`, err);
+        }
+      })(),
+      (async () => {
+        if (getCache(irrigationCacheKey)) return;
+        try {
+          // Same query string as FarmerDashboard so cache hits on open
+          const response = await fetch(
+            `${BASE_URL}/plots/${plotName}/irrigation?threshold_ndmi=0.05&threshold_ndwi=0.05&min_days_between_events=10`,
+            {
+              method: 'GET',
+              mode: 'cors',
+              cache: 'default',
+              credentials: 'omit',
+              headers: { 'Accept': 'application/json' },
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            cacheData(irrigationCacheKey, data);
+            if (context) {
+              context.setApiData('irrigation', plotName, data);
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to preload irrigation data for ${plotName}:`, err);
+        }
+      })(),
+      (async () => {
+        if (getCache(grapesBundleCacheKey)) return;
+        try {
+          const { fetchGrapesEventsBundle } = await import('../utils/grapesEventsBundle');
+          const bundle = await fetchGrapesEventsBundle(BASE_URL, plotName);
+          cacheData(grapesBundleCacheKey, bundle);
+          if (context) {
+            context.setApiData('agroStats', plotName, bundle);
+          }
+          console.log(`✅ Preloaded grapes bundle for ${plotName}`);
+        } catch (err) {
+          console.warn(`Failed to preload grapes bundle for ${plotName}:`, err);
+        }
+      })(),
+    ]);
   } catch (error) {
     console.warn(`Failed to preload FarmerDashboard data for ${plotName}:`, error);
   }
@@ -772,22 +779,13 @@ const preloadPlotData = async (
   }
 
   const endDate = getCurrentEndDate();
-  console.log(`🔄 Preloading ALL endpoints for plot: ${plotName} (endDate: ${endDate})`);
+  console.log(`🔄 Preloading dashboard data for plot: ${plotName} (endDate: ${endDate})`);
 
-  // Fetch ALL data types in parallel
+  // Dashboard-only preload — map layers load on demand when user opens Map
   const results = await Promise.allSettled([
-    // Map data
-    fetchGrowthData(plotName, endDate, context),
-    fetchWaterUptakeData(plotName, endDate, context),
-    fetchSoilMoistureData(plotName, endDate, context),
-    fetchPestData(plotName, endDate, context),
-    fetchBrixData(plotName, endDate, context),
     fetchBrixTimeSeriesData(plotName, context),
-    // FarmerDashboard data
     fetchFarmerDashboardData(plotName, context),
-    // Fertilizer/Soil Analysis data
     fetchFertilizerData(plotName, plantationDate || '2025-01-01', crop, context),
-    // Irrigation data
     fetchIrrigationData(plotName, context),
     fetchWaterUptakeEfficiencyData(plotName),
     fetchGrapesScheduleData(plotName),
@@ -819,7 +817,7 @@ export const preloadAllFarmerData = async (
     context.setPreloadComplete(false);
   }
 
-  console.log(`🚀 Starting COMPLETE preload for ${plots.length} plot(s) - ALL endpoints...`);
+  console.log(`🚀 Starting dashboard preload for ${plots.length} plot(s)...`);
 
   await getFarmerProfileData();
 
@@ -847,7 +845,7 @@ export const preloadAllFarmerData = async (
     context.setPreloadComplete(true);
   }
 
-  console.log(`✅ Completed COMPLETE preloading for all plots - ALL endpoints cached!`);
+  console.log(`✅ Completed dashboard preload for all plots`);
 };
 
 /**

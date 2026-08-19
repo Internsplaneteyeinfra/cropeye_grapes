@@ -624,6 +624,76 @@
   color: #64748b;
 }
 
+/* Soil moisture chart — click tooltip (sugarcane style) */
+.moisture-select-tooltip {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  padding: 10px 14px;
+  min-width: 200px;
+  pointer-events: none;
+}
+
+.moisture-select-tooltip__title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1e293b;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.moisture-select-tooltip__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.moisture-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+}
+
+.moisture-pill strong {
+  font-weight: 800;
+  color: #c2410c;
+}
+
+.rain-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.rain-pill strong {
+  font-weight: 800;
+  color: #1e40af;
+}
+
+.moisture-chart-hit {
+  cursor: pointer;
+}
+
+.moisture-chart-hit:focus {
+  outline: none;
+}
+
 /* Responsive */
 @media (max-width: 868px) {
   .card-row {
@@ -1072,19 +1142,4 @@
 .dashboard-cards-row .dashboard-card-soil .moisture-percentage-text,
 .dashboard-cards-row .dashboard-card-soil .moisture-percentage-text-empty {
   font-size: 0.7rem;
-}
-
-.trend-card-row {
-  margin-top: 1.25rem;
-  margin-bottom: 1.25rem;
-}
-
-.moisture-trend-chart-plot {
-  min-height: 380px;
-}
-
-.soil-moisture-trend-card .trend-card-header h3 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #111827;
 }

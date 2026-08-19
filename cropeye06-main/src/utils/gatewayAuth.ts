@@ -1,10 +1,11 @@
 import { clearAllLocalStorage, getAuthToken } from "./auth";
+import { USE_MOCK_AUTH } from "../config/authConfig";
 
 export const GATEWAY_URL =
   (import.meta.env.VITE_GATEWAY_URL as string | undefined) ||
   (typeof window !== "undefined"
-    ? (import.meta.env.DEV ? "http://localhost:5173" : window.location.origin)
-    : "http://localhost:5173");
+    ? (import.meta.env.DEV ? "http://localhost:5174" : window.location.origin)
+    : "http://localhost:5174");
 
 const getGatewayOrigin = () => {
   try {
@@ -29,6 +30,7 @@ const isOnGatewayPath = () => {
 };
 
 export function requireGatewayAuth(): void {
+  if (USE_MOCK_AUTH) return;
   const token = getAuthToken();
   if (!token) {
     if (window.location.origin !== getGatewayOrigin() || !isOnGatewayPath()) {
@@ -39,6 +41,11 @@ export function requireGatewayAuth(): void {
 
 export function gatewayLogout(): void {
   clearAllLocalStorage();
+  if (USE_MOCK_AUTH) {
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
+    return;
+  }
   if (!isOnGatewayPath()) window.location.assign(getGatewayLoginUrl(true));
 }
-

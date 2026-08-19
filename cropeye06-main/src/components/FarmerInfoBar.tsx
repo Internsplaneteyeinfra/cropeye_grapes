@@ -3,8 +3,10 @@ import { useFarmerProfile } from '../hooks/useFarmerProfile';
 import { useAppContext } from '../context/AppContext';
 import './FarmerInfoBar.css';
 import { getAuthToken } from '../utils/auth';
-import { getNotificationsBaseUrl } from '../utils/serviceUrls';
-import { getCache } from './utils/cache';
+import { getNotificationsBaseUrl, getEventsBaseUrl } from '../utils/serviceUrls';
+import { getCache, setCache } from './utils/cache';
+import { extractAgroStatsPlotRow } from '../utils/grapesEventsBundle';
+import axios from 'axios';
 import {
   resolveWeedRecord,
   resolvePestRecord,
@@ -240,13 +242,61 @@ function ForecastPeriodRows({
   );
 }
 
+function formatPlantationDate(raw?: string | null): string | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return String(raw);
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function resolvePlotAreaAcres(plot: any, farm: any): number {
+  const acres = parseFloat(
+    String(
+      farm?.area_acres ??
+        farm?.area_in_acres ??
+        plot?.area_acres ??
+        plot?.area_in_acres ??
+        '',
+    ),
+  );
+  if (Number.isFinite(acres) && acres > 0) return acres;
+  const size = parseFloat(String(farm?.area_size ?? farm?.area_size_numeric ?? '0'));
+  if (!Number.isFinite(size) || size <= 0) return 0;
+  return size * 2.47105;
+}
+
+function readYieldTPerAcre(plotRow: any): number | null {
+  if (!plotRow || typeof plotRow !== 'object') return null;
+  const row =
+    plotRow.brix_sugar != null
+      ? plotRow
+      : plotRow.properties && typeof plotRow.properties === 'object'
+        ? plotRow.properties
+        : plotRow;
+  const bs = row.brix_sugar ?? row.brixSugar ?? {};
+  const sugarYield = bs.sugar_yield ?? bs.yield ?? bs.predicted_yield;
+  if (typeof sugarYield?.mean === 'number') return sugarYield.mean;
+  if (typeof sugarYield?.min === 'number') return sugarYield.min;
+  if (typeof sugarYield === 'number') return sugarYield;
+  return null;
+}
+
+const GRAPES_PRICE_API =
+  'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?api-key=579b464db66ec23bdd00000192b7b5617dcf45f95865d31f2f071eb2&format=json&offset=0&limit=10&filters%5Bstate.keyword%5D=Maharastra&filters%5Bcommodity%5D=Grapes';
+
 const FarmerInfoBar: React.FC = () => {
-  const { appState } = useAppContext();
+  const { appState, getApiData } = useAppContext();
   const { profile, getFarmerName, getTotalPlots } = useFarmerProfile();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [headerWeight, setHeaderWeight] = useState<string | null>(null);
+  const [headerPrice, setHeaderPrice] = useState<string | null>(null);
   const [forecast, setForecast] = useState<ForecastCurrentWeather | null>(null);
   const [forecastLoading, setForecastLoading] = useState(false);
   const [forecastError, setForecastError] = useState<string | null>(null);
@@ -276,6 +326,163 @@ const FarmerInfoBar: React.FC = () => {
   const totalPlots = profile 
     ? (getTotalPlots() || profile.plots?.length || 0)
     : 0;
+
+  const selectedPlotMeta = useMemo(() => {
+    const plotId =
+      (appState as any)?.selectedPlotName ||
+      (typeof window !== 'undefined' ? localStorage.getItem('selectedPlot') : null) ||
+      profile?.plots?.[0]?.fastapi_plot_id ||
+      null;
+    const plots = profile?.plots || [];
+    const plot =
+      plots.find(
+        (p: any) =>
+          String(p?.fastapi_plot_id || '') === String(plotId) ||
+          (p?.gat_number &&
+            p?.plot_number &&
+            `${p.gat_number}_${p.plot_number}` === String(plotId)),
+      ) || plots[0] || null;
+    const farm =
+      Array.isArray(plot?.farms) && plot.farms.length > 0
+        ? (plot.farms[0] as any)
+        : null;
+    // Prefer fields filled on Registration page (weight / price), else null for API fill
+    const filledWeight =
+      farm?.harvest_weight ??
+      farm?.weight ??
+      (plot as any)?.harvest_weight ??
+      (plot as any)?.weight ??
+      null;
+    const filledPrice =
+      farm?.price ??
+      farm?.market_price ??
+      farm?.selling_price ??
+      (plot as any)?.price ??
+      (plot as any)?.market_price ??
+      null;
+    return {
+      plotId: plot?.fastapi_plot_id || plotId,
+      areaAcres: resolvePlotAreaAcres(plot, farm),
+      filledWeight:
+        filledWeight != null && String(filledWeight).trim() !== ''
+          ? String(filledWeight)
+          : null,
+      filledPrice:
+        filledPrice != null && String(filledPrice).trim() !== ''
+          ? String(filledPrice)
+          : null,
+    };
+  }, [appState, profile?.plots]);
+
+  // Weight: plot-filled value first, else agroStats / dashboard cache for selected plot
+  useEffect(() => {
+    if (selectedPlotMeta.filledWeight) {
+      setHeaderWeight(selectedPlotMeta.filledWeight);
+      return;
+    }
+    const plotId = selectedPlotMeta.plotId;
+    if (!plotId) {
+      setHeaderWeight(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const dash = getApiData('farmerDashboardData', String(plotId));
+        const fromDash =
+          dash?.sugarYieldMean ??
+          dash?.actualYield ??
+          dash?.metrics?.sugarYieldMean ??
+          null;
+        if (typeof fromDash === 'number' && Number.isFinite(fromDash)) {
+          if (!cancelled) {
+            setHeaderWeight(`${fromDash.toFixed(2)} T/acre`);
+          }
+          return;
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const cacheKey = `agroStats_${today}`;
+        let agro = getCache(cacheKey);
+        if (!agro) {
+          const eventsBase = getEventsBaseUrl().replace(/\/+$/, '');
+          const res = await axios.get(`${eventsBase}/plots/agroStats`, {
+            params: { end_date: today },
+            timeout: 45_000,
+            headers: { Accept: 'application/json' },
+          });
+          agro = res.data;
+          setCache(cacheKey, agro);
+        }
+        const row = extractAgroStatsPlotRow(agro, String(plotId), profile);
+        const yieldT = readYieldTPerAcre(row);
+        if (!cancelled) {
+          if (yieldT != null) {
+            setHeaderWeight(`${Number(yieldT).toFixed(2)} T/acre`);
+          } else {
+            setHeaderWeight(null);
+          }
+        }
+      } catch {
+        if (!cancelled) setHeaderWeight(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedPlotMeta.filledWeight,
+    selectedPlotMeta.plotId,
+    getApiData,
+    profile,
+  ]);
+
+  // Price: plot-filled value first, else grapes market modal price
+  useEffect(() => {
+    if (selectedPlotMeta.filledPrice) {
+      const raw = selectedPlotMeta.filledPrice;
+      setHeaderPrice(raw.includes('₹') ? raw : `₹${raw}`);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const cacheKey = 'grapes_market_modal_price_v1';
+        const cached = getCache(cacheKey);
+        if (cached && typeof cached === 'string') {
+          if (!cancelled) setHeaderPrice(cached);
+          return;
+        }
+        const res = await fetch(GRAPES_PRICE_API);
+        const data = await res.json();
+        const records = Array.isArray(data?.records) ? data.records : [];
+        const today = new Date().toISOString().slice(0, 10);
+        const todayRec =
+          records.find((r: any) => String(r.arrival_date) === today) ||
+          records[0];
+        const modal = todayRec?.modal_price || todayRec?.max_price || todayRec?.min_price;
+        if (!cancelled) {
+          if (modal != null && String(modal).trim() !== '') {
+            const label = `₹${modal}`;
+            setHeaderPrice(label);
+            setCache(cacheKey, label);
+          } else {
+            setHeaderPrice(null);
+          }
+        }
+      } catch {
+        if (!cancelled) setHeaderPrice(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlotMeta.filledPrice]);
 
   const displayItems = useMemo(() => {
     const fieldOfficerOnly = items.filter(isFromFieldOfficer);
@@ -795,9 +1002,16 @@ const FarmerInfoBar: React.FC = () => {
           <span className="farmer-name">{farmerName}</span>
         </div>
 
-        {/* Center: Current Date */}
+        {/* Center: Date + plantation + weight/price */}
         <div className="farmer-info-section farmer-info-center">
-          <span className="farmer-date">{getCurrentDate()}</span>
+          <div className="farmer-center-stack">
+            <span className="farmer-date">{getCurrentDate()}</span>
+            <span className="farmer-meta-line">
+              Weight: {headerWeight || '—'}
+              {' | '}
+              Price: {headerPrice || '—'}
+            </span>
+          </div>
         </div>
 
         {/* Right: Total Plots */}

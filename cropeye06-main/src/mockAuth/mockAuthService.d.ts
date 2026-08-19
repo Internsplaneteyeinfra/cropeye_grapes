@@ -1,3 +1,5 @@
+export declare const MOCK_ACCESS_TOKEN: string;
+
 export type MockAuthUser = {
   phone_number: string;
   password: string;

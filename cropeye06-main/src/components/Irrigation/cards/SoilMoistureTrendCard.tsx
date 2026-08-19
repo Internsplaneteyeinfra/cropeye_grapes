@@ -1,37 +1,16 @@
-import React, { useEffect, useState } from "react";
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  LabelList,
-  Line,
-  ReferenceArea,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Droplets } from "lucide-react";
 import { useAppContext } from "../../../context/AppContext";
 import { useFarmerProfile } from "../../../hooks/useFarmerProfile";
 import { getGrapesSefBaseUrl } from "../../../utils/serviceUrls";
-import { publicAsset } from "../../../utils/publicAsset";
 
-interface MoistureData {
+interface ChartPoint {
   date: string;
+  day: string;
   value: number;
-  day: string;
-  x: number;
-  isCurrentDate?: boolean;
-}
-
-interface ChartRow {
-  label: string;
-  date: string;
-  day: string;
-  moisture: number;
   rain: number;
-  depletion: number;
-  isToday: boolean;
+  trend: number;
+  isCurrentDate?: boolean;
 }
 
 interface SoilMoistureTrendCardProps {
@@ -44,7 +23,6 @@ interface SoilMoistureStackItem {
   rainfall_mm_yesterday: number;
   rainfall_provisional: boolean;
   et_mean_mm_yesterday: number;
-  field_capacity?: number;
 }
 
 interface SoilMoistureStackResponse {
@@ -54,428 +32,487 @@ interface SoilMoistureStackResponse {
   soil_moisture_stack: SoilMoistureStackItem[];
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const ET_MM_TO_MOISTURE_PCT = 2.2;
+const ET_PCT_PER_MM = 7;
+const RAIN_PCT_PER_MM = 4;
 
-function formatAxisLabel(iso: string, day: string): string {
-  const d = new Date(iso.includes("T") ? iso : `${iso}T12:00:00`);
-  return `${day} ${d.getDate()}/${d.getMonth() + 1}`;
-}
-
-function buildDepletionLine(stack: SoilMoistureStackItem[]): number[] {
-  const sorted = [...stack].sort((a, b) => a.day.localeCompare(b.day)).slice(-7);
-  if (sorted.length === 0) return [];
-
-  // Projected depletion without rain recharge — slopes down like sugarcane reference
-  let simulated = Math.min(100, sorted[0].soil_moisture + 18);
-  return sorted.map((item, index) => {
-    if (index > 0) {
-      simulated = Math.max(
-        38,
-        simulated - item.et_mean_mm_yesterday * ET_MM_TO_MOISTURE_PCT * 1.15
-      );
-    }
-    return parseFloat(simulated.toFixed(2));
+function computeTrendLine(stack: SoilMoistureStackItem[]): number[] {
+  let line = 100;
+  return stack.map((item) => {
+    line =
+      line -
+      (item.et_mean_mm_yesterday || 0) * ET_PCT_PER_MM +
+      (item.rainfall_mm_yesterday || 0) * RAIN_PCT_PER_MM;
+    line = Math.max(38, Math.min(100, line));
+    return parseFloat(line.toFixed(2));
   });
 }
 
-const MoistureValueLabel: React.FC<{ x?: number; y?: number; value?: number }> = ({
-  x = 0,
-  y = 0,
-  value,
-}) => {
-  if (value == null || !Number.isFinite(value)) return null;
-  return (
-    <text x={x} y={y - 12} textAnchor="middle" fill="#8B4513" fontSize={12} fontWeight={700}>
-      {value.toFixed(2)}%
-    </text>
-  );
-};
-
-const MoistureDot: React.FC<{ cx?: number; cy?: number }> = ({ cx, cy }) => {
-  if (cx == null || cy == null) return null;
-  return <circle cx={cx} cy={cy} r={5} fill="#8B4513" stroke="#F5E6D3" strokeWidth={2} />;
-};
+function formatTooltipDate(dateIso: string, day: string): string {
+  const d = new Date(dateIso.includes("T") ? dateIso : `${dateIso}T12:00:00`);
+  const dayNum = d.getDate();
+  const month = d.toLocaleDateString("en-GB", { month: "short" });
+  return `${day} • ${dayNum} ${month}`;
+}
 
 const SoilMoistureTrendCard: React.FC<SoilMoistureTrendCardProps> = ({
   selectedPlotName,
 }) => {
-  const { setAppState, setCached, getCached, selectedPlotName: contextPlot } =
-    useAppContext();
+  const { setAppState, setCached } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
-  const [chartRows, setChartRows] = useState<ChartRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [chartPoints, setChartPoints] = useState<ChartPoint[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentDateMoisture, setCurrentDateMoisture] = useState<number | null>(null);
-  const [plotName, setPlotName] = useState<string>(() => {
-    if (selectedPlotName) return selectedPlotName;
-    if (contextPlot) return contextPlot;
-    try {
-      return localStorage.getItem("selectedPlot") || "";
-    } catch {
-      return "";
-    }
-  });
-  const optimalMin = 40;
-  const optimalMax = 80;
-
-  const applyChartPayload = (rows: ChartRow[], weekData: MoistureData[]) => {
-    setChartRows(rows);
-    setAppState((prev: Record<string, unknown>) => ({
-      ...prev,
-      soilMoistureTrendData: weekData,
-    }));
-    const todayStr = getCurrentDate();
-    const today = rows.find((r) => r.date === todayStr || r.isToday);
-    if (today) setCurrentDateMoisture(today.moisture);
-  };
+  const [plotName, setPlotName] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    const fromStorage = (() => {
-      try {
-        return localStorage.getItem("selectedPlot") || "";
-      } catch {
-        return "";
-      }
-    })();
-    const immediate = selectedPlotName || contextPlot || fromStorage;
-    if (immediate) {
-      setPlotName(immediate);
+    if (selectedPlotName) {
+      setPlotName(selectedPlotName);
       return;
     }
     if (profile && !profileLoading) {
       const plots = profile.plots || [];
       const fastapi = plots.find((p) => p.fastapi_plot_id)?.fastapi_plot_id;
       const gatCombo =
-        !fastapi && plots.length ? `${plots[0].gat_number}_${plots[0].plot_number}` : null;
+        !fastapi && plots.length
+          ? `${plots[0].gat_number}_${plots[0].plot_number}`
+          : null;
       const fallbackFarmUid =
         !fastapi && !gatCombo && plots[0]?.farms?.length
           ? plots[0].farms[0].farm_uid
           : null;
       setPlotName((fastapi || gatCombo || fallbackFarmUid || "").toString());
     }
-  }, [profile, profileLoading, selectedPlotName, contextPlot]);
+  }, [profile, profileLoading, selectedPlotName]);
 
-  const fetchSoilMoistureStack = async (plot: string): Promise<SoilMoistureStackResponse> => {
-    const bases = [
-      getGrapesSefBaseUrl().replace(/\/+$/, ""),
-      "/api/field-analysis",
-      "https://cropeye-grapes-sef-production.up.railway.app",
-    ].filter((v, i, arr) => arr.indexOf(v) === i);
-
-    let lastErr: Error | null = null;
-
-    for (const baseUrl of bases) {
-      const url = `${baseUrl}/soil-moisture/${encodeURIComponent(plot)}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120_000);
-
-      try {
-        const resp = await fetch(url, {
-          method: "POST",
-          mode: "cors",
-          cache: "no-cache",
-          credentials: "omit",
-          headers: { Accept: "application/json", "Content-Type": "application/json" },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!resp.ok) {
-          const errorText = await resp.text().catch(() => "");
-          throw new Error(`HTTP ${resp.status}: ${errorText || resp.statusText}`);
-        }
-
-        const json = await resp.json();
-        if (!json?.soil_moisture_stack || !Array.isArray(json.soil_moisture_stack)) {
-          return {
-            plot_name: json?.plot_name || plot,
-            latitude: json?.latitude || 0,
-            longitude: json?.longitude || 0,
-            soil_moisture_stack: [],
-          };
-        }
-        return json as SoilMoistureStackResponse;
-      } catch (err: unknown) {
-        clearTimeout(timeoutId);
-        if (err instanceof Error && err.name === "AbortError") {
-          lastErr = new Error("Request timed out. Please try Refresh Data.");
-        } else {
-          lastErr = err instanceof Error ? err : new Error(String(err));
-        }
-      }
+  const fetchSoilMoistureStack = async (
+    plot: string
+  ): Promise<SoilMoistureStackResponse> => {
+    const baseUrl = getGrapesSefBaseUrl().replace(/\/+$/, "");
+    const url = `${baseUrl}/soil-moisture/${encodeURIComponent(plot)}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      mode: "cors",
+      cache: "no-cache",
+      credentials: "omit",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+    });
+    if (!resp.ok) {
+      const errorText = await resp.text().catch(() => "");
+      throw new Error(`HTTP ${resp.status}: ${errorText || resp.statusText}`);
     }
-
-    throw lastErr || new Error("Unable to load soil moisture data");
+    const json = await resp.json();
+    if (!json?.soil_moisture_stack || !Array.isArray(json.soil_moisture_stack)) {
+      return {
+        plot_name: json?.plot_name || plot,
+        latitude: json?.latitude || 0,
+        longitude: json?.longitude || 0,
+        soil_moisture_stack: [],
+      };
+    }
+    return json as SoilMoistureStackResponse;
   };
 
-  const getCurrentDate = (): string => new Date().toISOString().split("T")[0];
-
-  const mapStackToChartData = (stack: SoilMoistureStackItem[]) => {
-    const todayStr = getCurrentDate();
+  const mapStackToChartData = (stack: SoilMoistureStackItem[]): ChartPoint[] => {
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const todayStr = new Date().toISOString().split("T")[0];
     const sorted = [...stack].sort((a, b) => a.day.localeCompare(b.day)).slice(-7);
-    const depletion = buildDepletionLine(sorted);
+    const trends = computeTrendLine(sorted);
 
-    const weekData: MoistureData[] = [];
-    const rows: ChartRow[] = sorted.map((item, idx) => {
-      const d = new Date(item.day.includes("T") ? item.day : `${item.day}T12:00:00`);
-      const day = DAY_NAMES[d.getDay()];
-      const moisture = parseFloat(item.soil_moisture.toFixed(2));
-      const isToday = item.day === todayStr;
-
-      weekData.push({
-        date: item.day,
-        value: moisture,
-        day,
-        x: idx,
-        isCurrentDate: isToday,
-      });
-
+    return sorted.map((item, idx) => {
+      const d = new Date(item.day);
       return {
-        label: formatAxisLabel(item.day, day),
         date: item.day,
-        day,
-        moisture,
+        value: parseFloat(item.soil_moisture.toFixed(2)),
         rain: parseFloat((item.rainfall_mm_yesterday || 0).toFixed(2)),
-        depletion: depletion[idx] ?? moisture,
-        isToday,
+        trend: trends[idx],
+        day: dayNames[d.getDay()],
+        isCurrentDate: item.day === todayStr,
       };
     });
-
-    return { weekData, rows };
   };
 
-  const fetchWeeklyTrend = async (plot: string, options?: { silent?: boolean }) => {
+  const fetchWeeklyTrend = useCallback(async () => {
+    if (!plotName) return;
     try {
-      if (!options?.silent) setLoading(true);
+      setLoading(true);
       setError(null);
-
-      const apiResp = await fetchSoilMoistureStack(plot);
+      const apiResp = await fetchSoilMoistureStack(plotName);
       if (!apiResp.soil_moisture_stack.length) {
         throw new Error("No soil moisture data available");
       }
-
-      const { weekData, rows } = mapStackToChartData(apiResp.soil_moisture_stack);
-      applyChartPayload(rows, weekData);
-      setCached(`soilMoistureTrendChart_${plot}`, { rows, weekData });
-      setCached(`soilMoistureTrend_${plot}`, weekData);
+      const points = mapStackToChartData(apiResp.soil_moisture_stack);
+      setChartPoints(points);
+      const todayIdx = points.findIndex((p) => p.isCurrentDate);
+      setSelectedIndex(todayIdx >= 0 ? todayIdx : points.length - 1);
+      setLastUpdated(new Date());
+      const todayStr = new Date().toISOString().split("T")[0];
+      const todayPoint = points.find((p) => p.date === todayStr) ?? points[points.length - 1];
+      setAppState((prev: any) => ({
+        ...prev,
+        soilMoistureTrendData: points,
+        currentSoilMoisture: todayPoint?.value ?? prev.currentSoilMoisture,
+      }));
+      setCached(`soilMoistureTrend_${plotName}`, points);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!options?.silent || chartRows.length === 0) {
-        setError(`Unable to load soil moisture trend: ${message}`);
-      }
+      setError(`Unable to load soil moisture trend: ${message}`);
     } finally {
-      if (!options?.silent) setLoading(false);
+      setLoading(false);
     }
-  };
+  }, [plotName, setAppState, setCached]);
 
   useEffect(() => {
-    if (!plotName) {
-      if (!profileLoading && profile && !profile.plots?.length) {
-        setError("No plot found for soil moisture chart.");
-      }
-      return;
-    }
+    fetchWeeklyTrend();
+  }, [fetchWeeklyTrend]);
 
-    setError(null);
-    const cacheKey = `soilMoistureTrendChart_${plotName}`;
-    const cached = getCached(cacheKey, 30 * 60 * 1000) as
-      | { rows?: ChartRow[]; weekData?: MoistureData[] }
-      | null;
+  const chartWidth = 1200;
+  const chartHeight = 300;
+  const leftPadding = 56;
+  const rightPadding = 56;
+  const topPadding = 36;
+  const bottomPadding = 56;
+  const plotWidth = chartWidth - leftPadding - rightPadding;
+  const plotHeight = chartHeight - topPadding - bottomPadding;
 
-    if (cached?.rows?.length) {
-      applyChartPayload(cached.rows, cached.weekData || []);
-      void fetchWeeklyTrend(plotName, { silent: true });
-      return;
-    }
+  const maxRain = useMemo(
+    () => Math.max(13, ...chartPoints.map((p) => p.rain), 1),
+    [chartPoints]
+  );
 
-    void fetchWeeklyTrend(plotName);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotName, profileLoading, profile]);
+  const getX = (index: number) =>
+    leftPadding + (plotWidth / Math.max(chartPoints.length - 1, 1)) * index;
 
-  useEffect(() => {
-    const onRefresh = () => {
-      if (plotName) void fetchWeeklyTrend(plotName);
-    };
-    window.addEventListener("irrigation-refresh-soil-moisture", onRefresh);
-    return () => window.removeEventListener("irrigation-refresh-soil-moisture", onRefresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotName]);
+  const getMoistureY = (value: number) =>
+    topPadding + plotHeight * (1 - value / 100);
 
-  const rainMax = 15;
-  const vineyardBg = publicAsset("Image/field_score.png");
+  const getRainY = (mm: number) =>
+    topPadding + plotHeight * (1 - mm / maxRain);
+
+  const moisturePath = chartPoints
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getMoistureY(p.value)}`)
+    .join(" ");
+
+  const trendPath = chartPoints
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getMoistureY(p.trend)}`)
+    .join(" ");
+
+  const rainTicks = useMemo(() => {
+    const step = maxRain <= 13 ? 3 : Math.ceil(maxRain / 4);
+    const ticks: number[] = [];
+    for (let v = 0; v <= maxRain; v += step) ticks.push(v);
+    if (ticks[ticks.length - 1] !== maxRain) ticks.push(Math.ceil(maxRain));
+    return ticks;
+  }, [maxRain]);
+
+  const selectedPoint =
+    selectedIndex !== null && chartPoints[selectedIndex]
+      ? chartPoints[selectedIndex]
+      : null;
 
   return (
-    <div className="soil-moisture-trend-card flex flex-col min-h-0 bg-white rounded-xl shadow-lg border border-gray-200/80 overflow-hidden">
-      <div className="trend-card-header px-4 pt-4 pb-2">
-        <h3 className="text-[15px] font-bold text-gray-900 leading-tight m-0">
-          Moisture % + Rain (mm)
-        </h3>
-        <div className="optimal-range text-xs text-gray-600 mt-0.5">
-          Optimal: {optimalMin}-{optimalMax}%
+    <div className="soil-moisture-trend-card flex flex-col min-h-0 sm:min-h-[420px] md:min-h-[460px]">
+      <div className="trend-card-header pb-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Droplets className="w-5 h-5 text-blue-600 shrink-0" />
+          <h3 className="text-base sm:text-lg font-bold text-gray-800">
+            Moisture % + Rain (mm)
+          </h3>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm font-semibold mt-1">
+          <span className="text-red-600">0–40%: Low</span>
+          <span className="text-amber-600">40–60%: Moderate</span>
+          <span className="text-green-700">60–80%: Good</span>
+          <span className="text-blue-600">80–100%: High</span>
+        </div>
+        <div className="flex flex-wrap gap-3 text-xs mt-1 text-gray-600">
+          <span className="inline-flex items-center gap-1">
+            <span className="w-4 h-0.5 bg-[#8B4513] inline-block" /> Moisture %
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="w-4 h-0.5 border-t-2 border-dashed border-purple-600 inline-block" />{" "}
+            ET trend
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="w-3 h-3 bg-gradient-to-t from-blue-500 to-blue-200 inline-block rounded-sm" />{" "}
+            Rain (mm)
+          </span>
         </div>
       </div>
 
-      {profileLoading && !plotName && (
-        <div className="irrigation-loading">
-          <div className="loading-spinner-small" />
-          <p>Loading plot information...</p>
-        </div>
-      )}
-
-      {error && chartRows.length === 0 && (
-        <div className="error-message-small mx-4 mb-4">{error}</div>
-      )}
-
-      {chartRows.length > 0 && (
-        <div className="moisture-trend-chart-plot relative mx-3 mb-3 rounded-lg overflow-hidden border border-white/70 shadow-inner">
-          <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url('${vineyardBg}')` }}
-            aria-hidden
-          />
-          <div className="absolute inset-0 bg-white/50" aria-hidden />
-
-          <div className="relative z-10 px-2 pt-2 pb-0">
-            <p className="text-center text-[11px] text-gray-700 m-0">
-              <span className="font-semibold">Soil Moisture Levels: </span>
-              <span className="text-red-600 font-semibold">0-40%: Low</span>
-              <span className="text-gray-500 mx-1">·</span>
-              <span className="text-green-600 font-semibold">40-80%: Good</span>
-              <span className="text-gray-500 mx-1">·</span>
-              <span className="text-blue-600 font-semibold">80-100%: High</span>
-            </p>
-          </div>
-
-          <div className="relative z-10 w-full" style={{ height: 380 }}>
-            {loading && (
-              <div className="absolute top-2 right-2 z-20">
-                <div className="loading-spinner-small" />
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartRows}
-                margin={{ top: 8, right: 14, left: 6, bottom: 10 }}
-              >
-                <defs>
-                  <linearGradient id="rainBarGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2563eb" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.85} />
-                  </linearGradient>
-                </defs>
-
-                <ReferenceArea
-                  yAxisId="moisture"
-                  y1={0}
-                  y2={40}
-                  fill="rgba(239, 68, 68, 0.22)"
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceArea
-                  yAxisId="moisture"
-                  y1={40}
-                  y2={80}
-                  fill="rgba(34, 197, 94, 0.18)"
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceArea
-                  yAxisId="moisture"
-                  y1={80}
-                  y2={100}
-                  fill="rgba(59, 130, 246, 0.18)"
-                  ifOverflow="extendDomain"
-                />
-
-                <CartesianGrid
-                  strokeDasharray="4 4"
-                  stroke="rgba(156, 163, 175, 0.55)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 11, fill: "#1f2937", fontWeight: 500 }}
-                  axisLine={{ stroke: "#9ca3af" }}
-                  tickLine={false}
-                  dy={4}
-                />
-                <YAxis
-                  yAxisId="moisture"
-                  domain={[0, 100]}
-                  ticks={[0, 25, 50, 75, 100]}
-                  tick={{ fontSize: 11, fill: "#374151" }}
-                  tickFormatter={(v) => `${v}%`}
-                  axisLine={{ stroke: "#9ca3af" }}
-                  tickLine={false}
-                  width={44}
-                />
-                <YAxis
-                  yAxisId="rain"
-                  orientation="right"
-                  domain={[0, rainMax]}
-                  ticks={[0, 4, 8, 15]}
-                  allowDecimals={false}
-                  tick={{ fontSize: 11, fill: "#1d4ed8", fontWeight: 500 }}
-                  axisLine={{ stroke: "#93c5fd" }}
-                  tickLine={false}
-                  width={32}
-                />
-                <Tooltip
-                  formatter={(value: number, name: string) => {
-                    if (name === "rain") return [`${value} mm`, "Rain"];
-                    if (name === "depletion") return [`${value}%`, "Depletion (no rain)"];
-                    return [`${value}%`, "Soil moisture"];
-                  }}
-                  labelFormatter={(label) => String(label)}
-                />
-
-                <Bar
-                  yAxisId="rain"
-                  dataKey="rain"
-                  fill="url(#rainBarGradient)"
-                  barSize={30}
-                  radius={[2, 2, 0, 0]}
-                  name="rain"
-                  isAnimationActive={false}
-                />
-
-                <Line
-                  yAxisId="moisture"
-                  type="linear"
-                  dataKey="depletion"
-                  stroke="#9333ea"
-                  strokeWidth={2}
-                  strokeDasharray="7 5"
-                  dot={false}
-                  name="depletion"
-                  isAnimationActive={false}
-                />
-
-                <Line
-                  yAxisId="moisture"
-                  type="linear"
-                  dataKey="moisture"
-                  stroke="#8B4513"
-                  strokeWidth={2.5}
-                  dot={<MoistureDot />}
-                  activeDot={{ r: 6, fill: "#8B4513", stroke: "#F5E6D3", strokeWidth: 2 }}
-                  name="moisture"
-                  isAnimationActive={false}
-                >
-                  <LabelList dataKey="moisture" content={<MoistureValueLabel />} />
-                </Line>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {loading && chartRows.length === 0 && (
+      {loading && (
         <div className="irrigation-loading">
           <div className="loading-spinner-small" />
           <p>Loading soil moisture data...</p>
         </div>
       )}
+
+      {error && <div className="error-message-small">{error}</div>}
+
+      {!loading && !error && chartPoints.length > 0 && (
+        <div className="flex-1 w-full relative aspect-square sm:aspect-[2/1] md:aspect-[5/2] pt-2">
+          {selectedPoint && (
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 z-20 moisture-select-tooltip">
+              <div className="moisture-select-tooltip__title">
+                {formatTooltipDate(selectedPoint.date, selectedPoint.day)}
+              </div>
+              <div className="moisture-select-tooltip__pills">
+                <span className="moisture-pill">
+                  Moisture <strong>{selectedPoint.value.toFixed(1)}%</strong>
+                </span>
+                <span className="rain-pill">
+                  Rain <strong>{selectedPoint.rain.toFixed(1)}mm</strong>
+                </span>
+              </div>
+            </div>
+          )}
+
+          <svg
+            className="absolute inset-0 w-full h-full"
+            viewBox={`0 0 ${chartWidth} ${chartHeight + 44}`}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <defs>
+              <linearGradient id="rainBarGradient" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.85" />
+                <stop offset="100%" stopColor="#93c5fd" stopOpacity="0.55" />
+              </linearGradient>
+            </defs>
+
+            {/* Zone bands — same 4-band logic as sugarcane chart */}
+            <rect x={leftPadding} y={getMoistureY(100)} width={plotWidth} height={getMoistureY(80) - getMoistureY(100)} fill="rgba(148, 163, 184, 0.22)" />
+            <rect x={leftPadding} y={getMoistureY(80)} width={plotWidth} height={getMoistureY(60) - getMoistureY(80)} fill="rgba(134, 239, 172, 0.28)" />
+            <rect x={leftPadding} y={getMoistureY(60)} width={plotWidth} height={getMoistureY(40) - getMoistureY(60)} fill="rgba(253, 230, 138, 0.35)" />
+            <rect x={leftPadding} y={getMoistureY(40)} width={plotWidth} height={getMoistureY(0) - getMoistureY(40)} fill="rgba(252, 165, 165, 0.3)" />
+
+            {/* Grid + left axis (moisture %) */}
+            {[0, 20, 40, 60, 80, 100].map((value) => (
+              <g key={`grid-${value}`}>
+                <line
+                  x1={leftPadding}
+                  y1={getMoistureY(value)}
+                  x2={chartWidth - rightPadding}
+                  y2={getMoistureY(value)}
+                  stroke="rgba(255,255,255,0.65)"
+                  strokeWidth="1"
+                />
+                <text
+                  x={leftPadding - 8}
+                  y={getMoistureY(value) + 4}
+                  textAnchor="end"
+                  fontSize="13"
+                  fill="#475569"
+                  fontWeight="600"
+                >
+                  {value}%
+                </text>
+              </g>
+            ))}
+
+            {/* Right axis (rain mm) */}
+            {rainTicks.map((mm) => (
+              <text
+                key={`rain-axis-${mm}`}
+                x={chartWidth - rightPadding + 10}
+                y={getRainY(mm) + 4}
+                textAnchor="start"
+                fontSize="12"
+                fill="#2563eb"
+                fontWeight="600"
+              >
+                {mm}
+              </text>
+            ))}
+            <text
+              x={chartWidth - rightPadding + 10}
+              y={topPadding - 10}
+              fontSize="11"
+              fill="#2563eb"
+              fontWeight="700"
+            >
+              mm
+            </text>
+
+            {/* Selected day — vertical guide line */}
+            {selectedIndex !== null && (
+              <line
+                x1={getX(selectedIndex)}
+                y1={topPadding}
+                x2={getX(selectedIndex)}
+                y2={chartHeight}
+                stroke="#94a3b8"
+                strokeWidth="1.5"
+                strokeDasharray="5,5"
+                pointerEvents="none"
+              />
+            )}
+
+            {/* Rain bars */}
+            {chartPoints.map((point, i) => {
+              const barW = Math.min(36, plotWidth / chartPoints.length / 1.8);
+              const x = getX(i) - barW / 2;
+              const yTop = getRainY(point.rain);
+              const yBase = getRainY(0);
+              return (
+                <rect
+                  key={`rain-${i}`}
+                  x={x}
+                  y={yTop}
+                  width={barW}
+                  height={Math.max(0, yBase - yTop)}
+                  fill="url(#rainBarGradient)"
+                  rx="3"
+                  opacity={0.9}
+                />
+              );
+            })}
+
+            {/* ET depletion trend — dashed purple */}
+            <path
+              d={trendPath}
+              fill="none"
+              stroke="#9333ea"
+              strokeWidth="2.5"
+              strokeDasharray="8,6"
+              strokeLinecap="round"
+            />
+
+            {/* Soil moisture — solid brown line */}
+            <path
+              d={moisturePath}
+              fill="none"
+              stroke="#8B4513"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {/* Markers + value labels + click targets */}
+            {chartPoints.map((point, i) => {
+              const isSelected = selectedIndex === i;
+              const cx = getX(i);
+              const cy = getMoistureY(point.value);
+              return (
+                <g key={`point-${i}`}>
+                  <circle
+                    className="moisture-chart-hit"
+                    cx={cx}
+                    cy={cy}
+                    r="28"
+                    fill="transparent"
+                    onClick={() => setSelectedIndex(i)}
+                    onMouseEnter={() => setSelectedIndex(i)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedIndex(i);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${point.day} moisture ${point.value}% rain ${point.rain}mm`}
+                  />
+                  {isSelected && (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r="11"
+                      fill="none"
+                      stroke="#8B4513"
+                      strokeWidth="2"
+                      opacity="0.35"
+                      pointerEvents="none"
+                    />
+                  )}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={isSelected ? 7 : 5}
+                    fill={isSelected ? "#fde68a" : "#F5DEB3"}
+                    stroke="#8B4513"
+                    strokeWidth={isSelected ? 3 : 2.5}
+                    pointerEvents="none"
+                  />
+                  <text
+                    x={cx}
+                    y={cy - (isSelected ? 16 : 12)}
+                    textAnchor="middle"
+                    fontSize={isSelected ? "14" : "13"}
+                    fill="#c2410c"
+                    fontWeight="700"
+                    pointerEvents="none"
+                  >
+                    {point.value}%
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* X-axis labels — tap day to select */}
+            {chartPoints.map((point, i) => (
+              <g
+                key={`x-${i}`}
+                className="moisture-chart-hit"
+                onClick={() => setSelectedIndex(i)}
+                style={{ cursor: "pointer" }}
+              >
+                <text
+                  x={getX(i)}
+                  y={chartHeight + 18}
+                  textAnchor="middle"
+                  fontSize="14"
+                  fill={
+                    selectedIndex === i
+                      ? "#1d4ed8"
+                      : point.isCurrentDate
+                        ? "#2563eb"
+                        : "#64748b"
+                  }
+                  fontWeight={selectedIndex === i ? "800" : "700"}
+                  pointerEvents="none"
+                >
+                  {point.day}
+                </text>
+                <text
+                  x={getX(i)}
+                  y={chartHeight + 34}
+                  textAnchor="middle"
+                  fontSize="13"
+                  fill={
+                    selectedIndex === i
+                      ? "#1d4ed8"
+                      : point.isCurrentDate
+                        ? "#2563eb"
+                        : "#94a3b8"
+                  }
+                  fontWeight="500"
+                  pointerEvents="none"
+                >
+                  {new Date(point.date).getDate()}/
+                  {new Date(point.date).getMonth() + 1}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      )}
+
+      <div className="refresh-section mt-2 px-1">
+        <button
+          type="button"
+          className="refresh-button"
+          onClick={fetchWeeklyTrend}
+          disabled={loading || !plotName}
+        >
+          Refresh Data
+        </button>
+        {lastUpdated && (
+          <span className="last-updated">
+            Last updated: {lastUpdated.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
     </div>
   );
 };

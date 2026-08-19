@@ -18,6 +18,7 @@ import { useAppContext } from "../context/AppContext";
 import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
+import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
 
 // Add custom styles for the enhanced tooltip
 const tooltipStyles = `
@@ -285,6 +286,7 @@ interface MapProps {
   onFieldAnalysisChange?: (data: any) => void;
   onMoistGroundChange?: (percent: number) => void;
   onPestDataChange?: (data: any) => void;
+  onPlotChange?: (plotName: string | null) => void;
 }
 
 const CustomTileLayer: React.FC<{
@@ -320,6 +322,7 @@ const Map: React.FC<MapProps> = ({
   onFieldAnalysisChange,
   // onMoistGroundChange,
   onPestDataChange,
+  onPlotChange,
 }) => {
   const { profile, loading: profileLoading } = useFarmerProfile();
   const { appState, selectedPlotName: contextSelectedPlotName, setSelectedPlotName: setContextSelectedPlotName, getApiData, hasApiData, setApiData } = useAppContext();
@@ -581,10 +584,9 @@ const Map: React.FC<MapProps> = ({
           cachedDataFound = true;
         }
       } else if (activeLayer === "Brix") {
-        const hasCanopy = hasApiData('canopyVigour', selectedPlotName) || getCache(`canopy_vigour_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
         const hasBrix = hasApiData('brix', selectedPlotName) || getCache(`brix_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
         const hasBrixQuality = hasApiData('brixQuality', selectedPlotName) || getCache(`brixQuality_${selectedPlotName}`, mapLayerCacheMaxAgeMs());
-        if (!shouldBypassMapLayerCache() && hasCanopy && hasBrix && hasBrixQuality) {
+        if (!shouldBypassMapLayerCache() && hasBrix && hasBrixQuality) {
           shouldFetch = false;
           cachedDataFound = true;
         }
@@ -670,11 +672,9 @@ const Map: React.FC<MapProps> = ({
           dataLoadedRef.current[dataKey] = true;
         });
       } else if (activeLayer === "Brix") {
-        // Fetch both Canopy Vigour (NDVI) and Brix Grid Values
         Promise.all([
-          fetchCanopyVigour(selectedPlotName),
           fetchBrixData(selectedPlotName),
-          fetchBrixQualityData(selectedPlotName)
+          fetchBrixQualityData(selectedPlotName),
         ]).then(() => {
           dataLoadedRef.current[dataKey] = true;
         });
@@ -1723,9 +1723,10 @@ const Map: React.FC<MapProps> = ({
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
-          "Accept": "application/json"
+        headers: {
+          Accept: "application/json",
         },
+        body: grapesPlotFormBody(plotName),
       });
 
       if (!resp.ok) {
@@ -1837,9 +1838,10 @@ const Map: React.FC<MapProps> = ({
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
-          "Accept": "application/json"
+        headers: {
+          Accept: "application/json",
         },
+        body: grapesPlotFormBody(plotName),
       });
 
       if (!resp.ok) {
@@ -2763,6 +2765,7 @@ const Map: React.FC<MapProps> = ({
                 const newPlot = e.target.value;
                 setSelectedPlotName(newPlot);
                 setContextSelectedPlotName(newPlot); // Update context as well
+                onPlotChange?.(newPlot);
                 localStorage.setItem('selectedPlot', newPlot);
                 
                 // Find the plot in profile to get coordinates immediately

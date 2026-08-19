@@ -41,13 +41,13 @@ import {
   Beaker,
   CloudSun,
   Star,
+  Loader2,
 } from "lucide-react";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
-import { publicAsset } from "../utils/publicAsset";
 import {
   extractBrixTimeSeriesFromPayload,
   emptyGrapesDashboardMetrics,
@@ -64,12 +64,14 @@ import {
   mergeDashboardMetrics,
   grapesPlotFormBody,
   ripeningMilestonesFromPayload,
+  stressTotalDaysFromPayload,
   type GrapesBundlePayload,
 } from "../utils/grapesEventsBundle";
 import {
   fetchRipeningStageMilestones,
   formatMilestoneDate,
 } from "../utils/ripeningMilestones";
+import { HoverInfoTooltip } from "./HoverInfoTooltip";
 
 // Register Chart.js components
 ChartJS.register(
@@ -214,9 +216,11 @@ interface Metrics {
   biomass: number | null;
   totalBiomass: number | null;
   stressCount: number | null;
+  stressTotalDays: number | null;
   irrigationEvents: number | null;
   sugarYieldMean: number | null;
   daysToHarvest: number | null;
+  brixDays: number | null;
   growthStage: string | null;
   soilPH: number | null;
   organicCarbonDensity: number | null;
@@ -318,6 +322,42 @@ const PieChartWithNeedle: React.FC<PieChartWithNeedleProps> = ({
 };
 
 const BASE_URL = getEventsBaseUrl();
+
+/** Must match API query index_type=NDRE (older builds used NDMI in the cache key). */
+const stressCacheKeyFor = (plotId: string) => `stress_${plotId}_NDRE_0.15`;
+
+async function fetchStressEventsForPlot(
+  plotId: string,
+  profile: any,
+): Promise<any> {
+  const cacheKey = stressCacheKeyFor(plotId);
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const legacy = getCache(`stress_${plotId}_NDMI_0.15`);
+  if (legacy) {
+    setCache(cacheKey, legacy);
+    return legacy;
+  }
+
+  const plotIds = collectPlotApiIds(profile, plotId);
+  for (const id of plotIds) {
+    try {
+      const res = await axios.get(
+        `${BASE_URL}/plots/${encodeURIComponent(id)}/stress?index_type=NDRE&threshold=0.15`,
+        { timeout: GRAPES_API_TIMEOUT_MS },
+      );
+      setCache(cacheKey, res.data);
+      return res.data;
+    } catch (err) {
+      console.warn(`⚠️ stress failed for plot "${id}":`, err);
+    }
+  }
+  return { total_events: 0, events: [] };
+}
+
+/** Days shown under °Brix on the Sugar Content card. */
+const BRIX_CARD_DAYS = 80;
 const OPTIMAL_BIOMASS = 150;
 const DASHBOARD_API_TIMEOUT_MS = GRAPES_API_TIMEOUT_MS;
 
@@ -480,7 +520,11 @@ async function loadDashboardSoilMetrics(
   plotId: string,
   profile: any,
   getApiData: (type: string, plotName: string) => unknown
-): Promise<{ soilPH: number | null; organicCarbonDensity: number | null }> {
+): Promise<{
+  soilPH: number | null;
+  organicCarbonDensity: number | null;
+  soilPayload: unknown;
+}> {
   return fetchDashboardSoilMetrics(
     plotId,
     profile,
@@ -543,7 +587,19 @@ function metricsFromLegacyAgroPlot(
     area: currentPlotData?.area_acres ?? null,
     biomass: calculatedBiomass,
     totalBiomass: totalBiomassForMetric,
-    daysToHarvest: currentPlotData?.days_to_harvest ?? null,
+    daysToHarvest: (() => {
+      const n = Number(currentPlotData?.days_to_harvest);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })(),
+    brixDays: (() => {
+      const n = Number(
+        currentPlotData?.Days ??
+          currentPlotData?.days ??
+          currentPlotData?.days_since_plantation ??
+          currentPlotData?.brix_sugar?.Days
+      );
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })(),
     growthStage:
       currentPlotData?.harvest_status ||
       currentPlotData?.Sugarcane_Status ||
@@ -558,6 +614,7 @@ function metricsFromLegacyAgroPlot(
     actualYield: currentPlotData?.brix_sugar?.sugar_yield?.mean ?? null,
     stressCount:
       currentPlotData?.stress_events ?? currentPlotData?.stress_count ?? stressData?.total_events ?? 0,
+    stressTotalDays: stressTotalDaysFromPayload(stressData),
     irrigationEvents:
       currentPlotData?.irrigation_events ??
       currentPlotData?.irrigation_count ??
@@ -902,9 +959,11 @@ const FarmerDashboard: React.FC = () => {
     biomass: null,
     totalBiomass: null,
     stressCount: null,
+    stressTotalDays: null,
     irrigationEvents: null,
     sugarYieldMean: null,
     daysToHarvest: null,
+    brixDays: null,
     growthStage: null,
     soilPH: null,
     organicCarbonDensity: null,
@@ -946,6 +1005,7 @@ const FarmerDashboard: React.FC = () => {
       ta: toNum(last?.ta),
     };
   }, [brixTimeSeriesData]);
+
   /** Ripening / Harvest milestones card only (isolated from main dashboard bundle). */
   const [milestoneState, setMilestoneState] = useState<{
     ripeningStartDate: string | null;
@@ -1027,9 +1087,11 @@ const FarmerDashboard: React.FC = () => {
         biomass: null,
         totalBiomass: null,
         stressCount: null,
+        stressTotalDays: null,
         irrigationEvents: null,
         sugarYieldMean: null,
         daysToHarvest: null,
+        brixDays: null,
         growthStage: null,
         soilPH: null,
         organicCarbonDensity: null,
@@ -1105,6 +1167,29 @@ const FarmerDashboard: React.FC = () => {
 
     if (dataLoadedRef.current[currentPlotId]) {
       setDashboardDataLoading(false);
+      // Still refresh stress if card has no real stress data (cache path used to skip /stress)
+      const stressCached =
+        getCache(stressCacheKeyFor(currentPlotId)) ||
+        getCache(`stress_${currentPlotId}_NDMI_0.15`);
+      if (!stressCached) {
+        void fetchStressEventsForPlot(currentPlotId, profileRef.current).then(
+          (stressData) => {
+            setStressEvents(stressData?.events ?? []);
+            setMetrics((prev) => ({
+              ...prev,
+              stressCount: stressData?.total_events ?? 0,
+              stressTotalDays: stressTotalDaysFromPayload(stressData),
+            }));
+          },
+        );
+      } else {
+        setStressEvents(stressCached?.events ?? []);
+        setMetrics((prev) => ({
+          ...prev,
+          stressCount: stressCached?.total_events ?? prev.stressCount ?? 0,
+          stressTotalDays: stressTotalDaysFromPayload(stressCached),
+        }));
+      }
       return;
     }
 
@@ -1129,12 +1214,12 @@ const FarmerDashboard: React.FC = () => {
       !cachedGrapesBundle && (getCache(agroStatsCacheKeyV3) || getCache(agroStatsCacheKey));
 
     const rawPlotPayload = cachedGrapesBundle || preloadedAgroStats || cachedLegacyAgro;
-    const stressCacheKeyPre = `stress_${currentPlotId}_NDMI_0.15`;
+    const stressCacheKeyPre = stressCacheKeyFor(currentPlotId);
     const irrigationCacheKeyPre = `irrigation_${currentPlotId}`;
     const indicesToUse = preloadedIndices || cachedIndices || [];
 
     if (rawPlotPayload) {
-      const stressCached = getCache(stressCacheKeyPre);
+      const stressCached = getCache(stressCacheKeyPre) || getCache(`stress_${currentPlotId}_NDMI_0.15`);
       const irrigationCached = getCache(irrigationCacheKeyPre);
       const p = profileRef.current;
 
@@ -1177,17 +1262,40 @@ const FarmerDashboard: React.FC = () => {
         ).then((soil) => {
           const agroRow = soilMetricsToAgroRow(soil);
           if (!agroRow) return;
-          setMetrics(
+          setMetrics((prev) =>
             metricsFromGrapesBundle(
               rawPlotPayload,
               p,
               currentPlotId,
-              stressCached || { total_events: 0 },
+              {
+                total_events: prev.stressCount ?? 0,
+                events: undefined,
+              },
               irrigationCached || {},
               agroRow
             )
           );
         });
+
+        // Always fetch stress when missing — cache-hit path used to skip /stress entirely
+        if (!stressCached) {
+          void fetchStressEventsForPlot(currentPlotId, p).then((stressData) => {
+            setStressEvents(stressData?.events ?? []);
+            setMetrics((prev) => ({
+              ...prev,
+              stressCount: stressData?.total_events ?? 0,
+              stressTotalDays: stressTotalDaysFromPayload(stressData),
+            }));
+          });
+        } else {
+          setStressEvents(stressCached?.events ?? []);
+          setMetrics((prev) => ({
+            ...prev,
+            stressCount: stressCached?.total_events ?? prev.stressCount ?? 0,
+            stressTotalDays: stressTotalDaysFromPayload(stressCached),
+          }));
+        }
+
         if (indicesToUse.length === 0) {
           dashboardLoadInFlightRef.current = currentPlotId;
           void fetchAllData()
@@ -1212,6 +1320,25 @@ const FarmerDashboard: React.FC = () => {
       }
       dataLoadedRef.current[currentPlotId] = true;
       setDashboardDataLoading(false);
+
+      if (!stressCached) {
+        void fetchStressEventsForPlot(currentPlotId, p).then((stressData) => {
+          setStressEvents(stressData?.events ?? []);
+          setMetrics((prev) => ({
+            ...prev,
+            stressCount: stressData?.total_events ?? 0,
+            stressTotalDays: stressTotalDaysFromPayload(stressData),
+          }));
+        });
+      } else {
+        setStressEvents(stressCached?.events ?? []);
+        setMetrics((prev) => ({
+          ...prev,
+          stressCount: stressCached?.total_events ?? prev.stressCount ?? 0,
+          stressTotalDays: stressTotalDaysFromPayload(stressCached),
+        }));
+      }
+
       if (indicesToUse.length === 0) {
         dashboardLoadInFlightRef.current = currentPlotId;
         void fetchAllData()
@@ -1412,6 +1539,7 @@ const FarmerDashboard: React.FC = () => {
 
     if (!currentPlotId) {
       console.warn("⚠️ FarmerDashboard: No plot ID available");
+      setDashboardDataLoading(false);
       return;
     }
 
@@ -1432,7 +1560,7 @@ const FarmerDashboard: React.FC = () => {
       getCache(grapesBundleCacheKey) ||
       getCache(legacyAgroKeyV3) ||
       getCache(legacyAgroKey);
-    const stressCacheKeyFast = `stress_${currentPlotId}_NDMI_0.15`;
+    const stressCacheKeyFast = stressCacheKeyFor(currentPlotId);
     const irrigationCacheKeyFast = `irrigation_${currentPlotId}`;
 
     // If both plot metrics + indices exist in cache, skip fetching
@@ -1441,7 +1569,9 @@ const FarmerDashboard: React.FC = () => {
       const indicesToUse = getApiDataRef.current("indices", currentPlotId) || cachedIndices || [];
       setLineChartData(indicesToUse);
 
-      const stressCached = getCache(stressCacheKeyFast);
+      const stressCached =
+        getCache(stressCacheKeyFast) ||
+        getCache(`stress_${currentPlotId}_NDMI_0.15`);
       const irrigationCached = getCache(irrigationCacheKeyFast);
       const p = profileRef.current;
 
@@ -1464,12 +1594,14 @@ const FarmerDashboard: React.FC = () => {
         ).then((soil) => {
           const agroRow = soilMetricsToAgroRow(soil);
           if (!agroRow) return;
-          setMetrics(
+          setMetrics((prev) =>
             metricsFromGrapesBundle(
               preloadedPlotPayload,
               p,
               currentPlotId,
-              stressCached || { total_events: 0 },
+              {
+                total_events: prev.stressCount ?? 0,
+              },
               irrigationCached || {},
               agroRow
             )
@@ -1485,6 +1617,26 @@ const FarmerDashboard: React.FC = () => {
           setMetrics(metricsFromLegacyAgroPlot(currentPlotData, stressCached, irrigationCached));
         }
       }
+
+      // Still fetch stress if not cached (this path previously skipped /stress forever)
+      if (!stressCached) {
+        void fetchStressEventsForPlot(currentPlotId, p).then((stressData) => {
+          setStressEvents(stressData?.events ?? []);
+          setMetrics((prev) => ({
+            ...prev,
+            stressCount: stressData?.total_events ?? 0,
+            stressTotalDays: stressTotalDaysFromPayload(stressData),
+          }));
+        });
+      } else {
+        setStressEvents(stressCached?.events ?? []);
+        setMetrics((prev) => ({
+          ...prev,
+          stressCount: stressCached?.total_events ?? prev.stressCount ?? 0,
+          stressTotalDays: stressTotalDaysFromPayload(stressCached),
+        }));
+      }
+
       dataLoadedRef.current[currentPlotId] = true;
       return; // Exit early, don't fetch
     }
@@ -1499,7 +1651,6 @@ const FarmerDashboard: React.FC = () => {
 
     try {
       const endDate = getLocalDateIso();
-      const stressCacheKey = `stress_${currentPlotId}_NDMI_0.15`;
       const irrigationCacheKey = `irrigation_${currentPlotId}`;
       const grapesBundleCacheKey = `farmerDashGrapes_v2_${currentPlotId}_${endDate}`;
 
@@ -1529,23 +1680,8 @@ const FarmerDashboard: React.FC = () => {
         return null;
       };
 
-      const fetchStress = async (): Promise<any> => {
-        const cached = getCache(stressCacheKey);
-        if (cached) return cached;
-        for (const id of plotIds) {
-          try {
-            const res = await axios.get(
-              `${BASE_URL}/plots/${encodeURIComponent(id)}/stress?index_type=NDRE&threshold=0.15`,
-              { timeout: DASHBOARD_API_TIMEOUT_MS }
-            );
-            setCache(stressCacheKey, res.data);
-            return res.data;
-          } catch (err) {
-            console.warn(`⚠️ stress failed for plot "${id}":`, err);
-          }
-        }
-        return { total_events: 0, events: [] };
-      };
+      const fetchStress = async (): Promise<any> =>
+        fetchStressEventsForPlot(currentPlotId, profileRef.current);
 
       const fetchIrrigation = async (): Promise<any> => {
         const cached = getCache(irrigationCacheKey);
@@ -1579,6 +1715,7 @@ const FarmerDashboard: React.FC = () => {
         }
       };
 
+      // Start soil in background — do NOT block card metrics on analyze-npk (up to 60s)
       const soilMetricsPromise = loadDashboardSoilMetrics(
         endDate,
         currentPlotId,
@@ -1586,13 +1723,13 @@ const FarmerDashboard: React.FC = () => {
         getApiDataRef.current
       );
 
-      const [rawIndices, stressData, irrigationData, grapesBundle, soilOnly] =
+      // Critical path: grapes + indices + stress + irrigation only
+      const [rawIndices, stressData, irrigationData, grapesBundle] =
         await Promise.all([
           fetchIndices(),
           fetchStress(),
           fetchIrrigation(),
           fetchGrapesBundle(),
-          soilMetricsPromise,
         ]);
 
       if (rawIndices?.length) {
@@ -1602,14 +1739,12 @@ const FarmerDashboard: React.FC = () => {
 
       setStressEvents(stressData?.events ?? []);
 
-      const agroPlotRowForSoil = soilMetricsToAgroRow(soilOnly);
-
       const profilePartial = metricsFromFarmerProfile(
         profileRef.current,
         currentPlotId
       );
 
-      const newMetrics = grapesBundle
+      const newMetrics: Metrics = grapesBundle
         ? mergeDashboardMetrics(
             metricsFromGrapesBundle(
               grapesBundle,
@@ -1617,7 +1752,8 @@ const FarmerDashboard: React.FC = () => {
               currentPlotId,
               stressData,
               irrigationData,
-              agroPlotRowForSoil
+              null,
+              null
             ) as Metrics,
             profilePartial
           )
@@ -1625,13 +1761,10 @@ const FarmerDashboard: React.FC = () => {
             {
               ...emptyGrapesDashboardMetrics(),
               stressCount: stressData?.total_events ?? 0,
+              stressTotalDays: stressTotalDaysFromPayload(stressData),
               irrigationEvents: irrigationData?.total_events ?? null,
             },
-            profilePartial,
-            {
-              soilPH: soilOnly.soilPH,
-              organicCarbonDensity: soilOnly.organicCarbonDensity,
-            }
+            profilePartial
           );
 
       if (!grapesBundle && !rawIndices?.length) {
@@ -1650,6 +1783,8 @@ const FarmerDashboard: React.FC = () => {
         hasIndices: !!rawIndices?.length,
         metrics: newMetrics,
       });
+
+      let metricsToSet = newMetrics;
 
       if (grapesBundle) {
         const aciditySeries = extractBrixTimeSeriesFromPayload(grapesBundle);
@@ -1673,12 +1808,44 @@ const FarmerDashboard: React.FC = () => {
         }
       }
 
-      setMetrics(newMetrics);
+      setMetrics(metricsToSet);
       setApiDataRef.current("farmerDashboard", currentPlotId, {
-        growthStage: newMetrics.growthStage,
+        growthStage: metricsToSet.growthStage,
       });
 
       dataLoadedRef.current[currentPlotId] = true;
+
+      // Patch soil metrics when ready (does not keep card spinners waiting)
+      void soilMetricsPromise
+        .then((soilOnly) => {
+          const agroPlotRowForSoil = soilMetricsToAgroRow(soilOnly);
+          if (!agroPlotRowForSoil && soilOnly.soilPH == null && soilOnly.organicCarbonDensity == null) {
+            return;
+          }
+          setMetrics((prev) => {
+            if (grapesBundle) {
+              return mergeDashboardMetrics(
+                metricsFromGrapesBundle(
+                  grapesBundle,
+                  profileRef.current,
+                  currentPlotId,
+                  stressData,
+                  irrigationData,
+                  agroPlotRowForSoil,
+                  soilOnly.soilPayload
+                ) as Metrics,
+                profilePartial
+              );
+            }
+            return mergeDashboardMetrics(prev, {
+              soilPH: soilOnly.soilPH,
+              organicCarbonDensity: soilOnly.organicCarbonDensity,
+            });
+          });
+        })
+        .catch(() => {
+          /* soil optional */
+        });
     } catch (err) {
       console.error("Error fetching data:", err);
       setDashboardLoadError(
@@ -1789,7 +1956,9 @@ const FarmerDashboard: React.FC = () => {
 
         const series = extractBrixTimeSeriesFromPayload(data);
         applySeries(series);
-        if (data) cacheBrixPayload(data);
+        if (data) {
+          cacheBrixPayload(data);
+        }
       } catch (error: any) {
         if (cancelled) return;
         console.error("❌ Error fetching brix time series:", error);
@@ -1808,7 +1977,7 @@ const FarmerDashboard: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currentPlotId, profileLoading, brixChartTick]);
+  }, [currentPlotId, profileLoading, brixChartTick, profile]);
 
   // Ripening / Harvest milestones (this card only; GET /grapes/ripening-stage?plot_name=…)
   useEffect(() => {
@@ -2091,7 +2260,30 @@ const FarmerDashboard: React.FC = () => {
   };
 
   const showLoadingDataBanner = profileLoading;
-  const showApiLoadingHint = dashboardDataLoading && !profileLoading;
+  const showApiLoadingHint = dashboardDataLoading && !profileLoading && !!currentPlotId;
+
+  const metricOrLoader = (
+    value: React.ReactNode,
+    empty: boolean = value === null || value === undefined || value === ""
+  ) => {
+    if (dashboardDataLoading && empty) {
+      return <Loader2 className="w-5 h-5 animate-spin inline-block text-emerald-600" aria-label="Loading" />;
+    }
+    if (empty) return "-";
+    return value;
+  };
+
+  // Wait for profile before deciding "no plots" — avoids blank flash on open
+  if (profileLoading && !currentPlotId) {
+    return (
+      <div className="min-h-screen dashboard-bg p-3 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-emerald-700">
+          <Loader2 className="w-8 h-8 animate-spin" />
+          <p className="text-sm font-medium">Loading farm crop status...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentPlotId && !profileLoading) {
     return (
@@ -2144,12 +2336,31 @@ const FarmerDashboard: React.FC = () => {
               marginBottom: 16,
             }}
           >
+            <Loader2 className="w-4 h-4 animate-spin" />
             Loading farmer profile...
           </div>
         )}
 
-            {/* <span>Fetching plot metrics from server (up to 30s)…</span> */}
-      
+        {showApiLoadingHint && (
+          <div
+            className="loading-indicator"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "#0369a1",
+              fontWeight: 500,
+              padding: "8px 12px",
+              background: "#e0f2fe",
+              border: "1px solid #7dd3fc",
+              borderRadius: 6,
+              marginBottom: 16,
+            }}
+          >
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading plot metrics…
+          </div>
+        )}
 
         {dashboardLoadError && !profileLoading && (
           <div
@@ -2270,7 +2481,10 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {metrics.area?.toFixed(2) || "-"}
+                  {metricOrLoader(
+                    metrics.area != null ? metrics.area.toFixed(2) : null,
+                    metrics.area == null
+                  )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
                   acre
@@ -2291,7 +2505,7 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center justify-end mb-2 pt-3 relative z-10">
               <div className="text-right">
                 <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {metrics.growthStage || "-"}
+                  {metricOrLoader(metrics.growthStage, !metrics.growthStage)}
                 </div>
                 <div className="text-sm font-semibold" style={{ color: '#6bb043', visibility: 'hidden' }}>
                   &nbsp;
@@ -2347,22 +2561,26 @@ const FarmerDashboard: React.FC = () => {
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {(metrics.growthStage || "").toLowerCase().includes("harvested")
                     ? "0"
-                    : (metrics.brix !== null && metrics.brix !== undefined ? (metrics.brix === 0 ? "0" : metrics.brix) : "-")}
+                    : metricOrLoader(
+                        metrics.brix !== null && metrics.brix !== undefined
+                          ? (metrics.brix === 0 ? "0" : metrics.brix)
+                          : null,
+                        metrics.brix === null || metrics.brix === undefined
+                      )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
                   °Brix
                 </div>
+                {!(metrics.growthStage || "").toLowerCase().includes("harvested") && (
+                    <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                      {BRIX_CARD_DAYS} days
+                    </div>
+                  )}
               </div>
             </div>
             <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-200 relative z-10">
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</span>
-                {!(metrics.growthStage || "").toLowerCase().includes("harvested") &&
-                  metrics.daysToHarvest != null && (
-                    <span className="text-xs font-medium" style={{ color: '#94a3b8' }}>
-                      {metrics.daysToHarvest} days
-                    </span>
-                  )}
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1">
@@ -2487,7 +2705,6 @@ const FarmerDashboard: React.FC = () => {
 
                   let goodRange: [number, number] = [0.3, 0.6];
                   let badRange: [number, number] = [-0.1, 0.1];
-                  let labelText = "Average";
 
                   if (visibleCount === 1) {
                     const selectedIndex = Object.keys(visibleLines).find(
@@ -2502,9 +2719,6 @@ const FarmerDashboard: React.FC = () => {
                         indexRanges[selectedIndex as keyof typeof indexRanges];
                       goodRange = range.good as [number, number];
                       badRange = range.bad as [number, number];
-                      labelText =
-                        selectedIndex.charAt(0).toUpperCase() +
-                        selectedIndex.slice(1);
                     }
                   } else {
                     const allGoodRanges = Object.values(indexRanges).map(
@@ -2529,7 +2743,6 @@ const FarmerDashboard: React.FC = () => {
 
                     goodRange = [avgGoodMin, avgGoodMax] as [number, number];
                     badRange = [avgBadMin, avgBadMax] as [number, number];
-                    labelText = "Average";
                   }
 
                   return (
@@ -2810,14 +3023,17 @@ const FarmerDashboard: React.FC = () => {
 
         {/* Secondary Metrics Grid — shared icon slot keeps illustrations aligned */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-emerald-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-emerald-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-visible relative" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+            <div className="absolute top-2 right-2 z-10">
+              <HoverInfoTooltip text="Organic carbon density in soil (g/kg). Higher values indicate richer organic matter." />
+            </div>
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
-              <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-start sm:h-[7.75rem] sm:w-[7.75rem]">
+              <div className="-ml-0.5 mt-1 flex h-[4.5rem] w-[4.5rem] shrink-0 items-end justify-start sm:-ml-1 sm:mt-1.5 sm:h-[5rem] sm:w-[5rem]">
                 <img
-                  src={publicAsset("Image/crop images/Organic Carbon.png")}
+                  src="/Image/crop images/Organic Carbon.png"
                   alt=""
                   aria-hidden
-                  className="max-h-full max-w-full object-contain object-left pointer-events-none select-none"
+                  className="h-full w-full object-contain object-left-bottom pointer-events-none select-none"
                 />
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
@@ -2852,12 +3068,18 @@ const FarmerDashboard: React.FC = () => {
             <p className="text-xs text-gray-600 mt-auto pt-1">Total Biomass</p>
           </div>
 
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-yellow-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-yellow-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-visible relative" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+            <div className="absolute top-2 right-2 z-10">
+              <HoverInfoTooltip
+                text="Soil pH measures acidity or alkalinity. 7 is neutral; below 7 is acidic, above 7 is alkaline."
+                iconClassName="w-3.5 h-3.5 text-yellow-600 hover:text-yellow-700 cursor-help shrink-0"
+              />
+            </div>
             <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
-              <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[6.75rem] w-[6.75rem] shrink-0 items-center justify-center sm:h-[7.75rem] sm:w-[7.75rem]">
+              <div className="-ml-0.5 mt-1 flex h-[4.5rem] w-[4.5rem] shrink-0 items-end justify-start sm:-ml-1 sm:mt-1.5 sm:h-[5rem] sm:w-[5rem]">
                 <Beaker
-                  className="h-16 w-16 text-amber-500 sm:h-[4.5rem] sm:w-[4.5rem]"
-                  strokeWidth={1.75}
+                  className="h-full w-full text-orange-500"
+                  strokeWidth={1.5}
                   aria-hidden
                 />
               </div>
@@ -2874,15 +3096,24 @@ const FarmerDashboard: React.FC = () => {
           </div>
 
           <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg px-4 pt-0.5 pb-3 sm:px-5 sm:pt-1 sm:pb-4 border border-green-200 hover:shadow-xl transition-all duration-300 flex flex-col h-[140px] overflow-hidden" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-            <div className="flex flex-1 items-center justify-center gap-5 min-h-0">
-              <div className="-ml-1 mt-1 sm:-ml-1.5 sm:mt-1.5 flex h-[5.75rem] w-[5.75rem] shrink-0 items-center justify-start sm:h-[7.75rem] sm:w-[7.75rem]">
-                <img src="/Image/crop images/yield.png" alt="" aria-hidden className="max-h-20 max-w-20 object-contain object-center pointer-events-none select-none" />
+            <div className="flex flex-1 items-center justify-between gap-3 min-h-0">
+              <div className="-ml-0.5 mt-1 flex h-[4.5rem] w-[4.5rem] shrink-0 items-end justify-start sm:-ml-1 sm:mt-1.5 sm:h-[5rem] sm:w-[5rem]">
+                <Activity
+                  className="h-full w-full text-emerald-600"
+                  strokeWidth={1.5}
+                  aria-hidden
+                />
               </div>
-              <div className="flex w-[80px] sm:w-[90px] shrink-0 flex-col items-end justify-center text-right">
+              <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
-                  {metrics.recovery?.toFixed(1) || "-"}
+                  {metricOrLoader(
+                    metrics.stressTotalDays ?? metrics.stressCount,
+                    metrics.stressTotalDays == null && metrics.stressCount == null,
+                  )}
                 </div>
-                <div className="mt-1 text-base font-semibold leading-none text-green-600 sm:text-lg">%</div>
+                <div className="mt-1 text-base font-semibold leading-none text-green-600 sm:text-lg">
+                  Total days
+                </div>
               </div>
             </div>
             <p className="text-xs text-gray-600 mt-auto pt-1">Stress Events</p>

@@ -97,6 +97,7 @@ export const clearAuthData = (): void => {
   removeUserRole();
   removeUserData();
   localStorage.removeItem(IS_AUTHENTICATED_KEY);
+  localStorage.removeItem("authUser");
 };
 
 // Clear ALL localStorage data (used on logout)

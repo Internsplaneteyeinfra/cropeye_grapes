@@ -3,6 +3,7 @@ import { Download, Info, Satellite } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { RefreshCw } from "lucide-react";
+import { getGrapesMainBaseUrl } from "../utils/serviceUrls";
 
 interface NutrientData {
   name: string;
@@ -167,11 +168,11 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
 
       try {
         const currentDate = new Date().toISOString().split("T")[0];
-        const BASE_URL = "https://cropeye-grapes-main-production.up.railway.app";
+        const BASE_URL = getGrapesMainBaseUrl();
 
         // Get plantation_date from profile
         let plantationDate = "2025-01-01"; // Default fallback
-        let crop = "sugarcane"; // Default fallback
+        let crop = "grapes"; // Grapes app default (not sugarcane)
         if (profile?.plots && profile.plots.length > 0) {
           const selectedPlot = profile.plots.find(
             (p) =>
@@ -270,7 +271,11 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
             console.log("⚠️ SoilAnalysis: Using required_n data as fallback");
             data = soilNPKData;
           } else {
-            throw analyzeError;
+            // Soft-fail: still show report shell with zeros rather than hiding the whole section
+            console.warn(
+              "⚠️ SoilAnalysis: analyze-npk and required-n both unavailable — showing empty report"
+            );
+            data = { plot_name: currentPlotName, soil_statistics: {} };
           }
         }
 

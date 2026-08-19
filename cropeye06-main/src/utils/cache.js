@@ -37,13 +37,13 @@ export function clearAllCache() {
   globalThis[CACHE_STORE_KEY] = {};
 }
 
-/** Map layer cache: no TTL in dev (see API updates immediately), 30 min in production. */
+/** Map layer cache: 5 min in dev, 30 min in production. Set VITE_BYPASS_MAP_CACHE=true to force fresh fetches. */
 export function mapLayerCacheMaxAgeMs() {
-  return import.meta.env.DEV ? 0 : 30 * 60 * 1000;
+  return import.meta.env.DEV ? 5 * 60 * 1000 : 30 * 60 * 1000;
 }
 
 export function shouldBypassMapLayerCache() {
-  return import.meta.env.DEV;
+  return import.meta.env.VITE_BYPASS_MAP_CACHE === "true";
 }
 
 const MAP_LAYER_KEY_PREFIXES = [

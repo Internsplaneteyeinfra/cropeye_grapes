@@ -35,7 +35,7 @@ const MainApp: React.FC = () => {
       console.log('- profileLoading:', profileLoading);
       console.log('- profile exists:', !!profile);
       console.log('- plots exist:', !!profile?.plots);
-      console.log('- plots length > 0:', profile?.plots?.length > 0);
+      console.log('- plots length > 0:', (profile?.plots?.length ?? 0) > 0);
       console.log('- selectedPlotName is null:', selectedPlotName === null);
     }
   }, [profile, profileLoading, selectedPlotName]);
@@ -140,7 +140,7 @@ const MainApp: React.FC = () => {
               </p>
             </div>
             <div className="p-4">
-              <SoilAnalysis selectedPlotName={selectedPlotName} />
+              <SoilAnalysis plotName={selectedPlotName} phValue={null} />
             </div>
           </div>
         </div>

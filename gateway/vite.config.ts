@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => ({
   // When deployed behind one domain (Render + nginx), gateway is served under /login/
   base: mode === "production" ? "/login/" : "/",
   server: {
-    port: 5173,
+    port: 5174,
     strictPort: true,
   },
 }));

@@ -122,6 +122,9 @@ interface FarmerData {
   flow_rate: string;
   dripper_per_plant: string;
   last_harvesting_date: string;
+  /** Shown on farmer green header after registration / profile load */
+  weight: string;
+  price: string;
   intercropping: string;
   intercropping_crop_name?: string;
   plot_photo: File | null;
@@ -385,6 +388,8 @@ function AddFarm() {
     flow_rate: "",
     dripper_per_plant: "",
     last_harvesting_date: "",
+    weight: "",
+    price: "",
     intercropping: "",
     intercropping_crop_name: "",
     plot_photo: null,
@@ -472,6 +477,8 @@ function AddFarm() {
     flow_rate: true,
     dripper_per_plant: true,
     last_harvesting_date: true,
+    weight: true,
+    price: true,
     intercropping: true,
     intercropping_crop_name: true,
     plot_photo: true,
@@ -1837,6 +1844,8 @@ The farmer can now login with Email credentials to access the dashboard and moni
         flow_rate: "",
         dripper_per_plant: "",
         last_harvesting_date: "",
+        weight: "",
+        price: "",
         intercropping: "",
         intercropping_crop_name: "",
         plot_photo: null,
@@ -3004,6 +3013,8 @@ The farmer can now login with Email credentials to access the dashboard and moni
     "foundation_pruning_date",
     "fruit_pruning_date",
     "last_harvesting_date",
+    "weight",
+    "price",
     "intercropping",
   ];
 

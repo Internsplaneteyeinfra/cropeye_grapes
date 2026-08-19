@@ -8,14 +8,14 @@ import {
   fetchPlotHarvestInfo,
   harvestInfoFromAgroStatsBatch,
 } from "../utils/harvestStatusService";
+import { extractAgroStatsPlotRow } from "../utils/grapesEventsBundle";
 import {
   MapPin,
   ChevronDown,
   Calendar,
   TrendingUp,
   BarChart3,
-  PieChart,
-  Activity,
+  LayoutGrid,
   Maximize2,
 } from "lucide-react";
 import {
@@ -23,7 +23,6 @@ import {
   Pie,
   Cell,
   ResponsiveContainer,
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -46,7 +45,6 @@ import "leaflet/dist/leaflet.css";
 import { useMap } from "react-leaflet";
 
 const API_BASE_URL = `${getBackendApiBaseUrl()}/users/my-field-officers/`;
-const BASE_URL = getEventsBaseUrl();
 
 // Chart Types
 const CHART_TYPES = {
@@ -61,13 +59,204 @@ type ChartType = (typeof CHART_TYPES)[keyof typeof CHART_TYPES];
 interface Filters {
   region: string;
   representative: string;
-  grapesType: string;
+  plotArea: string;
   variety: string;
 }
 
 interface DateRange {
   start: string;
   end: string;
+}
+
+const PLOT_AREA_OPTIONS = [
+  "All",
+  "1-3 acre",
+  "4-5 acre",
+  "5-7 acre",
+  "8-10 acre",
+] as const;
+
+const HECTARES_TO_ACRES = 2.47105;
+
+/** Match plot area (acres) to Manager Harvest Planning filter buckets. */
+function matchesPlotAreaFilter(areaAcres: number, filter: string): boolean {
+  if (filter === "All") return true;
+  if (!Number.isFinite(areaAcres) || areaAcres <= 0) return false;
+  switch (filter) {
+    case "1-3 acre":
+      return areaAcres >= 1 && areaAcres <= 3;
+    case "4-5 acre":
+      return areaAcres >= 4 && areaAcres <= 5;
+    case "5-7 acre":
+      return areaAcres > 5 && areaAcres <= 7;
+    case "8-10 acre":
+      return areaAcres >= 8 && areaAcres <= 10;
+    default:
+      return true;
+  }
+}
+
+function resolveFarmAreaAcres(farm: any, plot?: any): number {
+  const acres = parseFloat(
+    String(
+      farm?.area_acres ??
+        farm?.area_in_acres ??
+        plot?.area_acres ??
+        plot?.area_in_acres ??
+        ""
+    )
+  );
+  if (Number.isFinite(acres) && acres > 0) return acres;
+
+  const size = parseFloat(String(farm?.area_size ?? farm?.area_size_numeric ?? "0"));
+  if (!Number.isFinite(size) || size <= 0) return 0;
+  // Backend often stores hectares in area_size — convert to acres for filter labels
+  return size * HECTARES_TO_ACRES;
+}
+
+function resolveVariety(farm: any): string {
+  const v =
+    farm?.grafted_variety ||
+    farm?.variety ||
+    farm?.crop_variety ||
+    farm?.crop_type?.variety ||
+    farm?.crop_type?.crop_variety;
+  return typeof v === "string" && v.trim() ? v.trim() : "Unknown";
+}
+
+/** Prefer API distance fields (meters → km). Never use Math.random. */
+function resolveDistanceKm(plot: any, farm?: any): number {
+  const candidates = [
+    plot?.distance_km,
+    plot?.distance,
+    farm?.distance_km,
+    farm?.distance,
+    plot?.Distance,
+    farm?.Distance,
+  ];
+  for (const c of candidates) {
+    const n = parseFloat(String(c ?? ""));
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  const meters = [
+    plot?.distance_motor_to_plot_m,
+    farm?.distance_motor_to_plot_m,
+    plot?.distance_From_Motor,
+    farm?.distance_From_Motor,
+    plot?.irrigation_details?.distance_motor_to_plot_m,
+    farm?.irrigation_details?.distance_motor_to_plot_m,
+  ];
+  for (const m of meters) {
+    const n = parseFloat(String(m ?? ""));
+    if (Number.isFinite(n) && n >= 0) return n / 1000;
+  }
+  return 0;
+}
+
+function readAgroYieldBrix(plotRow: any): {
+  yieldTPerAcre: number | null;
+  brix: number | null;
+  recovery: number | null;
+} {
+  if (!plotRow || typeof plotRow !== "object") {
+    return { yieldTPerAcre: null, brix: null, recovery: null };
+  }
+  const row =
+    plotRow.brix_sugar != null
+      ? plotRow
+      : plotRow.properties && typeof plotRow.properties === "object"
+        ? plotRow.properties
+        : plotRow;
+  const bs = row.brix_sugar ?? row.brixSugar ?? {};
+  const sugarYield = bs.sugar_yield ?? bs.yield ?? bs.predicted_yield;
+  const yieldTPerAcre =
+    typeof sugarYield?.mean === "number"
+      ? sugarYield.mean
+      : typeof sugarYield?.min === "number"
+        ? sugarYield.min
+        : typeof sugarYield === "number"
+          ? sugarYield
+          : null;
+  const brixRaw = bs.brix ?? bs.tss ?? bs.brix_mean ?? row.brix;
+  const brix =
+    typeof brixRaw?.mean === "number"
+      ? brixRaw.mean
+      : typeof brixRaw === "number"
+        ? brixRaw
+        : typeof brixRaw?.min === "number"
+          ? brixRaw.min
+          : null;
+  const recoveryRaw = bs.recovery ?? bs.ta ?? row.recovery;
+  const recovery =
+    typeof recoveryRaw?.mean === "number"
+      ? recoveryRaw.mean
+      : typeof recoveryRaw === "number"
+        ? recoveryRaw
+        : null;
+  return { yieldTPerAcre, brix, recovery };
+}
+
+function pickArray(...candidates: unknown[]): any[] {
+  let fallback: any[] | null = null;
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      if (c.length > 0) return c;
+      if (fallback == null) fallback = c;
+      continue;
+    }
+    if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>;
+      for (const key of [
+        "results",
+        "data",
+        "farmers",
+        "farmer_list",
+        "plots",
+        "plot_list",
+        "farms",
+        "items",
+      ]) {
+        const nested = obj[key];
+        if (Array.isArray(nested) && nested.length > 0) return nested;
+        if (Array.isArray(nested) && fallback == null) fallback = nested;
+      }
+    }
+  }
+  return fallback ?? [];
+}
+
+function extractFarmers(officer: any): any[] {
+  return pickArray(
+    officer?.farmers,
+    officer?.farmer_list,
+    officer?.farmer,
+    officer?.assigned_farmers,
+    officer?.farmer_details,
+    officer?.my_farmers,
+  );
+}
+
+function extractPlots(farmer: any): any[] {
+  const direct = pickArray(
+    farmer?.plots,
+    farmer?.plot_list,
+    farmer?.plot,
+  );
+  if (direct.length > 0) return direct;
+  // Grapes: farmer.farms may be plot rows (no nested plots[])
+  const farms = pickArray(farmer?.farms, farmer?.farm_list);
+  if (farms.length === 0) return [];
+  const nestedPlots = farms.flatMap((f: any) =>
+    pickArray(f?.plots, f?.plot_list),
+  );
+  return nestedPlots.length > 0 ? nestedPlots : farms;
+}
+
+/** Prefer plot.farms; if missing, treat the plot itself as one farm row. */
+function extractFarms(plot: any): any[] {
+  const farms = pickArray(plot?.farms, plot?.farm_list, plot?.farm);
+  if (farms.length > 0) return farms;
+  return [plot];
 }
 
 interface HarvestData {
@@ -87,25 +276,11 @@ interface HarvestData {
   Region: string;
   "Grapes Type": string;
   Variety: string;
+  /** Area in acres — used by Plot Area filter */
+  areaAcres: number;
   representative?: string;
   representativeUrl?: string;
   boundaryCoordinates?: [number, number][];
-}
-
-interface PlotPoint {
-  id: string | number;
-  position: [number, number];
-  status: string;
-  plotNo: string;
-  area: string;
-  raw: HarvestData;
-  boundaryCoordinates?: [number, number][];
-}
-
-interface StatusData {
-  name: string;
-  value: number;
-  color: string;
 }
 
 interface BrixData {
@@ -122,12 +297,6 @@ interface StageDistribution {
   stage: string;
   plots: number;
   color: string;
-}
-
-interface KeyMetric {
-  label: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
 }
 
 interface FilterDropdownProps {
@@ -229,7 +398,6 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
   const BrixTooltip: React.FC<BrixTooltipProps> = ({
     active,
     payload,
-    label,
   }) => {
     if (active && payload && payload.length) {
       const entry = payload[0].payload;
@@ -260,7 +428,6 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
   const HarvestTooltip: React.FC<HarvestTooltipProps> = ({
     active,
     payload,
-    label,
   }) => {
     if (active && payload && payload.length) {
       const entry = payload[0].payload;
@@ -286,7 +453,7 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
 
   const chartButtons = [
     { id: CHART_TYPES.BRIX, label: "Brix Value Prediction" },
-    { id: CHART_TYPES.PLANTATION, label: "Plot wise Sugarcane Plantation" },
+    { id: CHART_TYPES.PLANTATION, label: "Plot wise Grapes Plantation" },
     { id: CHART_TYPES.HARVEST, label: "Ready To Harvest" },
   ];
 
@@ -399,7 +566,7 @@ const CombinedChart: React.FC<CombinedChartProps> = ({
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
                 dataKey="stage"
-                tick={{ fontSize: 10, angle: 0, dy: 10 }}
+                tick={{ fontSize: 10 }}
                 axisLine={{ stroke: "#e5e7eb" }}
               />
               <YAxis
@@ -479,12 +646,12 @@ const HarvestDashboard: React.FC = () => {
   const [filters, setFilters] = useState<Filters>({
     region: "All",
     representative: "All",
-    grapesType: "All",
+    plotArea: "All",
     variety: "All",
   });
   const [dateRange, setDateRange] = useState<DateRange>({
-    start: "2024-12-14",
-    end: "2024-12-14",
+    start: new Date().toISOString().slice(0, 10),
+    end: new Date().toISOString().slice(0, 10),
   });
   const [harvestRange, setHarvestRange] = useState<[number, number]>([
     -50, 500,
@@ -497,14 +664,12 @@ const HarvestDashboard: React.FC = () => {
   const [representativeOptions, setRepresentativeOptions] = useState<string[]>([
     "All",
   ]);
-  const [grapesTypeOptions, setGrapesTypeOptions] = useState<string[]>([
-    "All",
-  ]);
-  const [varietyOptions] = useState<string[]>(["All", "Phule 265"]);
+  const plotAreaOptions = [...PLOT_AREA_OPTIONS];
+  const [varietyOptions, setVarietyOptions] = useState<string[]>(["All"]);
 
   // Debounce non-representative filters
   const debouncedRegion = useDebouncedValue(filters.region, 300);
-  const debouncedGrapesType = useDebouncedValue(filters.grapesType, 300);
+  const debouncedPlotArea = useDebouncedValue(filters.plotArea, 300);
   const debouncedVariety = useDebouncedValue(filters.variety, 300);
 
   useEffect(() => {
@@ -513,32 +678,48 @@ const HarvestDashboard: React.FC = () => {
       try {
         const response = await api.get(API_BASE_URL);
 
-        if (response.data && response.data.field_officers) {
-          const apiData = response.data;
+        const apiData = response.data ?? {};
+        const fieldOfficers = pickArray(
+          apiData.field_officers,
+          apiData.fieldOfficers,
+          apiData.results,
+          apiData.data?.field_officers,
+          Array.isArray(apiData) ? apiData : null,
+        );
+
+        if (fieldOfficers.length > 0) {
           let allData: HarvestData[] = [];
 
           const talukaSet = new Set<string>();
           const representativeSet = new Set<string>();
-          const plantationTypeSet = new Set<string>();
+          const varietySet = new Set<string>();
 
           // Collect all plot IDs for harvest status API calls
           // Map: dataPointId -> plotId (fastapi_plot_id)
           const dataPointToPlotIdMap = new Map<string, string>();
 
-          apiData.field_officers.forEach((officer: any) => {
-            const representativeName = `${officer.first_name} ${officer.last_name}`;
+          fieldOfficers.forEach((officer: any) => {
+            const representativeName =
+              `${officer.first_name || ""} ${officer.last_name || ""}`.trim() ||
+              "Field Officer";
             representativeSet.add(representativeName);
 
-            officer.farmers.forEach((farmer: any) => {
-              farmer.plots.forEach((plot: any) => {
+            extractFarmers(officer).forEach((farmer: any) => {
+              extractPlots(farmer).forEach((plot: any) => {
                 if (plot.taluka) {
                   talukaSet.add(plot.taluka);
+                } else if (plot.district) {
+                  talukaSet.add(plot.district);
                 }
 
-                plot.farms.forEach((farm: any) => {
-                  if (farm.plantation_type) {
-                    plantationTypeSet.add(farm.plantation_type);
-                  }
+                // Grapes often has no plot.farms[] — treat plot as the farm
+                extractFarms(plot).forEach((farm: any) => {
+                  const varietyFromFarm = resolveVariety(farm);
+                  const variety =
+                    varietyFromFarm !== "Unknown"
+                      ? varietyFromFarm
+                      : resolveVariety(plot);
+                  if (variety !== "Unknown") varietySet.add(variety);
 
                   const coordinates = plot.boundary?.coordinates?.[0] || [];
                   let centerLat = 0;
@@ -555,8 +736,10 @@ const HarvestDashboard: React.FC = () => {
 
                   // Calculate days since plantation
                   let days = 0;
-                  if (farm.plantation_date) {
-                    const plantationDate = new Date(farm.plantation_date);
+                  const plantationDateRaw =
+                    farm.plantation_date || plot.plantation_date;
+                  if (plantationDateRaw) {
+                    const plantationDate = new Date(plantationDateRaw);
                     const today = new Date();
                     if (!isNaN(plantationDate.getTime())) {
                       days = Math.floor(
@@ -573,63 +756,69 @@ const HarvestDashboard: React.FC = () => {
 
                   // Default status (will be updated from API)
                   let status = "Growing";
-                  if (days > 300) status = "Ready to Harvest";
-                  else if (days > 270) status = "Partially Harvested";
+                  if (days > 270) status = "Ready to Harvest";
 
-                  const brix = Math.min(15 + days / 10, 25);
-                  const recovery = Math.min(8 + days / 30, 12);
-
-                  const area = parseFloat(farm.area_size || "0");
-                  // Yield will be fetched from API later
+                  // Defaults — overwritten from GET /plots/agroStats below
+                  const brix = 0;
+                  const recovery = 0;
                   const yieldPerAcre = 0;
+                  const distanceKm = resolveDistanceKm(plot, farm);
 
-                  // Only add data point if we have valid coordinates
-                  if (
-                    centerLat &&
-                    centerLng &&
-                    centerLat !== 0 &&
-                    centerLng !== 0
-                  ) {
-                    // Convert boundary coordinates from [lng, lat] to [lat, lng] for Leaflet
-                    const boundaryCoords: [number, number][] | undefined =
-                      coordinates.length > 0
-                        ? coordinates.map(
+                  const areaAcres = resolveFarmAreaAcres(farm, plot);
+                  // Keep legacy hect field for charts (approx ha from acres)
+                  const areaHect =
+                    areaAcres > 0 ? areaAcres / HECTARES_TO_ACRES : 0;
+
+                  // Convert boundary coordinates from [lng, lat] to [lat, lng] for Leaflet
+                  const boundaryCoords: [number, number][] | undefined =
+                    coordinates.length > 0
+                      ? coordinates.map(
                           (coord: number[]) =>
                             [coord[1], coord[0]] as [number, number],
                         )
-                        : undefined;
+                      : undefined;
 
-                    // Use fastapi_plot_id if available, otherwise use plot.id
-                    const plotId =
-                      plot.fastapi_plot_id || plot.id || String(plot.id);
-                    const dataPointId = `${plot.id}-${farm.id}`;
+                  // Use fastapi_plot_id if available, otherwise use plot.id
+                  const plotId =
+                    plot.fastapi_plot_id ||
+                    farm.fastapi_plot_id ||
+                    plot.id ||
+                    farm.id ||
+                    String(plot.id ?? farm.id ?? "");
+                  const dataPointId = `${plot.id ?? plot.fastapi_plot_id ?? "plot"}-${farm.id ?? farm.farm_id ?? "farm"}`;
 
-                    // Store mapping for harvest status API call
-                    dataPointToPlotIdMap.set(dataPointId, plotId);
+                  // Store mapping for harvest status API call
+                  dataPointToPlotIdMap.set(dataPointId, String(plotId));
 
-                    const dataPoint: HarvestData = {
-                      id: dataPointId,
-                      "Plot No": plot.plot_number || "",
-                      Latitude: centerLat,
-                      Longitude: centerLng,
-                      "Sugarcane Status": status,
-                      "Area (Hect)": area,
-                      Days: days,
-                      "Prediction Yield (T/acre)": yieldPerAcre,
-                      "Brix (Degree)": brix,
-                      "Recovery (Degree)": recovery,
-                      "Distance (km)": Math.random() * 10 + 1,
-                      Stage: stage,
-                      Region: plot.taluka || "Unknown",
-                      "Sugarcane Type": farm.plantation_type || "Unknown",
-                      Variety: "Phule 265",
-                      representative: representativeName,
-                      representativeUrl: "",
-                      boundaryCoordinates: boundaryCoords,
-                    };
+                  const dataPoint: HarvestData = {
+                    id: dataPointId,
+                    "Plot No":
+                      plot.plot_number ||
+                      plot.fastapi_plot_id ||
+                      String(plotId),
+                    Latitude: centerLat,
+                    Longitude: centerLng,
+                    "Grapes Status": status,
+                    "Area (Hect)": areaHect,
+                    areaAcres,
+                    Days: days,
+                    "Prediction Yield (T/acre)": yieldPerAcre,
+                    "Brix (Degree)": brix,
+                    "Recovery (Degree)": recovery,
+                    "Distance (km)": distanceKm,
+                    Stage: stage,
+                    Region: plot.taluka || plot.district || "Unknown",
+                    "Grapes Type":
+                      farm.plantation_type ||
+                      plot.plantation_type ||
+                      "Unknown",
+                    Variety: variety,
+                    representative: representativeName,
+                    representativeUrl: "",
+                    boundaryCoordinates: boundaryCoords,
+                  };
 
-                    allData.push(dataPoint);
-                  }
+                  allData.push(dataPoint);
                 });
               });
             });
@@ -640,41 +829,51 @@ const HarvestDashboard: React.FC = () => {
             new Set(dataPointToPlotIdMap.values()),
           );
 
-          // Fetch yield data and harvest status for all plots from API
+          // Fetch yield / brix / harvest status from events agroStats API
           const today = new Date().toISOString().slice(0, 10);
           const harvestStatusMap = new Map<string, string>();
           const yieldDataMap = new Map<string, number>();
+          const brixDataMap = new Map<string, number>();
+          const recoveryDataMap = new Map<string, number>();
 
-          // Fetch yield data from agroStats API
+          const eventsBase = getEventsBaseUrl().replace(/\/+$/, "");
           const agroStatsCacheKey = `agroStats_${today}`;
           let allPlotsYieldData = getCache(agroStatsCacheKey);
 
           if (!allPlotsYieldData) {
             try {
               const agroStatsRes = await axios.get(
-                `https://cropeye-grapes-events-production.up.railway.app/plots/agroStats?end_date=${today}`,
+                `${eventsBase}/plots/agroStats`,
+                {
+                  params: { end_date: today },
+                  timeout: 60_000,
+                  headers: { Accept: "application/json" },
+                },
               );
               allPlotsYieldData = agroStatsRes.data;
               setCache(agroStatsCacheKey, allPlotsYieldData);
             } catch (err) {
+              console.warn("HarvestDashboard: agroStats fetch failed", err);
               allPlotsYieldData = null;
             }
           }
 
-          // Extract yield data for each plot
           if (allPlotsYieldData && uniquePlotIds.length > 0) {
             uniquePlotIds.forEach((plotId) => {
-              const plotData =
-                allPlotsYieldData[plotId] || allPlotsYieldData[`"${plotId}"`];
-              if (plotData?.brix_sugar?.sugar_yield) {
-                // Use mean if available, otherwise use min
-                const yieldValue =
-                  plotData.brix_sugar.sugar_yield.mean ??
-                  plotData.brix_sugar.sugar_yield.min ??
-                  null;
-                if (yieldValue !== null) {
-                  yieldDataMap.set(plotId, yieldValue);
-                }
+              const plotData = extractAgroStatsPlotRow(
+                allPlotsYieldData,
+                plotId,
+                null,
+              );
+              const metrics = readAgroYieldBrix(plotData);
+              if (metrics.yieldTPerAcre != null) {
+                yieldDataMap.set(plotId, metrics.yieldTPerAcre);
+              }
+              if (metrics.brix != null) {
+                brixDataMap.set(plotId, metrics.brix);
+              }
+              if (metrics.recovery != null) {
+                recoveryDataMap.set(plotId, metrics.recovery);
               }
             });
           }
@@ -720,7 +919,6 @@ const HarvestDashboard: React.FC = () => {
           // Update status and yield in allData with API response
           const statusMappingCounts: { [key: string]: number } = {
             Harvested: 0,
-            "Partially Harvested": 0,
             "Ready to Harvest": 0,
             Growing: 0,
             Unknown: 0,
@@ -729,11 +927,23 @@ const HarvestDashboard: React.FC = () => {
           allData.forEach((dataPoint) => {
             const plotId = dataPointToPlotIdMap.get(dataPoint.id || "");
 
-            // Update yield from API
+            // Update yield / brix / recovery from agroStats
             if (plotId && yieldDataMap.has(plotId)) {
               const apiYield = yieldDataMap.get(plotId);
               if (apiYield !== undefined && apiYield !== null) {
                 dataPoint["Prediction Yield (T/acre)"] = apiYield;
+              }
+            }
+            if (plotId && brixDataMap.has(plotId)) {
+              const apiBrix = brixDataMap.get(plotId);
+              if (apiBrix !== undefined && apiBrix !== null) {
+                dataPoint["Brix (Degree)"] = apiBrix;
+              }
+            }
+            if (plotId && recoveryDataMap.has(plotId)) {
+              const apiRecovery = recoveryDataMap.get(plotId);
+              if (apiRecovery !== undefined && apiRecovery !== null) {
+                dataPoint["Recovery (Degree)"] = apiRecovery;
               }
             }
 
@@ -752,24 +962,24 @@ const HarvestDashboard: React.FC = () => {
                   .trim();
 
                 // Map API status to expected status labels (case-insensitive)
-                // Check in order: partially harvested, harvested, ready, growing
+                // "Partially Harvested" is removed from UI — treat as Harvested
                 if (
                   normalizedStatus.includes("partially") &&
                   normalizedStatus.includes("harvested")
                 ) {
-                  dataPoint["Sugarcane Status"] = "Partially Harvested";
-                  statusMappingCounts["Partially Harvested"]++;
+                  dataPoint["Grapes Status"] = "Harvested";
+                  statusMappingCounts["Harvested"]++;
                 } else if (
                   normalizedStatus.includes("harvested") &&
                   !normalizedStatus.includes("partially")
                 ) {
-                  dataPoint["Sugarcane Status"] = "Harvested";
+                  dataPoint["Grapes Status"] = "Harvested";
                   statusMappingCounts["Harvested"]++;
                 } else if (normalizedStatus.includes("ready")) {
-                  dataPoint["Sugarcane Status"] = "Ready to Harvest";
+                  dataPoint["Grapes Status"] = "Ready to Harvest";
                   statusMappingCounts["Ready to Harvest"]++;
                 } else if (normalizedStatus.includes("growing")) {
-                  dataPoint["Sugarcane Status"] = "Growing";
+                  dataPoint["Grapes Status"] = "Growing";
                   statusMappingCounts["Growing"]++;
                 } else {
                   // Fallback: capitalize first letter of each word
@@ -780,7 +990,7 @@ const HarvestDashboard: React.FC = () => {
                         word.charAt(0).toUpperCase() + word.slice(1),
                     )
                     .join(" ");
-                  dataPoint["Sugarcane Status"] = fallbackStatus;
+                  dataPoint["Grapes Status"] = fallbackStatus;
                   statusMappingCounts["Unknown"]++;
                 }
               }
@@ -797,10 +1007,7 @@ const HarvestDashboard: React.FC = () => {
             "All",
             ...Array.from(representativeSet).sort(),
           ]);
-          setGrapesTypeOptions([
-            "All",
-            ...Array.from(plantationTypeSet).sort(),
-          ]);
+          setVarietyOptions(["All", ...Array.from(varietySet).sort()]);
 
           setRawData(allData);
         } else {
@@ -824,18 +1031,19 @@ const HarvestDashboard: React.FC = () => {
         const repMatch =
           filters.representative === "All" ||
           item.representative === filters.representative;
-        const typeMatch =
-          debouncedGrapesType === "All" ||
-          item["Grapes Type"] === debouncedGrapesType;
+        const areaMatch = matchesPlotAreaFilter(
+          item.areaAcres,
+          debouncedPlotArea
+        );
         const varietyMatch =
           debouncedVariety === "All" || item.Variety === debouncedVariety;
-        return regionMatch && repMatch && typeMatch && varietyMatch;
+        return regionMatch && repMatch && areaMatch && varietyMatch;
       }),
     [
       rawData,
       debouncedRegion,
       filters.representative,
-      debouncedGrapesType,
+      debouncedPlotArea,
       debouncedVariety,
     ],
   );
@@ -843,7 +1051,6 @@ const HarvestDashboard: React.FC = () => {
   const FIXED_STATUS_LABELS = [
     "Harvested",
     "Growing",
-    "Partially Harvested",
     "Ready to Harvest",
   ];
 
@@ -890,7 +1097,7 @@ const HarvestDashboard: React.FC = () => {
       position: [item.Latitude, item.Longitude] as [number, number],
       status: item["Grapes Status"],
       plotNo: item["Plot No"] || item["plot in no."] || `P${idx + 1}`,
-      area: `${item["Area (Hect)"]} Ha`,
+      area: `${Number(item.areaAcres || 0).toFixed(2)} acre`,
       raw: item,
       boundaryCoordinates: item.boundaryCoordinates,
     }));
@@ -987,25 +1194,34 @@ const HarvestDashboard: React.FC = () => {
 
   const keyMetrics = useMemo(() => {
     const totalArea = filteredData.reduce(
-      (sum, item) => sum + (item["Area (Hect)"] || 0),
+      (sum, item) => sum + (item.areaAcres || 0),
       0,
     );
-    const avgYield = filteredData.length
-      ? (
-        filteredData.reduce(
+    const totalPlots = filteredData.length;
+    const avgDistance = (() => {
+      const withDistance = filteredData.filter(
+        (item) => (item["Distance (km)"] || 0) > 0,
+      );
+      if (withDistance.length === 0) return "-";
+      return (
+        withDistance.reduce(
+          (sum, item) => sum + (item["Distance (km)"] || 0),
+          0,
+        ) / withDistance.length
+      ).toFixed(2);
+    })();
+    const avgYield = (() => {
+      const withYield = filteredData.filter(
+        (item) => (item["Prediction Yield (T/acre)"] || 0) > 0,
+      );
+      if (withYield.length === 0) return "-";
+      return (
+        withYield.reduce(
           (sum, item) => sum + (item["Prediction Yield (T/acre)"] || 0),
           0,
-        ) / filteredData.length
-      ).toFixed(2)
-      : "-";
-    const avgRecovery = filteredData.length
-      ? (
-        filteredData.reduce(
-          (sum, item) => sum + (item["Recovery (Degree)"] || 0),
-          0,
-        ) / filteredData.length
-      ).toFixed(2)
-      : "-";
+        ) / withYield.length
+      ).toFixed(2);
+    })();
 
     return [
       {
@@ -1014,26 +1230,19 @@ const HarvestDashboard: React.FC = () => {
         icon: BarChart3,
       },
       {
+        label: "Total plots",
+        value: totalPlots ? `${totalPlots} plots` : "-",
+        icon: LayoutGrid,
+      },
+      {
         label: "Avg. Distance (KM)",
-        value: filteredData.length
-          ? (
-            filteredData.reduce(
-              (sum, item) => sum + (item["Distance (km)"] || 0),
-              0,
-            ) / filteredData.length
-          ).toFixed(2)
-          : "-",
+        value: avgDistance,
         icon: MapPin,
       },
       {
         label: "Expected Yield (T/acre)",
         value: avgYield,
         icon: TrendingUp,
-      },
-      {
-        label: "Recovery % (Expected)",
-        value: avgRecovery,
-        icon: Activity,
       },
     ];
   }, [filteredData]);
@@ -1111,10 +1320,25 @@ const HarvestDashboard: React.FC = () => {
     </div>
   );
 
-  if (loading || rawData.length === 0) {
+  if (loading) {
     return (
-      <div className="min-h-screen dashboard-bg flex items-center justify-center">
+      <div className="min-h-screen dashboard-bg flex flex-col items-center justify-center gap-3 px-4">
         <CommonSpinner />
+        <p className="text-sm text-gray-600 text-center max-w-md">
+          Loading harvest planning data… this can take a few minutes while plot
+          harvest status is fetched.
+        </p>
+      </div>
+    );
+  }
+
+  if (rawData.length === 0) {
+    return (
+      <div className="min-h-screen dashboard-bg flex items-center justify-center px-4">
+        <p className="text-sm text-gray-600 text-center">
+          No harvest planning data available. Check field officer / plot
+          hierarchy from the API, then refresh.
+        </p>
       </div>
     );
   }
@@ -1178,11 +1402,11 @@ const HarvestDashboard: React.FC = () => {
                 }
               />
               <FilterDropdown
-                label="Grapes Type"
-                value={filters.grapesType}
-                options={grapesTypeOptions}
+                label="Plot Area"
+                value={filters.plotArea}
+                options={plotAreaOptions}
                 onChange={(value) =>
-                  setFilters((prev) => ({ ...prev, grapesType: value }))
+                  setFilters((prev) => ({ ...prev, plotArea: value }))
                 }
               />
               <FilterDropdown
@@ -1314,7 +1538,7 @@ const HarvestDashboard: React.FC = () => {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {plotStatusData.map((entry, index) => (
+                        {plotStatusData.map((_entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={

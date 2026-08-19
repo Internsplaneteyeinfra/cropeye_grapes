@@ -14,7 +14,7 @@ interface FertilizerEntry {
   chemical: string;
 }
 
-const videoList = [
+const videoList: Array<{ title?: string; desc?: string; url?: string }> = [
   {
     // title: "उस शेतीची ओळख आणि महाराष्ट्राचे हवामान",
     // url: "https://www.youtube.com/embed/qzFbZvDin4U?si=y8NwUZfi7wWBWfWV",

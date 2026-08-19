@@ -7,6 +7,7 @@ import {
   clearAuthData,
 } from "./auth";
 import { navigateToLogin } from "./navigation";
+import { USE_MOCK_AUTH } from "../config/authConfig";
 import axios from "axios";
 
 // Get API base URL from environment or use default
@@ -50,6 +51,13 @@ export const isTokenExpired = (
   bufferSeconds: number = 300,
 ): boolean => {
   if (!token) return true;
+
+  // Demo mock tokens are not backend JWTs — treat as always valid
+  if (USE_MOCK_AUTH) {
+    if (token === "mock.access.token" || token.endsWith(".mocksig")) {
+      return false;
+    }
+  }
 
   const decoded = decodeToken(token);
   if (!decoded || !decoded.exp) return true;
@@ -124,10 +132,10 @@ export const refreshAccessToken = async (): Promise<string | null> => {
     // If refresh token is invalid/expired, clear all auth data
     if (error.response?.status === 401 || error.response?.status === 403) {
       console.warn("Refresh token is invalid, clearing auth data");
-      clearAuthData();
-
-      // Use navigation utility instead of window.location.href to prevent reload loops
-      navigateToLogin();
+      if (!USE_MOCK_AUTH) {
+        clearAuthData();
+        navigateToLogin();
+      }
     }
 
     return null;
@@ -142,6 +150,19 @@ export const refreshAccessToken = async (): Promise<string | null> => {
 export const checkAndRefreshToken = async (
   bufferSeconds: number = 300,
 ): Promise<boolean> => {
+  if (USE_MOCK_AUTH) {
+    return !!getAuthToken();
+  }
+
+  try {
+    const { isFrontendRolePreview } = await import("./frontendRolePreview");
+    if (isFrontendRolePreview()) {
+      return !!getAuthToken();
+    }
+  } catch {
+    // ignore
+  }
+
   const accessToken = getAuthToken();
 
   // No token at all

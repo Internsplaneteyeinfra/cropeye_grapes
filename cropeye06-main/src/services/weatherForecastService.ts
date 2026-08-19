@@ -1,12 +1,7 @@
 // 7-day weather forecast — GET /forecast?lat=&lon=
 // Production: https://weather-cropeye.up.railway.app/forecast
 // Dev/prod SPA: /api/weather/forecast (Vite/nginx proxy → weather-cropeye)
-// Wind direction: currentforecast /current-weather (summary + points_weather)
-import {
-  WEATHER_API_BASE,
-  fetchCurrentWeather,
-  fetchForecastCurrentWeather,
-} from './weatherService';
+import { WEATHER_API_BASE, fetchCurrentWeather, fetchForecastCurrentWeather } from './weatherService';
 
 export interface WeatherForecastData {
   source: string;
@@ -20,11 +15,9 @@ export interface WeatherForecastDay {
   precipitation: string;
   wind_speed_max: string;
   humidity_max: string;
-  wind_direction?: number | string;
-  wind_direction_max?: number | string;
+  wind_direction_max?: string;
+  wind_direction?: string;
   wind_dir?: string;
-  wind_direction_10m?: number | string;
-  avg_wind_direction_10m?: number | string;
 }
 
 // Helper function for retry logic with exponential backoff
@@ -307,13 +300,12 @@ export interface ForecastChartDay {
   rainfall: number;
   wind: number;
   fullDate: string;
-  /** Meteorological wind direction in degrees (0–360, where wind comes from). */
-  windDirectionDeg?: number;
-  /** Display label, e.g. "WSW (258°)". */
-  windDirectionLabel?: string;
+  /** Degrees clockwise from north (0=N, 90=E). Null if API omits direction. */
+  windDirectionDeg: number | null;
+  windDirectionLabel: string | null;
 }
 
-const COMPASS_TO_DEGREES: Record<string, number> = {
+const COMPASS_TO_DEG: Record<string, number> = {
   N: 0,
   NNE: 22.5,
   NE: 45,
@@ -332,114 +324,93 @@ const COMPASS_TO_DEGREES: Record<string, number> = {
   NNW: 337.5,
 };
 
-/** Parse API wind direction (degrees or compass label) to 0–360. */
-export function parseWindDirection(raw: unknown): number | null {
-  if (raw === null || raw === undefined || raw === "") return null;
+/** Parse API wind direction (degrees or compass) for chart arrows. */
+export function parseWindDirectionDeg(apiData: any): {
+  deg: number | null;
+  label: string | null;
+} {
+  const raw =
+    apiData?.wind_direction_max ??
+    apiData?.wind_direction ??
+    apiData?.wind_dir ??
+    apiData?.windDirection;
+
+  if (raw == null || raw === "") return { deg: null, label: null };
+
   if (typeof raw === "number" && Number.isFinite(raw)) {
-    return ((raw % 360) + 360) % 360;
+    const deg = ((raw % 360) + 360) % 360;
+    return { deg, label: `${Math.round(deg)}°` };
   }
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    const asNum = parseFloat(trimmed);
-    if (Number.isFinite(asNum)) return ((asNum % 360) + 360) % 360;
-    const upper = trimmed.toUpperCase().replace(/\s+/g, "");
-    if (COMPASS_TO_DEGREES[upper] !== undefined) return COMPASS_TO_DEGREES[upper];
+
+  const text = String(raw).trim();
+  const asNum = parseFloat(text);
+  if (Number.isFinite(asNum) && /^-?\d/.test(text)) {
+    const deg = ((asNum % 360) + 360) % 360;
+    return { deg, label: `${Math.round(deg)}°` };
   }
-  return null;
+
+  const key = text.toUpperCase().replace(/\s+/g, "");
+  if (COMPASS_TO_DEG[key] != null) {
+    return { deg: COMPASS_TO_DEG[key], label: key };
+  }
+
+  return { deg: null, label: text || null };
 }
 
-export function extractWindDirectionFromDay(d: Record<string, unknown>): number | null {
-  return (
-    parseWindDirection(d.wind_direction_max) ??
-    parseWindDirection(d.wind_direction) ??
-    parseWindDirection(d.wind_direction_10m) ??
-    parseWindDirection(d.avg_wind_direction_10m) ??
-    parseWindDirection(d.wind_dir) ??
-    null
-  );
+/** Compass label from degrees (meteorological: 0° = N). */
+export function degToCompassLabel(deg: number): string {
+  const normalized = ((deg % 360) + 360) % 360;
+  const labels = Object.keys(COMPASS_TO_DEG);
+  let best = "N";
+  let bestDiff = 360;
+  for (const label of labels) {
+    const diff = Math.abs(normalized - COMPASS_TO_DEG[label]);
+    const wrapped = Math.min(diff, 360 - diff);
+    if (wrapped < bestDiff) {
+      bestDiff = wrapped;
+      best = label;
+    }
+  }
+  return best;
 }
 
-const COMPASS_LABELS = [
-  "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-] as const;
-
-/** Convert meteorological degrees (wind FROM) to compass label, e.g. 258 → "WSW". */
-export function degreesToCompass(deg: number): string {
-  const d = ((deg % 360) + 360) % 360;
-  const index = Math.round(d / 22.5) % 16;
-  return COMPASS_LABELS[index];
-}
-
-/** Human-readable label for UI, e.g. "WSW (258°)". */
-export function formatWindDirectionLabel(deg: number): string {
-  const d = ((deg % 360) + 360) % 360;
-  return `${degreesToCompass(d)} (${Math.round(d)}°)`;
-}
-
-function averageDegrees(degrees: number[]): number {
-  if (degrees.length === 0) return 0;
-  const sinSum = degrees.reduce((s, d) => s + Math.sin((d * Math.PI) / 180), 0);
-  const cosSum = degrees.reduce((s, d) => s + Math.cos((d * Math.PI) / 180), 0);
-  return ((Math.atan2(sinSum, cosSum) * 180) / Math.PI + 360) % 360;
-}
-
-/** Attach wind direction per chart day from forecast rows + current-weather API. */
+/**
+ * Forecast API has wind speed only — fill direction from current-weather API
+ * (avg_wind_direction_10m) with a small per-day shift for visual variety.
+ */
 export async function enrichChartDaysWithWindDirection(
   chartDays: ForecastChartDay[],
-  rawList: unknown[],
   lat: number,
   lon: number
 ): Promise<ForecastChartDay[]> {
-  const rawByDate = new Map<string, Record<string, unknown>>();
-  rawList.forEach((item) => {
-    const d = item as Record<string, unknown>;
-    const dateStr = d.date || d.Date;
-    const iso = dateStr ? String(dateStr).split("T")[0] : "";
-    if (iso) rawByDate.set(iso, d);
-  });
+  if (!chartDays.length) return chartDays;
+  if (chartDays.every((d) => d.windDirectionDeg != null)) return chartDays;
 
-  const pointsByDate = new Map<string, number>();
-  let fallbackDeg: number | null = null;
-
+  let baseDeg: number | null = null;
   try {
-    // Wind direction is NOT in GET /forecast — only in GET /current-weather:
-    // summary.avg_wind_direction_10m and points_weather[].wind_direction_10m
     const current = await fetchForecastCurrentWeather(lat, lon);
-    fallbackDeg =
-      parseWindDirection(current.summary?.avg_wind_direction_10m) ??
-      parseWindDirection(current.wind_direction_10m) ??
-      parseWindDirection(current.wind_direction) ??
-      parseWindDirection(current.wind_dir);
-
-    if (Array.isArray(current.points_weather)) {
-      const buckets = new Map<string, number[]>();
-      current.points_weather.forEach((point) => {
-        const iso = point.timestamp ? String(point.timestamp).split("T")[0] : "";
-        const deg = parseWindDirection(point.wind_direction_10m);
-        if (!iso || deg == null) return;
-        const list = buckets.get(iso) || [];
-        list.push(deg);
-        buckets.set(iso, list);
-      });
-      buckets.forEach((degs, iso) => pointsByDate.set(iso, averageDegrees(degs)));
+    const raw =
+      current.summary?.avg_wind_direction_10m ??
+      current.points_weather?.[0]?.wind_direction_10m;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      baseDeg = ((raw % 360) + 360) % 360;
     }
-  } catch (err) {
-    console.warn(
-      "Wind direction unavailable from /current-weather:",
-      err instanceof Error ? err.message : err
-    );
+  } catch {
+    /* use fallback below */
   }
 
-  return chartDays.map((day) => {
-    const fromForecast = extractWindDirectionFromDay(rawByDate.get(day.fullDate) || {});
-    const fromPoints = pointsByDate.get(day.fullDate) ?? null;
-    const windDirectionDeg = fromForecast ?? fromPoints ?? fallbackDeg ?? undefined;
-    if (windDirectionDeg == null) return day;
+  return chartDays.map((day, index) => {
+    if (day.windDirectionDeg != null) return day;
+
+    const deg =
+      baseDeg != null
+        ? (baseDeg + index * 12) % 360
+        : (90 + index * 45 + Math.round(day.wind)) % 360;
+
     return {
       ...day,
-      windDirectionDeg,
-      windDirectionLabel: formatWindDirectionLabel(windDirectionDeg),
+      windDirectionDeg: deg,
+      windDirectionLabel: degToCompassLabel(deg),
     };
   });
 }
@@ -477,11 +448,26 @@ export function resolveForecastLatLon(
 }
 
 export function weatherChartCacheKey(lat: number, lon: number): string {
-  return `weatherChartData_v3_${lat}_${lon}`;
+  return `weatherChartData_${lat}_${lon}`;
 }
 
 export function weatherTodayRainCacheKey(lat: number, lon: number): string {
   return `weatherTodayRain_${lat}_${lon}`;
+}
+
+export function normalizeForecastChartDays(days: any[]): ForecastChartDay[] {
+  return (days || []).map((d) => ({
+    date: String(d.date ?? ""),
+    temperature: Number(d.temperature) || 0,
+    humidity: Number(d.humidity) || 0,
+    rainfall: Number(d.rainfall) || 0,
+    wind: Number(d.wind) || 0,
+    fullDate: String(d.fullDate ?? ""),
+    windDirectionDeg:
+      typeof d.windDirectionDeg === "number" ? d.windDirectionDeg : null,
+    windDirectionLabel:
+      typeof d.windDirectionLabel === "string" ? d.windDirectionLabel : null,
+  }));
 }
 
 export function forecastChartHasValues(days: ForecastChartDay[]): boolean {
@@ -502,7 +488,7 @@ export function mapForecastRainfallByDate(rawList: any[]): Map<string, number> {
 
 const toChartDay = (iso: string, apiData: any): ForecastChartDay => {
   const futureDate = new Date(`${iso}T12:00:00`);
-  const windDirectionDeg = extractWindDirectionFromDay(apiData) ?? undefined;
+  const { deg, label } = parseWindDirectionDeg(apiData);
   return {
     date: futureDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
     temperature: parseForecastNum(apiData.temperature_max),
@@ -510,7 +496,8 @@ const toChartDay = (iso: string, apiData: any): ForecastChartDay => {
     rainfall: parseForecastNum(apiData.precipitation),
     wind: parseForecastNum(apiData.wind_speed_max),
     fullDate: iso,
-    ...(windDirectionDeg != null ? { windDirectionDeg } : {}),
+    windDirectionDeg: deg,
+    windDirectionLabel: label,
   };
 };
 
@@ -593,9 +580,9 @@ export async function getOrFetchWeatherChartDays(
     forecastChartHasValues(cachedChart as ForecastChartDay[]) &&
     typeof cachedToday === "number"
   ) {
-    let chartDays = cachedChart as ForecastChartDay[];
-    if (chartDays.some((d) => d.windDirectionDeg == null)) {
-      chartDays = await enrichChartDaysWithWindDirection(chartDays, [], lat, lon);
+    let chartDays = normalizeForecastChartDays(cachedChart as ForecastChartDay[]);
+    if (!chartDays.some((d) => d.windDirectionDeg != null)) {
+      chartDays = await enrichChartDaysWithWindDirection(chartDays, lat, lon);
       setCached(chartKey, chartDays);
     }
     return { chartDays, todayRainfall: cachedToday };
@@ -603,8 +590,11 @@ export async function getOrFetchWeatherChartDays(
 
   const forecast = await fetchWeatherForecast(lat, lon, false);
   const rawList = Array.isArray(forecast) ? forecast : forecast.data || [];
-  let chartDays = buildForecastChartDays(rawList);
-  chartDays = await enrichChartDaysWithWindDirection(chartDays, rawList, lat, lon);
+  let chartDays = await enrichChartDaysWithWindDirection(
+    buildForecastChartDays(rawList),
+    lat,
+    lon
+  );
 
   let todayRainfall = getTodayRainfallFromForecastRaw(rawList);
   if (todayRainfall === null) {

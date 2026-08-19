@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Line,
   XAxis,
@@ -13,8 +13,6 @@ import {
   ReferenceLine,
   Scatter,
   ComposedChart,
-  BarChart,
-  Bar,
 } from "recharts";
 import {
   MapContainer,
@@ -25,47 +23,50 @@ import {
 } from "react-leaflet";
 import {
   Loader2,
-  AlertTriangle,
   Calendar,
-  Droplets,
-  Thermometer,
   Activity,
   Target,
-  Leaf,
-  BarChart3,
-  // PieChart as PieChartIcon,
   LineChart as LineChartIcon,
   Users,
   MapPin,
-  Beaker,
-  // Crop,
-  // Zap,
-  // Clock,
-  // Gauge,
-  // Filter,
-  // RefreshCw,
   Maximize2,
+  Beaker,
+  BarChart3,
+  Leaf,
+  CloudSun,
+  Star,
+  Gauge,
+  Sprout,
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
-import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
-import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
+import {
+  getBackendApiBaseUrl,
+  getEventsBaseUrl,
+  getGrapesAdminBaseUrl,
+} from "../utils/serviceUrls";
+import {
+  fetchGrapesPlotDashboardData,
+  grapesPlotFormBody,
+  ripeningMilestonesFromPayload,
+} from "../utils/grapesEventsBundle";
+import {
+  fetchRipeningStageMilestones,
+  formatMilestoneDate,
+} from "../utils/ripeningMilestones";
+import {
+  RECOVERY_QUALITY_CHART_PLOT_H,
+  FALLBACK_VIGOUR_PCT,
+  type VigourPixelPct,
+  parseCanopyVigourPixelSummary,
+  vigourToBarRows,
+  dominantVigourCategory,
+} from "../utils/canopyVigour";
 import api from "../api"; // Import the authenticated api instance
-import CommonSpinner from "./CommanSpinner";
 
 // Constants (same as FarmerDashboard)
 const BASE_URL = getEventsBaseUrl();
-const OPTIMAL_BIOMASS = 150;
-const SOIL_API_URL = "https://cropeye-grapes-events-production.up.railway.app";
-const SOIL_DATE = "2025-10-03";
-
-const OTHER_FARMERS_RECOVERY = {
-  regional_average: 7.85,
-  top_quartile: 8.52,
-  bottom_quartile: 6.58,
-  similar_farms: 7.63,
-};
 
 // Type definitions (keeping the same as original)
 interface LineChartData {
@@ -118,8 +119,11 @@ interface Metrics {
   recovery: number | null;
   area: number | null;
   biomass: number | null;
+  biomassMax: number | null;
+  biomassMin: number | null;
   totalBiomass: number | null;
   stressCount: number | null;
+  stressTotalDays: number | null;
   irrigationEvents: number | null;
   expectedYield: number | null;
   daysToHarvest: number | null;
@@ -131,6 +135,8 @@ interface Metrics {
   sugarYieldMax: number | null;
   sugarYieldMin: number | null;
   sugarYieldMean: number | null;
+  fieldScore: number | null;
+  cci: number | null;
 }
 
 interface PieChartWithNeedleProps {
@@ -160,11 +166,12 @@ const ManagerFarmDash: React.FC = () => {
   const [plots, setPlots] = useState<string[]>([]);
   const [loadingFarmers, setLoadingFarmers] = useState<boolean>(false);
   const [loadingData, setLoadingData] = useState<boolean>(false);
-  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [showDebugInfo] = useState(false);
+  void showDebugInfo;
 
   const lineStyles: LineStyles = {
     growth: { color: "#16a34a", label: "Growth Index" },
-    stress: { color: "#dc2626", label: "Crop Stress Index" },
+    stress: { color: "#dc2626", label: "Crop Stress Index (CSI)" },
     water: { color: "#3b82f6", label: "Water Uptake Index" },
     moisture: { color: "#92400e", label: "Soil Moisture Index" },
   };
@@ -187,8 +194,11 @@ const ManagerFarmDash: React.FC = () => {
     recovery: null,
     area: null,
     biomass: null,
+    biomassMax: null,
+    biomassMin: null,
     totalBiomass: null,
     stressCount: null,
+    stressTotalDays: null,
     irrigationEvents: null,
     expectedYield: null,
     daysToHarvest: null,
@@ -200,12 +210,25 @@ const ManagerFarmDash: React.FC = () => {
     sugarYieldMean: null,
     sugarYieldMax: null,
     sugarYieldMin: null,
+    fieldScore: null,
+    cci: null,
   });
 
   const [stressEvents, setStressEvents] = useState<StressEvent[]>([]);
   const [showStressEvents] = useState<boolean>(false);
-  const [ndreStressEvents] = useState<StressEvent[]>([]);
-  const [showNDREEvents] = useState<boolean>(false);
+  const [ndreStressEvents, setNdreStressEvents] = useState<StressEvent[]>([]);
+  const [showNDREEvents, setShowNDREEvents] = useState<boolean>(false);
+  const [milestoneState, setMilestoneState] = useState<{
+    ripeningStartDate: string | null;
+    harvestReadyStartDate: string | null;
+    loading: boolean;
+    error: boolean;
+  }>({
+    ripeningStartDate: null,
+    harvestReadyStartDate: null,
+    loading: false,
+    error: false,
+  });
   const [combinedChartData, setCombinedChartData] = useState<LineChartData[]>(
     [],
   );
@@ -231,6 +254,49 @@ const ManagerFarmDash: React.FC = () => {
   useEffect(() => {
     fetchManagerData();
   }, []);
+
+  // Ripening / Harvest milestones for selected plot
+  useEffect(() => {
+    if (!selectedPlotId) {
+      setMilestoneState({
+        ripeningStartDate: null,
+        harvestReadyStartDate: null,
+        loading: false,
+        error: false,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setMilestoneState((s) => ({ ...s, loading: true, error: false }));
+
+    (async () => {
+      try {
+        const data = await fetchRipeningStageMilestones(BASE_URL, selectedPlotId);
+        if (cancelled) return;
+        const milestones = ripeningMilestonesFromPayload(data);
+        setMilestoneState({
+          ripeningStartDate: milestones.ripeningStartDate,
+          harvestReadyStartDate: milestones.harvestReadyStartDate,
+          loading: false,
+          error: !(milestones.ripeningStartDate || milestones.harvestReadyStartDate),
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Ripening milestones fetch failed:", err);
+        setMilestoneState({
+          ripeningStartDate: null,
+          harvestReadyStartDate: null,
+          loading: false,
+          error: true,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlotId]);
 
   // NEW: Function to set plot coordinates from existing state
   const setPlotCoordinatesFromState = (plotId: string): void => {
@@ -430,296 +496,58 @@ const ManagerFarmDash: React.FC = () => {
     }
   };
 
-  // Fetch all data for selected plot - Optimized for faster retrieval
+  // Fetch all data for selected plot — grapes bundle + indices (same as FarmerDashboard)
   const fetchAllData = async (): Promise<void> => {
     if (!selectedPlotId) return;
 
     setLoadingData(true);
     try {
-      // Use timezone offset for consistent date calculation
-      const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
-      const endDate = new Date(Date.now() - tzOffsetMs)
-        .toISOString()
-        .slice(0, 10);
-      const today = endDate;
+      const selectedFarmer = farmersForSelectedOfficer.find(
+        (f) =>
+          String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
+      );
+      const managerProfile = selectedFarmer
+        ? { plots: selectedFarmer.plots || [] }
+        : null;
 
-      // Step 1: Fetch harvest status first to determine correct date for yield data
-      const harvestCacheKey = `harvest_${selectedPlotId}_${today}`;
-      let harvestStatus = null;
-      let harvestDate = null;
-      let harvestData = getCache(harvestCacheKey);
-
-      if (!harvestData) {
-        try {
-          harvestData = await fetchPlotHarvestInfo(selectedPlotId, today);
-          setCache(harvestCacheKey, harvestData);
-        } catch (err) {
-          console.warn("Harvest status fetch failed, continuing...", err);
-        }
-      }
-
-      if (harvestData) {
-        harvestStatus = harvestData.harvestStatus;
-        harvestDate = harvestData.harvestDate;
-      }
-
-      // Determine date for yield data
-      let yieldDataDate = today;
-      // User requested to always use current date for agroStats
-      // const isHarvested =
-      //   harvestStatus?.toLowerCase().includes("harvested") &&
-      //   !harvestStatus?.toLowerCase().includes("partially");
-
-      // if (isHarvested && harvestDate) {
-      //   yieldDataDate = harvestDate;
-      // }
-
-      // Helper to fetch agroStats with fallback dates
-      const fetchAgroStatsWithFallback = async (dates: string[]) => {
-        for (const date of dates) {
-          try {
-            console.log(`Fetching AgroStats for date: ${date}`);
-            const res = await axios.get(
-              `https://cropeye-grapes-events-production.up.railway.app/plots/agroStats?end_date=${date}`
-            );
-            if (res.data) {
-              return { data: res.data, successfulDate: date };
-            }
-          } catch (err: any) {
-            console.warn(`Failed to fetch AgroStats for ${date}:`, err.message);
-            // Continue to next date if available
-          }
-        }
-        return null;
-      };
-
-      // Step 2: Fetch agroStats with fallback logic
-      // Try today, then yesterday, then 2 days ago
-      const yesterday = new Date(new Date(today).setDate(new Date(today).getDate() - 1)).toISOString().slice(0, 10);
-      const twoDaysAgo = new Date(new Date(today).setDate(new Date(today).getDate() - 2)).toISOString().slice(0, 10);
-
-      const datesToTry = [today, yesterday, twoDaysAgo];
-      let successfulDate = yieldDataDate; // Default to today/yieldDataDate
-
-      // Check cache first for today (primary target)
-      const agroStatsCacheKey = `agroStats_v3_${yieldDataDate}`;
-      let allPlotsData = getCache(agroStatsCacheKey);
-
-      // Also check plot-specific cache for faster retrieval
-      const plotSpecificCacheKey = `plot_v3_${selectedPlotId}_${yieldDataDate}`;
-      let currentPlotData = getCache(plotSpecificCacheKey);
-
-      if (!allPlotsData || !currentPlotData) {
-        const result = await fetchAgroStatsWithFallback(datesToTry);
-
-        if (result) {
-          allPlotsData = result.data;
-          successfulDate = result.successfulDate;
-
-          // Cache the result using the date that actually worked
-          const successfulCacheKey = `agroStats_v3_${successfulDate}`;
-          setCache(successfulCacheKey, allPlotsData);
-
-          // Extract and cache plot-specific data
-          const cleanId = selectedPlotId.replace(/"/g, "");
-          const quotedId = `"${cleanId}"`;
-
-          currentPlotData =
-            allPlotsData[cleanId] || allPlotsData[quotedId] || null;
-
-          if (currentPlotData) {
-            const successfulPlotKey = `plot_v3_${selectedPlotId}_${successfulDate}`;
-            setCache(successfulPlotKey, currentPlotData);
-          } else {
-            console.warn(`Plot data not found for ID: ${selectedPlotId} in AgroStats response (${successfulDate})`);
-          }
-        } else {
-          console.error("All AgroStats fetch attempts failed.");
-          allPlotsData = null;
-        }
-      } else {
-        // Use cached plot data if available
-        const cleanId = selectedPlotId.replace(/"/g, "");
-        const quotedId = `"${cleanId}"`;
-
-        if (!currentPlotData && allPlotsData) {
-          currentPlotData =
-            allPlotsData[cleanId] ||
-            allPlotsData[quotedId] ||
-            null;
-        }
-      }
-
-      // Step 3: Calculate biomass from expectedYield (matching FarmerDashboard)
-      const expectedYieldValue =
-        currentPlotData?.brix_sugar?.sugar_yield?.mean ??
-        currentPlotData?.brix_sugar?.sugar_yield?.min ??
-        null;
-
-      let calculatedBiomass = null;
-      let totalBiomassForMetric = null;
-
-      if (expectedYieldValue !== null) {
-        const totalBiomass = expectedYieldValue * 1.27;
-        const underGroundBiomassInTons = totalBiomass * 0.12;
-        calculatedBiomass = underGroundBiomassInTons;
-        totalBiomassForMetric = totalBiomass;
-      } else if (currentPlotData?.biomass?.mean) {
-        // Fallback to API biomass if calculated value is not available
-        const totalBiomass = currentPlotData.biomass.mean;
-        const underGroundBiomassInTons = totalBiomass * 0.12;
-        calculatedBiomass = underGroundBiomassInTons;
-        totalBiomassForMetric = totalBiomass;
-      }
-
-      // Step 3: Update metrics immediately with available data for faster UI response
-      if (currentPlotData) {
-        const brixStats = currentPlotData?.brix_sugar?.brix ?? null;
-        const recoveryStats = currentPlotData?.brix_sugar?.recovery ?? null;
-
-        setMetrics((prev) => ({
-          ...prev,
-          brix: brixStats?.mean ?? brixStats?.min ?? null,
-          brixMin: brixStats?.min ?? null,
-          brixMax: brixStats?.max ?? null,
-          recovery: recoveryStats?.mean ?? recoveryStats?.min ?? null,
-          area: currentPlotData?.area_acres ?? null,
-          biomass: calculatedBiomass,
-          totalBiomass: totalBiomassForMetric,
-          expectedYield: expectedYieldValue,
-          daysToHarvest: currentPlotData?.days_to_harvest ?? null,
-          growthStage:
-            harvestStatus || currentPlotData?.Sugarcane_Status || null,
-          soilPH: currentPlotData?.soil?.phh2o ?? null,
-          organicCarbonDensity:
-            currentPlotData?.soil?.organic_carbon_stock != null
-              ? parseFloat(currentPlotData.soil.organic_carbon_stock.toFixed(2))
-              : null,
-          actualYield:
-            currentPlotData?.brix_sugar?.sugar_yield?.mean ??
-            currentPlotData?.brix_sugar?.sugar_yield?.min ??
-            null,
-          sugarYieldMean: expectedYieldValue,
-          sugarYieldMax: currentPlotData?.brix_sugar?.sugar_yield?.max ?? null,
-          sugarYieldMin: currentPlotData?.brix_sugar?.sugar_yield?.min ?? null,
-        }));
-      }
-
-      // Step 4: Fetch additional data in parallel with shorter timeouts
-      // Check cache first for each endpoint
-      const indicesCacheKey = `indices_${selectedPlotId}`;
-      const stressCacheKey = `stress_${selectedPlotId}_NDRE_0.15`;
-      const irrigationCacheKey = `irrigation_${selectedPlotId}`;
-
-      let cachedIndices = getCache(indicesCacheKey);
-      let cachedStress = getCache(stressCacheKey);
-      let cachedIrrigation = getCache(irrigationCacheKey);
-
-      // Only fetch what's not cached, with shorter timeouts
-      const fetchPromises = [];
-
-      if (!cachedIndices) {
-        fetchPromises.push(
-          makeRequestWithRetry(
-            `${BASE_URL}/plots/${selectedPlotId}/indices`,
-            1,
-            10000, // Shorter timeout for indices
-          )
-            .then((data) => {
-              const processed = data.map((item: any) => ({
-                date: new Date(item.date).toISOString().split("T")[0],
-                growth: item.NDVI,
-                stress: item.NDMI,
-                water: item.NDWI,
-                moisture: item.NDRE,
-              }));
-              setCache(indicesCacheKey, processed);
-              return { type: "indices", data: processed };
-            })
-            .catch(() => ({ type: "indices", data: null })),
+      const { metrics, lineChartData, stressEvents } =
+        await fetchGrapesPlotDashboardData(
+          selectedPlotId,
+          managerProfile,
+          BASE_URL,
+          { get: getCache, set: setCache },
         );
-      } else {
-        fetchPromises.push(
-          Promise.resolve({ type: "indices", data: cachedIndices }),
-        );
-      }
 
-      if (!cachedStress) {
-        fetchPromises.push(
-          makeRequestWithRetry(
-            `${BASE_URL}/plots/${selectedPlotId}/stress?index_type=NDRE&threshold=0.15`,
-            1,
-            10000,
-          )
-            .then((data) => {
-              setCache(stressCacheKey, data);
-              return { type: "stress", data };
-            })
-            .catch(() => ({
-              type: "stress",
-              data: { events: [], total_events: 0 },
-            })),
-        );
-      } else {
-        fetchPromises.push(
-          Promise.resolve({ type: "stress", data: cachedStress }),
-        );
-      }
-
-      if (!cachedIrrigation) {
-        fetchPromises.push(
-          makeRequestWithRetry(
-            `${BASE_URL}/plots/${selectedPlotId}/irrigation?threshold_ndmi=0.05&threshold_ndwi=0.05&min_days_between_events=10`,
-            1,
-            10000,
-          )
-            .then((data) => {
-              setCache(irrigationCacheKey, data);
-              return { type: "irrigation", data };
-            })
-            .catch(() => ({
-              type: "irrigation",
-              data: { total_events: null },
-            })),
-        );
-      } else {
-        fetchPromises.push(
-          Promise.resolve({ type: "irrigation", data: cachedIrrigation }),
-        );
-      }
-
-      // Execute all fetches in parallel
-      const results = await Promise.allSettled(fetchPromises);
-
-      let rawIndices: LineChartData[] = [];
-      let stressData: any = { events: [], total_events: 0 };
-      let irrigationData: any = { total_events: null };
-
-      results.forEach((result) => {
-        if (result.status === "fulfilled" && result.value) {
-          const { type, data } = result.value;
-          if (type === "indices") rawIndices = data || [];
-          if (type === "stress")
-            stressData = data || { events: [], total_events: 0 };
-          if (type === "irrigation")
-            irrigationData = data || { total_events: null };
-        }
-      });
-
-      // Update state with fetched data
-      setLineChartData(rawIndices);
-      setStressEvents(stressData?.events ?? []);
-
-      // Update metrics with complete data
-      setMetrics((prev) => ({
-        ...prev,
-        stressCount: stressData?.total_events ?? 0,
-        irrigationEvents: irrigationData?.total_events ?? null,
+      setLineChartData(lineChartData);
+      setStressEvents(stressEvents);
+      setMetrics({
+        brix: metrics.brix,
+        brixMin: metrics.brixMin,
+        brixMax: metrics.brixMax,
+        recovery: metrics.recovery,
+        area: metrics.area,
+        biomass: metrics.biomass,
+        biomassMax: metrics.biomassMax ?? null,
+        biomassMin: metrics.biomassMin ?? null,
+        totalBiomass: metrics.totalBiomass,
+        stressCount: metrics.stressCount,
+        stressTotalDays: metrics.stressTotalDays ?? 0,
+        irrigationEvents: metrics.irrigationEvents,
+        expectedYield: metrics.sugarYieldMean,
+        daysToHarvest: metrics.daysToHarvest,
+        growthStage: metrics.growthStage,
+        soilPH: metrics.soilPH,
+        organicCarbonDensity: metrics.organicCarbonDensity,
+        actualYield: metrics.actualYield,
         cnRatio: null,
-      }));
+        sugarYieldMean: metrics.sugarYieldMean,
+        sugarYieldMax: metrics.sugarYieldMax,
+        sugarYieldMin: metrics.sugarYieldMin,
+        fieldScore: metrics.fieldScore ?? null,
+        cci: metrics.cci ?? null,
+      });
     } catch (err: any) {
-      // You could add a toast notification here to inform the user
-      // For now, we'll just log the error and continue with partial data
+      console.error("ManagerFarmDash: failed to load plot data", err);
     } finally {
       setLoadingData(false);
     }
@@ -902,15 +730,6 @@ const ManagerFarmDash: React.FC = () => {
       const date = new Date(item.date);
       let key: string;
       switch (period) {
-        case "weekly":
-          const weekStart = new Date(date);
-          weekStart.setDate(date.getDate() - date.getDay());
-          // Use local date parts (avoid `toISOString()` UTC shifting by timezone)
-          key = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(
-            2,
-            "0",
-          )}-${String(weekStart.getDate()).padStart(2, "0")}`;
-          break;
         case "monthly":
           key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
             2,
@@ -1013,6 +832,29 @@ const ManagerFarmDash: React.FC = () => {
     return null;
   }
 
+  const fetchNDREStressEvents = async (): Promise<void> => {
+    if (!selectedPlotId) {
+      console.warn("⚠️ ManagerFarmDash: No plot selected for NDRE stress events");
+      return;
+    }
+    try {
+      const { data } = await axios.get(
+        `${BASE_URL}/plots/${encodeURIComponent(selectedPlotId)}/stress?index_type=NDRE&threshold=0.15`,
+        { timeout: 30000 }
+      );
+      const events = data?.events ?? [];
+      setNdreStressEvents(events);
+      setStressEvents(events);
+      setMetrics((prev) => ({
+        ...prev,
+        stressCount: data?.total_events ?? events.length ?? 0,
+      }));
+      setShowNDREEvents(true);
+    } catch (err) {
+      console.error("Error fetching NDRE stress events:", err);
+    }
+  };
+
   const getPlotBorderStyle = () => ({
     color: "#ffffff",
     fillColor: "#10b981",
@@ -1038,34 +880,73 @@ const ManagerFarmDash: React.FC = () => {
     },
   ];
 
-  const managerRecovery = metrics.recovery ?? 0;
+  const [vigourPixelPct, setVigourPixelPct] = useState<VigourPixelPct | null>(
+    null
+  );
+  const [vigourChartLoading, setVigourChartLoading] = useState(false);
 
-  const recoveryComparisonData = [
-    {
-      name: "Managed Farms",
-      value: managerRecovery,
-      fill: "#10b981",
-      label: "Managed Recovery",
-    },
-    {
-      name: "Regional Avg",
-      value: OTHER_FARMERS_RECOVERY.regional_average,
-      fill: "#3b82f6",
-      label: "Regional Average",
-    },
-    {
-      name: "Top 25%",
-      value: OTHER_FARMERS_RECOVERY.top_quartile,
-      fill: "#22c55e",
-      label: "Top Quartile",
-    },
-    {
-      name: "Similar Farms",
-      value: OTHER_FARMERS_RECOVERY.similar_farms,
-      fill: "#f59e0b",
-      label: "Similar Farms",
-    },
-  ];
+  useEffect(() => {
+    if (!selectedPlotId) {
+      setVigourPixelPct(null);
+      setVigourChartLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const cached = getCache(`canopyVigour_${selectedPlotId}`);
+    if (cached) {
+      const parsed = parseCanopyVigourPixelSummary(cached);
+      if (parsed) {
+        setVigourPixelPct(parsed);
+        setVigourChartLoading(false);
+        return;
+      }
+    }
+
+    setVigourPixelPct(null);
+    setVigourChartLoading(true);
+    (async () => {
+      try {
+        const base = getGrapesAdminBaseUrl().replace(/\/+$/, "");
+        const url = `${base}/grapes/canopy-vigour1?plot_name=${encodeURIComponent(
+          selectedPlotId
+        )}`;
+        const res = await fetch(url, {
+          method: "POST",
+          mode: "cors",
+          credentials: "omit",
+          headers: { Accept: "application/json" },
+          body: grapesPlotFormBody(selectedPlotId),
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+          return;
+        }
+        const data = await res.json();
+        setCache(`canopyVigour_${selectedPlotId}`, data);
+        const parsed = parseCanopyVigourPixelSummary(data);
+        setVigourPixelPct(parsed ?? FALLBACK_VIGOUR_PCT);
+      } catch {
+        if (!cancelled) setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+      } finally {
+        if (!cancelled) setVigourChartLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlotId]);
+
+  const recoveryQualityBarRows = useMemo(
+    () => vigourToBarRows(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    [vigourPixelPct]
+  );
+  const dominantRecoveryQuality = useMemo(
+    () => dominantVigourCategory(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    [vigourPixelPct]
+  );
 
   const chartDataToUse =
     combinedChartData.length > 0 ? combinedChartData : aggregatedData;
@@ -1215,25 +1096,20 @@ const ManagerFarmDash: React.FC = () => {
     );
   };
 
-  // Show loading spinner while fetching initial farmers data
-  if (loadingFarmers && fieldOfficers.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <CommonSpinner />
-      </div>
-    );
-  }
-
-  const totalFarmers = fieldOfficers.reduce(
-    (acc, officer) => acc + (officer.farmers?.length || 0),
-    0,
-  );
+  // Keep dashboard visible while officers load (inline loading in filters)
+  // Avoid blank full-page spinner after opening Farm Crop Status
 
   return (
     <div className="min-h-screen dashboard-bg">
       {/* Enhanced Header */}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ">
+        {loadingFarmers && fieldOfficers.length === 0 && (
+          <div className="mb-4 flex items-center gap-2 text-sm font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading field officers and farms…
+          </div>
+        )}
         {/* Debug Info Panel */}
         {showDebugInfo && (
           <div className="mb-6 bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700">
@@ -1337,7 +1213,7 @@ const ManagerFarmDash: React.FC = () => {
                     ) : (
                       <>
                         <option value="">Select a farmer</option>
-                        {farmersForSelectedOfficer.map((farmer, index) => {
+                        {farmersForSelectedOfficer.map((farmer) => {
                           const farmerId = String(farmer.id);
                           const farmerName =
                             `${farmer.first_name} ${farmer.last_name}`.trim();
@@ -1407,7 +1283,7 @@ const ManagerFarmDash: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
-        {/* Top Priority Metrics - 4 Key Cards */}
+        {/* Top Priority Metrics - same 4 cards as sugarcane */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <img
@@ -1454,42 +1330,53 @@ const ManagerFarmDash: React.FC = () => {
             </p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Time.png"
-              alt=""
+          <div
+            className="rounded-xl p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden"
+            style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)', backgroundColor: '#f3f5e9' }}
+          >
+            <Calendar
+              className="absolute left-7 top-7 w-12 h-12 opacity-100 z-0 pointer-events-none select-none"
+              strokeWidth={2}
+              style={{ color: '#5a7c3a' }}
               aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
             />
-            <div className="flex items-center justify-end mb-2 relative z-10">
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : metrics.daysToHarvest !== null ? (
-                    metrics.daysToHarvest
-                  ) : (
-                    "-"
-                  )}
-                </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
-                  Days
-                </div>
-              </div>
+            <div className="flex flex-col flex-1 min-h-0 relative z-10 pl-16" aria-busy={milestoneState.loading}>
+              {([
+                { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
+                { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
+              ] as const).map((row) => {
+                const showDash = milestoneState.loading || milestoneState.error;
+                const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
+                const subtleValue = showDash || dateText === "Not available";
+                return (
+                  <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
+                    <div
+                      className="text-sm font-bold tabular-nums"
+                      style={{
+                        color: subtleValue ? '#94a3b8' : '#212121',
+                        fontFamily: 'Inter, Poppins, sans-serif',
+                      }}
+                      title={subtleValue ? undefined : dateText}
+                    >
+                      {dateText}
+                    </div>
+                    <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                      {row.label}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Time to Harvest</p>
+            <p className="text-sm font-medium mt-auto pt-0 -mt-2 relative z-10" style={{ color: '#616161' }}>
+              Ripening/Harvest
+            </p>
           </div>
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/yield.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
-            <div className="flex items-center justify-end mb-2 relative z-10">
+            <div className="flex items-center justify-between mb-3 relative z-10">
+              <Beaker className="w-8 h-8 text-blue-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
+                <div className="text-2xl font-bold flex items-center gap-1 justify-end" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {loadingData ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : metrics.brix !== null ? (
@@ -1497,76 +1384,136 @@ const ManagerFarmDash: React.FC = () => {
                   ) : (
                     "-"
                   )}
-                </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
-                  °Brix
+                  <span className="text-sm font-semibold" style={{ color: '#6bb043' }}>
+                    °Brix (Avg)
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="mt-auto pt-3 relative z-10">
+            <div className="flex items-center justify-between mt-auto pt-2 relative z-10">
               <p className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</p>
-              {!loadingData && metrics.daysToHarvest != null && (
-                <p className="text-xs font-medium mt-0.5" style={{ color: '#94a3b8' }}>
-                  {metrics.daysToHarvest} days
-                </p>
-              )}
+              <div className="flex gap-4 text-xs">
+                <div className="text-center">
+                  <div className="font-semibold text-red-600 text-sm">
+                    {loadingData ? "—" : metrics.brixMax != null ? metrics.brixMax.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Max</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-semibold text-green-600 text-sm">
+                    {loadingData ? "—" : metrics.brixMin != null ? metrics.brixMin.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Min</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Additional Metrics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        {/* Additional Metrics — Recovery Rate row (Field Score + CCI like FO reference) */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/yield.png" alt="Expected Yield" className="w-14 h-14 object-contain rounded-lg" />
+              <Target className="w-7 h-7 text-purple-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.expectedYield?.toFixed(2) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.recovery?.toFixed(1) || "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
-                  T/acre
-                </div>
+                <div className="text-sm font-semibold text-purple-600">%</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Expected Yield</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Recovery Rate</p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/Organic Carbon.png" alt="Organic Carbon" className="w-14 h-14 object-contain rounded-lg" />
+              <Gauge className="w-7 h-7 text-green-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.organicCarbonDensity?.toFixed(1) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.fieldScore != null ? metrics.fieldScore.toFixed(1) : "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>g/kg</div>
+                <div className="text-sm font-semibold text-green-600">%</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Organic Carbon</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Field Score</p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/Biomass.png" alt="Avg Biomass" className="w-14 h-14 object-contain rounded-lg" />
+              <BarChart3 className="w-7 h-7 text-indigo-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.biomass?.toFixed(1) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.expectedYield?.toFixed(2) || "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>kg/acre</div>
+                <div className="text-sm font-semibold text-indigo-600">T/acre</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Avg Biomass</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Expected Yield</p>
+          </div>
+
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <Sprout className="w-7 h-7 text-green-600" />
+              <div className="text-right">
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.cci != null ? metrics.cci.toFixed(3) : "-"}
+                </div>
+                <div className="text-sm font-semibold text-green-600">CCI</div>
+              </div>
+            </div>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Crop Condition Index</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void fetchNDREStressEvents()}
+            onDoubleClick={() => setShowNDREEvents((v) => !v)}
+            className="text-left w-full"
+            title="Click to show Crop Stress Index (CSI) events on the chart"
+          >
+            <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 border border-red-100" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <Activity className="w-7 h-7 text-red-500" />
+                <div className="text-right">
+                  <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                    {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : (metrics.stressTotalDays ?? metrics.stressCount ?? 0)}
+                  </div>
+                  <div className="text-sm font-semibold text-red-500">Total days</div>
+                </div>
+              </div>
+              <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>
+                Stress Events {showNDREEvents ? "(CSI on)" : ""}
+              </p>
+            </div>
+          </button>
+
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <Activity className="w-7 h-7 text-pink-500" />
+              <div className="text-right">
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.biomass?.toFixed(2) || "-"}
+                </div>
+                <div className="text-sm font-semibold text-pink-500">T/acre</div>
+              </div>
+            </div>
+            <div className="flex items-end justify-between mt-2 gap-2">
+              <p className="text-xs font-medium" style={{ color: '#616161' }}>Avg Biomass</p>
+              <div className="flex gap-3 text-xs">
+                <div className="text-center">
+                  <div className="font-semibold text-red-600 text-sm">
+                    {loadingData ? "—" : metrics.biomassMax != null ? metrics.biomassMax.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Max</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-semibold text-green-600 text-sm">
+                    {loadingData ? "—" : metrics.biomassMin != null ? metrics.biomassMin.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Min</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1788,53 +1735,164 @@ const ManagerFarmDash: React.FC = () => {
               </div>
             </div>
 
-            {/* Recovery Rate Comparison */}
-            <div className="bg-white rounded-xl shadow-lg p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Users className="w-5 h-5 text-blue-600" />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Recovery Rate Comparison
+            {/* canopy vigour — same as Field Officer */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-5 flex flex-col overflow-visible">
+              <div className="flex items-center gap-2 mb-3 sm:mb-4 shrink-0">
+                <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 shrink-0" />
+                <h3 className="text-sm sm:text-base font-semibold text-gray-800">
+                  canopy vigour
                 </h3>
               </div>
 
-              <div className="h-40 flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={recoveryComparisonData}
-                    margin={{ top: 10, right: 10, left: -10, bottom: 10 }}
+              <div className="mt-1 flex w-full min-w-0 flex-col gap-4">
+                <div className="flex w-full min-w-0 gap-2">
+                  <div
+                    className="flex shrink-0 flex-col justify-between pt-0.5 text-[9px] font-medium leading-none text-gray-700 sm:text-[10px] text-right"
+                    style={{
+                      height: RECOVERY_QUALITY_CHART_PLOT_H,
+                      width: "1.75rem",
+                    }}
+                    aria-hidden
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 10 }}
-                      interval={0}
-                      height={30}
-                    />
-                    <YAxis tick={{ fontSize: 10 }} domain={[0, 10]} />
-                    <Tooltip
-                      formatter={(value: number) => [
-                        `${value.toFixed(1)}%`,
-                        "Recovery Rate",
-                      ]}
-                    />
-                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                      {recoveryComparisonData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+                    <span>100%</span>
+                    <span>70%</span>
+                    <span>30%</span>
+                    <span>0%</span>
+                  </div>
 
-              <div className="mt-3 text-center text-sm text-gray-600">
-                <span className="font-semibold text-green-700">
-                  Managed Farms: {managerRecovery.toFixed(1)}%
-                </span>{" "}
-                vs{" "}
-                <span className="font-semibold text-blue-700">
-                  Regional Avg:{" "}
-                  {OTHER_FARMERS_RECOVERY.regional_average.toFixed(1)}%
-                </span>
+                  <div className="min-w-0 flex-1 flex flex-col">
+                    <div
+                      className="relative w-full overflow-visible pl-0.5"
+                      style={{
+                        paddingTop: "1.25rem",
+                        minHeight: RECOVERY_QUALITY_CHART_PLOT_H + 20,
+                      }}
+                    >
+                      {vigourChartLoading && vigourPixelPct === null && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center rounded border border-gray-200 bg-white/80 backdrop-blur-[1px]">
+                          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        </div>
+                      )}
+                      <div
+                        className="relative box-border w-full overflow-visible border-b-2 border-l-2 border-gray-600"
+                        style={{
+                          height: RECOVERY_QUALITY_CHART_PLOT_H,
+                          marginTop: 0,
+                          opacity:
+                            vigourChartLoading && vigourPixelPct === null
+                              ? 0.45
+                              : 1,
+                        }}
+                      >
+                        <div
+                          className="pointer-events-none absolute inset-0 border-r border-dashed border-gray-300"
+                          aria-hidden
+                        >
+                          <div className="absolute left-0 right-0 top-0 border-t border-dashed border-gray-300" />
+                          <div
+                            className="absolute left-0 right-0 border-t border-dashed border-gray-300"
+                            style={{ bottom: "70%" }}
+                          />
+                          <div
+                            className="absolute left-0 right-0 border-t border-dashed border-gray-300"
+                            style={{ bottom: "30%" }}
+                          />
+                        </div>
+
+                        <div
+                          className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-1.5 px-1"
+                          style={{ height: RECOVERY_QUALITY_CHART_PLOT_H }}
+                        >
+                          {recoveryQualityBarRows.map((b) => {
+                            const rawH =
+                              (b.heightPct / 100) *
+                              RECOVERY_QUALITY_CHART_PLOT_H;
+                            const barHeightPx =
+                              b.heightPct > 0 && rawH < 2 ? 2 : rawH;
+                            return (
+                              <div
+                                key={b.label}
+                                className="flex min-h-0 min-w-0 flex-1 flex-col justify-end"
+                              >
+                                <div
+                                  className="flex w-full items-start justify-center rounded-t-[3px] pt-1 shadow-sm"
+                                  style={{
+                                    height: barHeightPx,
+                                    minHeight: 0,
+                                    backgroundColor: b.color,
+                                  }}
+                                >
+                                  <span className="text-center text-[9px] font-bold leading-tight text-white sm:text-[10px]">
+                                    {b.pctLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 grid w-full grid-cols-4 gap-1 px-1">
+                      <div className="flex flex-col items-center justify-end gap-1">
+                        <Leaf
+                          className="h-4 w-4 text-[#e74c3c] sm:h-5 sm:w-5"
+                          strokeWidth={2}
+                        />
+                        <span className="w-full text-center text-[9px] font-semibold leading-tight text-[#e74c3c] sm:text-[10px]">
+                          Poor
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center justify-end gap-1">
+                        <CloudSun
+                          className="h-4 w-4 text-[#f39c12] sm:h-5 sm:w-5"
+                          strokeWidth={2}
+                        />
+                        <span className="w-full text-center text-[9px] font-semibold leading-tight text-[#f39c12] sm:text-[10px]">
+                          Mod.
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center justify-end gap-1">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Leaf
+                            className="h-3 w-3 text-[#4a80e8]"
+                            strokeWidth={2}
+                          />
+                          <Leaf
+                            className="h-3 w-3 text-[#57b86a]"
+                            strokeWidth={2}
+                          />
+                        </div>
+                        <span className="w-full text-center text-[9px] font-semibold leading-tight text-[#4a80e8] sm:text-[10px]">
+                          Good
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center justify-end gap-1">
+                        <Star
+                          className="h-4 w-4 fill-yellow-400 text-yellow-500 sm:h-5 sm:w-5"
+                          strokeWidth={2}
+                        />
+                        <span className="w-full text-center text-[9px] font-semibold leading-tight text-[#57b86a] sm:text-[10px]">
+                          Exc.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="mt-2 text-center text-xs text-gray-600">
+                  Your Farm Quality:{" "}
+                  <span
+                    className="font-bold"
+                    style={{ color: dominantRecoveryQuality.color }}
+                  >
+                    {dominantRecoveryQuality.name} (
+                    {dominantRecoveryQuality.pct.toFixed(
+                      dominantRecoveryQuality.pct >= 10 ? 1 : 2
+                    )}
+                    %)
+                  </span>
+                </p>
               </div>
             </div>
           </div>
@@ -1937,7 +1995,6 @@ const ManagerFarmDash: React.FC = () => {
 
                   let goodRange: [number, number] = [0.3, 0.6];
                   let badRange: [number, number] = [-0.1, 0.1];
-                  let labelText = "Average";
 
                   if (visibleCount === 1) {
                     const selectedIndex = Object.keys(visibleLines).find(
@@ -1951,9 +2008,6 @@ const ManagerFarmDash: React.FC = () => {
                         indexRanges[selectedIndex as keyof typeof indexRanges];
                       goodRange = range.good as [number, number];
                       badRange = range.bad as [number, number];
-                      labelText =
-                        selectedIndex.charAt(0).toUpperCase() +
-                        selectedIndex.slice(1);
                     }
                   } else if (visibleCount > 1) {
                     const allGoodRanges = Object.values(indexRanges).map(

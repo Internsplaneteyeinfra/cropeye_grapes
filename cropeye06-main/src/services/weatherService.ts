@@ -11,16 +11,6 @@ export type ForecastPeriodPrediction = {
   rain_probability?: string;
 };
 
-export type ForecastWeatherPoint = {
-  latitude?: number;
-  longitude?: number;
-  temperature_2m?: number;
-  wind_speed_10m?: number;
-  wind_direction_10m?: number;
-  wind_gusts_10m?: number;
-  timestamp?: string;
-};
-
 export type ForecastCurrentWeather = {
   location?: string;
   region?: string;
@@ -31,9 +21,6 @@ export type ForecastCurrentWeather = {
   temperature_c?: number;
   humidity?: number;
   wind_kph?: number;
-  wind_dir?: string;
-  wind_direction?: number;
-  wind_direction_10m?: number;
   precip_mm?: number;
   cloud?: number;
   pressure_mb?: number;
@@ -42,13 +29,6 @@ export type ForecastCurrentWeather = {
   rain_score?: number;
   rain_alert?: string;
   rain_probability?: string;
-  summary?: {
-    avg_temperature_2m?: number;
-    avg_wind_speed_10m?: number;
-    avg_wind_direction_10m?: number;
-    max_wind_speed_10m?: number;
-  };
-  points_weather?: ForecastWeatherPoint[];
   next_24h_prediction?: {
     morning?: ForecastPeriodPrediction;
     afternoon?: ForecastPeriodPrediction;
@@ -59,6 +39,14 @@ export type ForecastCurrentWeather = {
     afternoon?: ForecastPeriodPrediction;
     night?: ForecastPeriodPrediction;
   };
+  summary?: {
+    avg_wind_direction_10m?: number;
+    avg_wind_speed_10m?: number;
+  };
+  points_weather?: Array<{
+    wind_direction_10m?: number;
+    wind_speed_10m?: number;
+  }>;
 };
 
 export interface WeatherData {

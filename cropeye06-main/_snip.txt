@@ -1,0 +1,6 @@
+982:  // Fetch owner → managers via /users/owner-hierarchy/ (same as sugarcane).
+987:      const response = await api.get(\/users/owner-hierarchy/\, {
+997:      // Optional enrich: owner-team-connect
+999:        const teamRes = await api.get(\/users/owner-team-connect/\, {
+1025:        console.warn('owner-team-connect enrich skipped:', teamErr);
+1087:          \Failed to load managers (\). Try Retry.\,

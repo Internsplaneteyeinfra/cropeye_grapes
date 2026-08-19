@@ -33,37 +33,35 @@ import {
   Activity,
   Target,
   Leaf,
-  // BarChart3,
-  // PieChart as PieChartIcon,
+  BarChart3,
   LineChart as LineChartIcon,
   Users,
   MapPin,
-  // Beaker,
-  // Crop,
-  // Zap,
-  // Clock,
-  // Gauge,
-  // Filter,
-  // RefreshCw,
   Maximize2,
   CloudSun,
   Star,
+  Gauge,
+  Sprout,
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
+import { grapesPlotFormBody, ripeningMilestonesFromPayload } from "../utils/grapesEventsBundle";
+import {
+  fetchRipeningStageMilestones,
+  formatMilestoneDate,
+} from "../utils/ripeningMilestones";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import { getRecentFarmers } from "../api";
 import { getUserRole } from "../utils/auth";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
-import CommonSpinner from "./CommanSpinner";
 
 // Constants (same as FarmerDashboard)
 const BASE_URL = getEventsBaseUrl();
-const OPTIMAL_BIOMASS = 150;
-const SOIL_API_URL = "https://cropeye-grapes-admin-production.up.railway.app";
-const SOIL_DATE = "2025-10-03";
+// const OPTIMAL_BIOMASS = 150;
+// const SOIL_API_URL = "https://cropeye-grapes-admin-production.up.railway.app";
+// const SOIL_DATE = "2025-10-03";
 
 // const OTHER_FARMERS_RECOVERY = {
 //   regional_average: 7.85,
@@ -213,8 +211,11 @@ interface Metrics {
   recovery: number | null;
   area: number | null;
   biomass: number | null;
+  biomassMax: number | null;
+  biomassMin: number | null;
   totalBiomass: number | null;
   stressCount: number | null;
+  stressTotalDays: number | null;
   irrigationEvents: number | null;
   sugarYieldMean: number | null;
   daysToHarvest: number | null;
@@ -225,6 +226,8 @@ interface Metrics {
   cnRatio: number | null;
   sugarYieldMax: number | null;
   sugarYieldMin: number | null;
+  fieldScore: number | null;
+  cci: number | null;
 }
 
 interface PieChartWithNeedleProps {
@@ -261,7 +264,7 @@ const OfficerDashboard: React.FC = () => {
     growth: { color: "#22c55e", label: "Growth Index", icon: TrendingUp },
     stress: {
       color: "#ef4444",
-      label: "Stress Index",
+      label: "Crop Stress Index (CSI)",
       icon: AlertTriangle,
     },
     water: { color: "#3b82f6", label: "Water Index", icon: Droplets },
@@ -290,8 +293,11 @@ const OfficerDashboard: React.FC = () => {
     recovery: null,
     area: null,
     biomass: null,
+    biomassMax: null,
+    biomassMin: null,
     totalBiomass: null,
     stressCount: null,
+    stressTotalDays: null,
     irrigationEvents: null,
     sugarYieldMean: null,
     daysToHarvest: null,
@@ -302,12 +308,25 @@ const OfficerDashboard: React.FC = () => {
     cnRatio: null,
     sugarYieldMax: null,
     sugarYieldMin: null,
+    fieldScore: null,
+    cci: null,
   });
 
   const [stressEvents, setStressEvents] = useState<StressEvent[]>([]);
   const [showStressEvents] = useState<boolean>(false);
-  const [ndreStressEvents] = useState<StressEvent[]>([]);
-  const [showNDREEvents] = useState<boolean>(false);
+  const [ndreStressEvents, setNdreStressEvents] = useState<StressEvent[]>([]);
+  const [showNDREEvents, setShowNDREEvents] = useState<boolean>(false);
+  const [milestoneState, setMilestoneState] = useState<{
+    ripeningStartDate: string | null;
+    harvestReadyStartDate: string | null;
+    loading: boolean;
+    error: boolean;
+  }>({
+    ripeningStartDate: null,
+    harvestReadyStartDate: null,
+    loading: false,
+    error: false,
+  });
   const [combinedChartData, setCombinedChartData] = useState<LineChartData[]>(
     [],
   );
@@ -414,6 +433,49 @@ const OfficerDashboard: React.FC = () => {
       fetchAllData();
       setPlotCoordinatesFromState(selectedPlotId);
     }
+  }, [selectedPlotId]);
+
+  // Ripening / Harvest milestones for selected plot
+  useEffect(() => {
+    if (!selectedPlotId) {
+      setMilestoneState({
+        ripeningStartDate: null,
+        harvestReadyStartDate: null,
+        loading: false,
+        error: false,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setMilestoneState((s) => ({ ...s, loading: true, error: false }));
+
+    (async () => {
+      try {
+        const data = await fetchRipeningStageMilestones(BASE_URL, selectedPlotId);
+        if (cancelled) return;
+        const milestones = ripeningMilestonesFromPayload(data);
+        setMilestoneState({
+          ripeningStartDate: milestones.ripeningStartDate,
+          harvestReadyStartDate: milestones.harvestReadyStartDate,
+          loading: false,
+          error: !(milestones.ripeningStartDate || milestones.harvestReadyStartDate),
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Ripening milestones fetch failed:", err);
+        setMilestoneState({
+          ripeningStartDate: null,
+          harvestReadyStartDate: null,
+          loading: false,
+          error: true,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPlotId]);
 
   useEffect(() => {
@@ -762,12 +824,40 @@ const OfficerDashboard: React.FC = () => {
       setLineChartData(rawIndices);
       setStressEvents(stressData?.events ?? []);
 
+      const lastIndex =
+        Array.isArray(rawIndices) && rawIndices.length > 0
+          ? rawIndices[rawIndices.length - 1]
+          : null;
+      const cciFromNdvi =
+        lastIndex && Number.isFinite(Number(lastIndex.growth))
+          ? Number(Number(lastIndex.growth).toFixed(3))
+          : null;
+      const fieldScoreFromNdvi =
+        cciFromNdvi != null
+          ? Math.max(0, Math.min(100, Number((cciFromNdvi * 100).toFixed(1))))
+          : null;
+
+      let stressDays = Number(stressData?.total_days ?? stressData?.totalDays);
+      if (!Number.isFinite(stressDays)) {
+        const events = Array.isArray(stressData?.events) ? stressData.events : [];
+        stressDays = events.reduce((sum: number, event: any) => {
+          const start = new Date(event?.from_date);
+          const end = new Date(event?.to_date);
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return sum;
+          return sum + Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+        }, 0);
+        if (!stressDays) stressDays = Number(stressData?.total_events ?? 0) || 0;
+      }
+
       // Update metrics with complete data
       setMetrics((prev) => ({
         ...prev,
         stressCount: stressData?.total_events ?? 0,
+        stressTotalDays: stressDays,
         irrigationEvents: irrigationData?.total_events ?? null,
         cnRatio: null,
+        cci: cciFromNdvi ?? prev.cci,
+        fieldScore: fieldScoreFromNdvi ?? prev.fieldScore,
       }));
     } catch (err: any) {
       // You could add a toast notification here to inform the user
@@ -1054,6 +1144,29 @@ const OfficerDashboard: React.FC = () => {
     return "Low";
   };
 
+  const fetchNDREStressEvents = async (): Promise<void> => {
+    if (!selectedPlotId) {
+      console.warn("⚠️ FarmCropStatus: No plot selected for NDRE stress events");
+      return;
+    }
+    try {
+      const { data } = await axios.get(
+        `${BASE_URL}/plots/${encodeURIComponent(selectedPlotId)}/stress?index_type=NDRE&threshold=0.15`,
+        { timeout: 30000 }
+      );
+      const events = data?.events ?? [];
+      setNdreStressEvents(events);
+      setStressEvents(events);
+      setMetrics((prev) => ({
+        ...prev,
+        stressCount: data?.total_events ?? events.length ?? 0,
+      }));
+      setShowNDREEvents(true);
+    } catch (err) {
+      console.error("Error fetching NDRE stress events:", err);
+    }
+  };
+
   const CustomStressDot: React.FC<CustomStressDotProps> = (props) => {
     const { cx, cy, payload } = props;
 
@@ -1157,6 +1270,7 @@ const OfficerDashboard: React.FC = () => {
           mode: "cors",
           credentials: "omit",
           headers: { Accept: "application/json" },
+          body: grapesPlotFormBody(selectedPlotId),
         });
         if (cancelled) return;
         if (!res.ok) {
@@ -1355,14 +1469,18 @@ const OfficerDashboard: React.FC = () => {
     );
   };
 
-  // Show loading spinner while fetching initial data
+  // Show loading only briefly; prefer dashboard shell so filters/cards are visible
   if (
     (isFarmerRole ? farmerProfileLoading : loadingFarmers) &&
-    plots.length === 0
+    plots.length === 0 &&
+    !selectedPlotId
   ) {
     return (
       <div className="min-h-screen dashboard-bg flex items-center justify-center">
-        <CommonSpinner />
+        <div className="flex flex-col items-center gap-3 text-emerald-700">
+          <Loader2 className="w-8 h-8 animate-spin" />
+          <p className="text-sm font-medium">Loading farm crop status...</p>
+        </div>
       </div>
     );
   }
@@ -1567,30 +1685,46 @@ const OfficerDashboard: React.FC = () => {
             </p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Time.png"
-              alt=""
+          <div
+            className="rounded-xl p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden"
+            style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)', backgroundColor: '#f3f5e9' }}
+          >
+            <Calendar
+              className="absolute left-7 top-7 w-12 h-12 opacity-100 z-0 pointer-events-none select-none"
+              strokeWidth={2}
+              style={{ color: '#5a7c3a' }}
               aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
             />
-            <div className="flex items-center justify-end mb-2 relative z-10">
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : metrics.daysToHarvest !== null ? (
-                    metrics.daysToHarvest
-                  ) : (
-                    "-"
-                  )}
-                </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
-                  Days
-                </div>
-              </div>
+            <div className="flex flex-col flex-1 min-h-0 relative z-10 pl-16" aria-busy={milestoneState.loading}>
+              {([
+                { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
+                { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
+              ] as const).map((row) => {
+                const showDash = milestoneState.loading || milestoneState.error;
+                const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
+                const subtleValue = showDash || dateText === "Not available";
+                return (
+                  <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
+                    <div
+                      className="text-sm font-bold tabular-nums"
+                      style={{
+                        color: subtleValue ? '#94a3b8' : '#212121',
+                        fontFamily: 'Inter, Poppins, sans-serif',
+                      }}
+                      title={subtleValue ? undefined : dateText}
+                    >
+                      {dateText}
+                    </div>
+                    <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                      {row.label}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Time to Harvest</p>
+            <p className="text-sm font-medium mt-auto pt-0 -mt-2 relative z-10" style={{ color: '#616161' }}>
+              Ripening/Harvest
+            </p>
           </div>
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
@@ -1620,59 +1754,110 @@ const OfficerDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Additional Metrics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        {/* Additional Metrics — Recovery Rate, Field Score, Yield, CCI, Stress, Biomass */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/yield.png" alt="Expected Yield" className="w-14 h-14 object-contain rounded-lg" />
+              <Target className="w-7 h-7 text-purple-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.sugarYieldMean?.toFixed(2) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.recovery?.toFixed(1) || "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
-                  T/acre
-                </div>
+                <div className="text-sm font-semibold text-purple-600">%</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Expected Yield</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Recovery Rate</p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/Organic Carbon.png" alt="Organic Carbon" className="w-14 h-14 object-contain rounded-lg" />
+              <Gauge className="w-7 h-7 text-green-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.organicCarbonDensity?.toFixed(1) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.fieldScore != null ? metrics.fieldScore.toFixed(1) : "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>g/kg</div>
+                <div className="text-sm font-semibold text-green-600">%</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Organic Carbon</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Field Score</p>
           </div>
 
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
-              <img src="/Image/crop images/Biomass.png" alt="Avg Biomass" className="w-14 h-14 object-contain rounded-lg" />
+              <BarChart3 className="w-7 h-7 text-indigo-600" />
               <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.biomass?.toFixed(1) || "-"
-                  )}
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.sugarYieldMean?.toFixed(2) || "-"}
                 </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>kg/acre</div>
+                <div className="text-sm font-semibold text-indigo-600">T/acre</div>
               </div>
             </div>
-            <p className="text-xs font-medium mt-3" style={{ color: '#616161' }}>Avg Biomass</p>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Expected Yield</p>
+          </div>
+
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <Sprout className="w-7 h-7 text-green-600" />
+              <div className="text-right">
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.cci != null ? metrics.cci.toFixed(3) : "-"}
+                </div>
+                <div className="text-sm font-semibold text-green-600">CCI</div>
+              </div>
+            </div>
+            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Crop Condition Index</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void fetchNDREStressEvents()}
+            onDoubleClick={() => setShowNDREEvents((v) => !v)}
+            className="text-left w-full"
+            title="Click to show Crop Stress Index (CSI) events on the chart"
+          >
+            <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 border border-red-100" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <Activity className="w-7 h-7 text-red-500" />
+                <div className="text-right">
+                  <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                    {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : (metrics.stressTotalDays ?? metrics.stressCount ?? 0)}
+                  </div>
+                  <div className="text-sm font-semibold text-red-500">Total days</div>
+                </div>
+              </div>
+              <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>
+                Stress Events {showNDREEvents ? "(CSI on)" : ""}
+              </p>
+            </div>
+          </button>
+
+          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between mb-2">
+              <Activity className="w-7 h-7 text-pink-500" />
+              <div className="text-right">
+                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
+                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.biomass?.toFixed(2) || "-"}
+                </div>
+                <div className="text-sm font-semibold text-pink-500">T/acre</div>
+              </div>
+            </div>
+            <div className="flex items-end justify-between mt-2 gap-2">
+              <p className="text-xs font-medium" style={{ color: '#616161' }}>Avg Biomass</p>
+              <div className="flex gap-3 text-xs">
+                <div className="text-center">
+                  <div className="font-semibold text-red-600 text-sm">
+                    {loadingData ? "—" : metrics.biomassMax != null ? metrics.biomassMax.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Max</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-semibold text-green-600 text-sm">
+                    {loadingData ? "—" : metrics.biomassMin != null ? metrics.biomassMin.toFixed(2) : "-"}
+                  </div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wide">Min</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2114,7 +2299,7 @@ const OfficerDashboard: React.FC = () => {
 
                   let goodRange: [number, number] = [0.3, 0.6];
                   let badRange: [number, number] = [-0.1, 0.1];
-                  let labelText = "";
+                  // let labelText = "";
 
                   if (visibleCount === 1) {
                     const selectedIndex = Object.keys(visibleLines).find(
@@ -2129,7 +2314,7 @@ const OfficerDashboard: React.FC = () => {
                         indexRanges[selectedIndex as keyof typeof indexRanges];
                       goodRange = range.good as [number, number];
                       badRange = range.bad as [number, number];
-                      labelText =
+                      // labelText =
                         selectedIndex.charAt(0).toUpperCase() +
                         selectedIndex.slice(1);
                     }
@@ -2156,7 +2341,7 @@ const OfficerDashboard: React.FC = () => {
 
                     goodRange = [avgGoodMin, avgGoodMax] as [number, number];
                     badRange = [avgBadMin, avgBadMax] as [number, number];
-                    labelText = "Average";
+                    // labelText = "Average";
                   }
 
                   return (

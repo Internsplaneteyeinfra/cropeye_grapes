@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getFarmerProfile, getFarmerMyProfile } from '../api';
 import { getAuthToken, isValidToken, getUserRole } from '../utils/auth';
 import { useAppContext } from '../context/AppContext';
+import { getBackendApiBaseUrl } from '../utils/serviceUrls';
 
 interface FarmerProfile {
   success?: boolean;
@@ -49,6 +50,7 @@ interface FarmerProfile {
   plots?: Array<{
     id?: number;
     fastapi_plot_id?: string;
+    plot_id?: string | number;
     gat_number?: string;
     plot_number?: string;
     address?: {
@@ -97,6 +99,7 @@ interface FarmerProfile {
     farms?: Array<{
       id?: number;
       farm_uid?: string;
+      fastapi_plot_id?: string;
       farm_owner?: {
         id?: number;
         username?: string;
@@ -163,124 +166,347 @@ interface FarmerProfile {
   };
 }
 
+/** Resolve plot id from deployed API shapes (fastapi_plot_id may be missing). */
+export function resolveFarmerPlotId(plot: any): string {
+  if (!plot || typeof plot !== "object") return "";
+  const candidates = [
+    plot.fastapi_plot_id,
+    plot.plot_id,
+    plot.plotId,
+    plot.plot_name,
+    plot.id,
+    plot.farms?.[0]?.fastapi_plot_id,
+    plot.farms?.[0]?.plot_id,
+    plot.gat_number && plot.plot_number
+      ? `${plot.gat_number}_${plot.plot_number}`
+      : null,
+  ];
+  for (const c of candidates) {
+    if (c != null && String(c).trim() !== "") return String(c);
+  }
+  return "";
+}
+
+function asArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    for (const key of ["results", "data", "plots", "plot_list", "farms", "items"]) {
+      if (Array.isArray(obj[key])) return obj[key] as any[];
+    }
+  }
+  return [];
+}
+
+/** Normalize /farms/my-profile/ so Map and cards always get usable plots[].fastapi_plot_id */
+export function normalizeFarmerProfile(raw: any): FarmerProfile {
+  if (!raw || typeof raw !== "object") return raw;
+
+  let plots = asArray(
+    raw.plots ?? raw.plot_list ?? raw.plot ?? raw.data?.plots,
+  );
+
+  // Deployed APIs sometimes nest plots only under farms
+  if (plots.length === 0) {
+    const farms = asArray(raw.farms ?? raw.farm_list ?? raw.data?.farms);
+    plots = farms
+      .map((farm: any) => {
+        const nested = asArray(farm?.plots ?? farm?.plot_list);
+        if (nested.length > 0) {
+          return nested.map((p: any) => ({
+            ...p,
+            farms: p.farms ?? [farm],
+            fastapi_plot_id:
+              resolveFarmerPlotId(p) ||
+              resolveFarmerPlotId(farm) ||
+              farm?.farm_uid,
+          }));
+        }
+        // Treat farm row as a plot when no nested plots exist
+        return {
+          id: farm?.id,
+          fastapi_plot_id:
+            resolveFarmerPlotId(farm) || farm?.farm_uid || String(farm?.id ?? ""),
+          gat_number: farm?.gat_number,
+          plot_number: farm?.plot_number,
+          address: farm?.address,
+          coordinates:
+            farm?.coordinates ??
+            (farm?.boundary
+              ? {
+                  boundary: farm.boundary,
+                  location: farm.location,
+                }
+              : undefined),
+          farms: [farm],
+        };
+      })
+      .flat()
+      .filter((p: any) => resolveFarmerPlotId(p));
+  }
+
+  const normalizedPlots = plots
+    .map((plot: any) => {
+      const plotId = resolveFarmerPlotId(plot);
+      if (!plotId) return null;
+      return {
+        ...plot,
+        fastapi_plot_id: plotId,
+        id: plot.id ?? plot.plot_id ?? plotId,
+        coordinates: plot.coordinates ?? (
+          plot.boundary
+            ? { boundary: plot.boundary, location: plot.location }
+            : undefined
+        ),
+      };
+    })
+    .filter(Boolean);
+
+  const totalPlots =
+    raw.agricultural_summary?.total_plots ??
+    normalizedPlots.length ??
+    0;
+
+  return {
+    ...raw,
+    plots: normalizedPlots,
+    agricultural_summary: {
+      ...(raw.agricultural_summary || {}),
+      total_plots: Number(totalPlots) || normalizedPlots.length,
+    },
+  };
+}
+
+const PROFILE_CACHE_KEY = 'farmer_my_profile_v3';
+const PROFILE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+const INFLIGHT_KEY = '__cropeye_inflight_my_profile__';
+
+/** Shared across every useFarmerProfile() caller (Map, Header, SoilAnalysis, …). */
+type SharedProfileState = {
+  profile: FarmerProfile | null;
+  loading: boolean;
+  error: string | null;
+  started: boolean;
+};
+
+const shared: SharedProfileState = {
+  profile: null,
+  loading: true,
+  error: null,
+  started: false,
+};
+
+const sharedListeners = new Set<() => void>();
+
+function notifySharedProfile() {
+  sharedListeners.forEach((fn) => fn());
+}
+
+function setSharedProfileState(partial: Partial<SharedProfileState>) {
+  Object.assign(shared, partial);
+  notifySharedProfile();
+}
+
+/** Call after logout / before a fresh login so Map refetches profile. */
+export function resetFarmerProfileStore() {
+  shared.profile = null;
+  shared.loading = true;
+  shared.error = null;
+  shared.started = false;
+  (globalThis as any).__cropeye_inflight_my_profile__ = null;
+  notifySharedProfile();
+}
+
+async function loadFarmerMyProfile(
+  getCached: (key: string, maxAge?: number) => any,
+  setCached: (key: string, value: any) => void,
+): Promise<void> {
+  setSharedProfileState({ loading: true, error: null });
+
+  try {
+    const cached = getCached(PROFILE_CACHE_KEY, PROFILE_CACHE_MAX_AGE_MS);
+    if (cached) {
+      const normalizedCached = normalizeFarmerProfile(cached);
+      if ((normalizedCached?.plots?.length || 0) > 0) {
+        setSharedProfileState({
+          profile: normalizedCached,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
+    }
+
+    const g = globalThis as any;
+    if (!g[INFLIGHT_KEY]) {
+      console.log('API CALLED: /farms/my-profile/ →', getBackendApiBaseUrl());
+      g[INFLIGHT_KEY] = (async () => {
+        try {
+          const response = await getFarmerMyProfile();
+          let normalized = normalizeFarmerProfile(response.data);
+
+          if ((normalized?.plots?.length || 0) === 0) {
+            console.warn(
+              '⚠️ /farms/my-profile/ returned no plots — falling back to getFarmerProfile()',
+            );
+            try {
+              const fallback = await getFarmerProfile();
+              const normalizedFallback = normalizeFarmerProfile(fallback);
+              if ((normalizedFallback?.plots?.length || 0) > 0) {
+                normalized = normalizedFallback;
+              }
+            } catch (fallbackErr) {
+              console.warn('⚠️ getFarmerProfile fallback failed', fallbackErr);
+            }
+          }
+          return normalized;
+        } finally {
+          g[INFLIGHT_KEY] = null;
+        }
+      })();
+    }
+
+    const data = await g[INFLIGHT_KEY];
+    if ((data?.plots?.length || 0) > 0) {
+      setCached(PROFILE_CACHE_KEY, data);
+    }
+
+    setSharedProfileState({
+      profile: data,
+      loading: false,
+      error:
+        (data?.plots?.length || 0) > 0
+          ? null
+          : 'Farmer profile loaded but no plots linked. Add a plot or check /farms/my-profile/.',
+    });
+  } catch (err: any) {
+    try {
+      const fallback = await getFarmerProfile();
+      const normalizedFallback = normalizeFarmerProfile(fallback);
+      if ((normalizedFallback?.plots?.length || 0) > 0) {
+        setCached(PROFILE_CACHE_KEY, normalizedFallback);
+        setSharedProfileState({
+          profile: normalizedFallback,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    const userRole = String(getUserRole() || '').toLowerCase();
+    if (err.response?.status === 401 || err.response?.status === 403 || err.code === 'NO_AUTH_TOKEN') {
+      setSharedProfileState({
+        profile: null,
+        loading: false,
+        error:
+          err.message ||
+          (userRole === 'farmer'
+            ? 'Session expired or missing token. Log in again at http://localhost:5174'
+            : 'Log in again via gateway'),
+      });
+      return;
+    }
+
+    const isNetwork =
+      !err.response ||
+      err.code === 'ERR_NETWORK' ||
+      String(err.message || '').toLowerCase().includes('network') ||
+      String(err.message || '').toLowerCase().includes('timeout');
+
+    setSharedProfileState({
+      profile: null,
+      loading: false,
+      error: isNetwork
+        ? `Cannot reach ${getBackendApiBaseUrl()} (profile). Weather APIs can still work. Re-login via gateway with Network Preserve log.`
+        : err.message || 'Failed to fetch farmer profile',
+    });
+  }
+}
 
 export const useFarmerProfile = () => {
-  const [profile, setProfile] = useState<FarmerProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { getCached, setCached } = useAppContext();
+  const [, bump] = useState(0);
 
-  // Cross-component request de-duplication (module-level within this file)
-  // If multiple components mount at once, they will share a single in-flight promise.
-  // eslint-disable-next-line @typescript-eslint/no-use-before-define
-  // (kept simple on purpose; no UI changes)
-
-  const PROFILE_CACHE_KEY = 'farmer_my_profile_v1';
-  const PROFILE_CACHE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
-
-  // Keep promise outside React state to avoid re-renders
-  // @ts-ignore - attach to globalThis safely
-  const inflightKey = '__cropeye_inflight_my_profile__';
+  useEffect(() => {
+    const listener = () => bump((n) => n + 1);
+    sharedListeners.add(listener);
+    return () => {
+      sharedListeners.delete(listener);
+    };
+  }, []);
 
   const fetchProfile = async () => {
+    setSharedProfileState({ loading: true, error: null });
     try {
-      setLoading(true);
-      setError(null);
       const data = await getFarmerProfile();
-      setProfile(data);
-      setError(null);
+      setSharedProfileState({
+        profile: normalizeFarmerProfile(data),
+        loading: false,
+        error: null,
+      });
     } catch (err: any) {
-      // Handle authentication errors gracefully
       if (err.response?.status === 401 || err.response?.status === 403) {
-        console.warn("⚠️ Authentication required to fetch farmer profile");
-        setError('Authentication required');
-        setProfile(null);
+        setSharedProfileState({
+          profile: null,
+          loading: false,
+          error: 'Authentication required',
+        });
       } else {
-        setError(err.message || 'Failed to fetch farmer profile');
+        setSharedProfileState({
+          profile: null,
+          loading: false,
+          error: err.message || 'Failed to fetch farmer profile',
+        });
       }
-    } finally {
-      setLoading(false);
     }
   };
 
   const fetchMyProfile = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // 1) Use cached data if available (fast, no network)
-      const cached = getCached(PROFILE_CACHE_KEY, PROFILE_CACHE_MAX_AGE_MS);
-      if (cached) {
-        setProfile(cached);
-        setError(null);
-        return;
-      }
-
-      // 2) De-duplicate concurrent requests across components
-      const g: any = globalThis as any;
-      if (!g[inflightKey]) {
-        console.log('API CALLED: /farms/my-profile/');
-        g[inflightKey] = getFarmerMyProfile()
-          .then((response: any) => response.data)
-          .finally(() => {
-            g[inflightKey] = null;
-          });
-      }
-
-      const data = await g[inflightKey];
-      setProfile(data);
-      setError(null);
-
-      // 3) Cache for reuse
-      setCached(PROFILE_CACHE_KEY, data);
-    } catch (err: any) {
-      // Handle authentication errors gracefully
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        const userRole = getUserRole();
-        
-        // Only log warning if user is actually a farmer AND it's not a silent error
-        if (userRole === 'farmer' && !err.isSilent) {
-          console.warn("⚠️ Authentication required to fetch farmer profile");
-        }
-        // Suppress error messages for silent errors (missing token when expected)
-        if (err.isSilent && userRole !== 'farmer') {
-          // Silent error for non-farmers - completely suppress
-          setError(null);
-        } else {
-          // Don't set error for non-farmer users - this is expected behavior
-          setError(userRole === 'farmer' ? 'Authentication required' : null);
-        }
-        setProfile(null);
-      } else {
-        // Only set error for non-silent errors
-        if (!err.isSilent) {
-          setError(err.message || 'Failed to fetch farmer profile');
-        } else {
-          setError(null);
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
+    shared.started = true;
+    await loadFarmerMyProfile(getCached, setCached);
   };
 
   useEffect(() => {
-    // Only fetch profile if user is authenticated with valid token AND is a farmer
-    const token = getAuthToken();
-    const userRole = getUserRole();
-    
-    // Only fetch farmer profile if:
-    // 1. Token exists and is valid format
-    // 2. User role is 'farmer'
-    if (token && isValidToken(token) && userRole === 'farmer') {
-      fetchMyProfile(); // Use the new my-profile endpoint by default
-    } else {
-      // No valid token or not a farmer - don't attempt to fetch profile
-      setLoading(false);
-      setError(null); // Don't set error - this is expected for non-farmer users or unauthenticated users
-      setProfile(null);
-    }
-  }, []);
+    const tryLoad = () => {
+      const token = getAuthToken();
+      const userRole = String(getUserRole() || '').toLowerCase();
+      if (token && isValidToken(token) && userRole === 'farmer') {
+        if (!shared.started || !shared.profile) {
+          shared.started = true;
+          void loadFarmerMyProfile(getCached, setCached);
+        }
+        return true;
+      }
+      return false;
+    };
+
+    if (tryLoad()) return;
+
+    // Role/token often arrive a tick after gateway redirect bootstrap
+    setSharedProfileState({ loading: false, error: null, profile: null });
+    const t1 = window.setTimeout(() => {
+      if (!tryLoad() && !shared.profile) {
+        const token = getAuthToken();
+        if (token && isValidToken(token)) {
+          // Farmer dashboard can mount before role key is written — still try
+          shared.started = true;
+          void loadFarmerMyProfile(getCached, setCached);
+        }
+      }
+    }, 500);
+    const t2 = window.setTimeout(() => tryLoad(), 1500);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [getCached, setCached]);
+
+  const profile = shared.profile;
+  const loading = shared.loading;
+  const error = shared.error;
 
   const getFarmerName = () => {
     if (!profile?.farmer_profile?.personal_info) return 'Farmer';
@@ -294,24 +520,22 @@ export const useFarmerProfile = () => {
   };
 
   const getPlotNames = () => {
-    if (!profile?.plots) {
-      // Try alternative data structures
+    if (!profile?.plots?.length) {
       if (profile?.farms) {
-        return profile.farms.map((farm: any) => farm.farm_uid || farm.id?.toString());
-      }
-      if (profile?.agricultural_summary?.total_farms && profile.agricultural_summary.total_farms > 0) {
-        // If we have farms but no plots array, create default plot names
-        return Array.from({ length: profile.agricultural_summary.total_farms }, (_, i) => `plot_${i + 1}`);
+        return profile.farms
+          .map((farm: any) => resolveFarmerPlotId(farm) || farm.farm_uid || farm.id?.toString())
+          .filter(Boolean);
       }
       return [];
     }
-    return profile.plots.map(plot => plot.fastapi_plot_id || '');
+    return profile.plots.map((plot) => resolveFarmerPlotId(plot)).filter(Boolean);
   };
 
-  
   const getPlotById = (plotId: string) => {
     if (!profile?.plots) return null;
-    return profile.plots.find(plot => plot.fastapi_plot_id === plotId);
+    return profile.plots.find(
+      (plot) => resolveFarmerPlotId(plot) === String(plotId),
+    );
   };
 
   const getFarmerEmail = () => {
@@ -323,7 +547,11 @@ export const useFarmerProfile = () => {
   };
 
   const getTotalPlots = () => {
-    return profile?.agricultural_summary?.total_plots || 0;
+    return (
+      profile?.agricultural_summary?.total_plots ||
+      profile?.plots?.length ||
+      0
+    );
   };
 
   const getTotalFarms = () => {

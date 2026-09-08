@@ -484,20 +484,14 @@ const fetchFertilizerData = async (
     const npkCacheKey = `npkData_${plotName}`;
     if (!getCache(npkCacheKey)) {
       try {
-        const response = await fetch(`${BASE_URL}/required-n/${encodeURIComponent(plotName)}?end_date=${currentDate}`, {
+        const response = await fetch(`${BASE_URL}/required-n/${encodeURIComponent(plotName)}?end_date=${currentDate}&plantation_date=${encodeURIComponent(plantationDate || '2025-01-01')}`, {
           method: 'POST',
           mode: 'cors',
           cache: 'default',
           credentials: 'omit',
           headers: {
             'Accept': 'application/json',
-            'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            plot_id: plotName,
-            end_date: currentDate,
-            crop_type: crop.toLowerCase()
-          }),
         });
         if (response.ok) {
           const data = await response.json();
@@ -523,7 +517,6 @@ const fetchFertilizerData = async (
           credentials: 'omit',
           headers: {
             'Accept': 'application/json',
-            'Content-Type': 'application/json',
           },
         });
         if (response.ok) {

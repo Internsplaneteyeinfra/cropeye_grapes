@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Download, Info, Satellite } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { useFarmerProfile } from "../hooks/useFarmerProfile";
+import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile";
 import { RefreshCw } from "lucide-react";
 import { getGrapesMainBaseUrl } from "../utils/serviceUrls";
+import { collectPlotApiIds } from "../utils/grapesEventsBundle";
+import { isValidSoilNpkResponse, normalizeNpkFromApi } from "../utils/npkNormalize";
 
 interface NutrientData {
   name: string;
@@ -101,9 +103,11 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
 
   const getPlotDisplayName = (plotId: string | null) => {
     if (!plotId || !profile?.plots) return plotId;
-    const plot = profile.plots.find((p) => p.fastapi_plot_id === plotId);
+    const plot = profile.plots.find(
+      (p) => resolveFarmerPlotId(p) === String(plotId),
+    );
     if (plot) {
-      return plot.gat_number || plot.plot_number || plot.fastapi_plot_id;
+      return plot.gat_number || plot.plot_number || resolveFarmerPlotId(plot);
     }
     return plotId;
   };
@@ -116,17 +120,17 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
       setCurrentPlotName(plotName);
     } else if (profile?.plots && profile.plots.length > 0) {
       const firstPlot = profile.plots[0];
-      const firstPlotName =
-        firstPlot.fastapi_plot_id ||
-        `${firstPlot.gat_number}_${firstPlot.plot_number}`;
-      setCurrentPlotName(firstPlotName);
+      const firstPlotName = resolveFarmerPlotId(firstPlot);
+      if (firstPlotName) setCurrentPlotName(firstPlotName);
     }
   }, [selectedPlotName, plotName, profile, profileLoading]);
 
   const plotDisplayName = getPlotDisplayName(currentPlotName);
 
   useEffect(() => {
-    // Don't fetch if there's no plot name
+    // Wait for profile before deciding there is no plot
+    if (profileLoading) return;
+
     if (!currentPlotName || currentPlotName.trim() === "") {
       setAppState((prev: any) => ({
         ...prev,
@@ -136,17 +140,7 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
       return;
     }
 
-    // Check cache
     const cacheKey = `soilData_${currentPlotName}`;
-    // Comment out these lines to disable cache for testing
-    // if (cached) {
-    //   setAppState((prev: any) => ({
-    //     ...prev,
-    //     soilData: cached,
-    //   }));
-    //   setLoading(false);
-    //   return;
-    // }
 
     const fetchSoilData = async (retryCount = 0) => {
       if (!currentPlotName || currentPlotName.trim() === "") {
@@ -171,111 +165,109 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
         const BASE_URL = getGrapesMainBaseUrl();
 
         // Get plantation_date from profile
-        let plantationDate = "2025-01-01"; // Default fallback
-        let crop = "grapes"; // Grapes app default (not sugarcane)
+        let plantationDate = "2025-01-01";
         if (profile?.plots && profile.plots.length > 0) {
-          const selectedPlot = profile.plots.find(
-            (p) =>
-              p.fastapi_plot_id === currentPlotName ||
-              `${p.gat_number}_${p.plot_number}` === currentPlotName
-          ) || profile.plots[0];
+          const selectedPlot =
+            profile.plots.find(
+              (p) => resolveFarmerPlotId(p) === String(currentPlotName),
+            ) || profile.plots[0];
 
           if (selectedPlot?.farms && selectedPlot.farms.length > 0) {
             const firstFarm = selectedPlot.farms[0];
             if (firstFarm.plantation_date) {
-              plantationDate = firstFarm.plantation_date.split("T")[0]; // Extract date part if ISO format
-            }
-            if (firstFarm.crop_type?.crop_type) {
-              crop = firstFarm.crop_type.crop_type.toLowerCase();
+              plantationDate = firstFarm.plantation_date.split("T")[0];
             }
           }
         }
 
-        // First, fetch the required-n API endpoint (note: hyphen, not underscore)
-        const requiredNUrl = `${BASE_URL}/required-n/${encodeURIComponent(currentPlotName)}?end_date=${currentDate}`;
+        // Grapes-main OpenAPI: path + query only (no JSON body).
+        // Try alternate plot ids (fastapi / gat_plot / plot_name) like other grapes APIs.
+        const plotCandidates = collectPlotApiIds(profile, currentPlotName);
+        const feDaysBack = 30;
 
-        let soilNPKData = null;
-        try {
-          const npkController = new AbortController();
-          const npkTimeoutId = setTimeout(() => npkController.abort(), 30000); // 30s timeout
+        const postNpk = async (url: string, timeoutMs: number) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: { Accept: "application/json" },
+              mode: "cors",
+              signal: controller.signal,
+            });
+            return res;
+          } finally {
+            clearTimeout(timeoutId);
+          }
+        };
 
-          console.log(`🌱 SoilAnalysis: Fetching required-n data from: ${requiredNUrl}`);
+        let soilNPKData: any = null;
+        let usedPlotId = currentPlotName;
 
-          const soilNPKResponse = await fetch(requiredNUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            mode: "cors",
-            signal: npkController.signal,
-            body: JSON.stringify({
-              plot_id: currentPlotName,
-              end_date: currentDate,
-              crop_type: crop
-            }),
+        for (const plotId of plotCandidates) {
+          const qs = new URLSearchParams({
+            end_date: currentDate,
+            plantation_date: plantationDate,
           });
-
-          clearTimeout(npkTimeoutId);
-
-          if (soilNPKResponse.ok) {
-            soilNPKData = await soilNPKResponse.json();
-            console.log(`✅ SoilAnalysis: Required-n data received:`, soilNPKData);
-          } else {
-            const errorText = await soilNPKResponse.text();
-            console.warn(`⚠️ SoilAnalysis: Required-n API error (${soilNPKResponse.status}):`, errorText);
+          const requiredNUrl = `${BASE_URL}/required-n/${encodeURIComponent(plotId)}?${qs}`;
+          try {
+            console.log(`🌱 SoilAnalysis: Fetching required-n from: ${requiredNUrl}`);
+            const soilNPKResponse = await postNpk(requiredNUrl, 120000);
+            if (soilNPKResponse.ok) {
+              const json = await soilNPKResponse.json();
+              if (isValidSoilNpkResponse(json)) {
+                soilNPKData = normalizeNpkFromApi(json);
+                usedPlotId = plotId;
+                console.log(`✅ SoilAnalysis: Required-n OK for "${plotId}":`, soilNPKData);
+                break;
+              }
+              console.warn(`⚠️ SoilAnalysis: required-n for "${plotId}" missing soilN/P/K:`, json);
+            } else {
+              const errorText = await soilNPKResponse.text().catch(() => "");
+              console.warn(
+                `⚠️ SoilAnalysis: required-n ${soilNPKResponse.status} for "${plotId}":`,
+                errorText.slice(0, 200),
+              );
+            }
+          } catch (soilNPKError: any) {
+            console.warn(`⚠️ SoilAnalysis: required-n error for "${plotId}":`, soilNPKError);
           }
-        } catch (soilNPKError: any) {
-          console.warn("⚠️ SoilAnalysis: Error fetching required-n data:", soilNPKError);
-          // Continue with analyze-npk API even if required-n fails
         }
 
-        // Then fetch the analyze-npk API endpoint (note: hyphen, not underscore)
-        const feDaysBack = 30; // Default value
-        const analyzeNPKUrl = `${BASE_URL}/analyze-npk/${encodeURIComponent(currentPlotName)}?plantation_date=${plantationDate}&date=${currentDate}&fe_days_back=${feDaysBack}`;
-
-        let data = null;
-        try {
-        const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-
-          console.log(`🌱 SoilAnalysis: Fetching analyze-npk data from: ${analyzeNPKUrl}`);
-          console.log(`📅 Using plantation_date: ${plantationDate}, date: ${currentDate}, fe_days_back: ${feDaysBack}`);
-
-          const response = await fetch(analyzeNPKUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          mode: "cors",
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-            console.error(`❌ SoilAnalysis: Analyze-npk API error (${response.status}):`, errorText);
-          throw new Error(
-            `HTTP error! status: ${response.status} - ${errorText}`
-          );
+        let data: any = null;
+        for (const plotId of plotCandidates) {
+          const analyzeNPKUrl = `${BASE_URL}/analyze-npk/${encodeURIComponent(
+            plotId,
+          )}?plantation_date=${encodeURIComponent(plantationDate)}&date=${currentDate}&fe_days_back=${feDaysBack}`;
+          try {
+            console.log(`🌱 SoilAnalysis: Fetching analyze-npk from: ${analyzeNPKUrl}`);
+            const response = await postNpk(analyzeNPKUrl, 300000);
+            if (!response.ok) {
+              const errorText = await response.text().catch(() => "");
+              console.warn(
+                `⚠️ SoilAnalysis: analyze-npk ${response.status} for "${plotId}":`,
+                errorText.slice(0, 200),
+              );
+              continue;
+            }
+            data = await response.json();
+            usedPlotId = plotId;
+            console.log(`✅ SoilAnalysis: Analyze-npk OK for "${plotId}":`, data);
+            break;
+          } catch (analyzeError: any) {
+            console.warn(`⚠️ SoilAnalysis: analyze-npk error for "${plotId}":`, analyzeError);
+          }
         }
 
-          data = await response.json();
-          console.log(`✅ SoilAnalysis: Analyze NPK data received:`, data);
-        } catch (analyzeError: any) {
-          console.error("❌ SoilAnalysis: Error fetching analyze-npk data:", analyzeError);
-          // If analyze-npk fails, try to use data from required_n if available
+        if (!data) {
           if (soilNPKData) {
-            console.log("⚠️ SoilAnalysis: Using required_n data as fallback");
+            console.log("⚠️ SoilAnalysis: Using required-n data as analyze-npk fallback");
             data = soilNPKData;
           } else {
-            // Soft-fail: still show report shell with zeros rather than hiding the whole section
             console.warn(
-              "⚠️ SoilAnalysis: analyze-npk and required-n both unavailable — showing empty report"
+              "⚠️ SoilAnalysis: analyze-npk and required-n both unavailable — showing empty report",
             );
-            data = { plot_name: currentPlotName, soil_statistics: {} };
+            data = { plot_name: usedPlotId, soil_statistics: {} };
           }
         }
 
@@ -349,7 +341,7 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
             total_nitrogen: soilStats.total_nitrogen || data.total_nitrogen || 0,
             // Organic carbon stock from soil_statistics
             organic_carbon_stock: soilStats.organic_carbon_stock || data.organic_carbon_stock || 0,
-            plot_name: currentPlotName || data.plot_name,
+            plot_name: usedPlotId || currentPlotName || data.plot_name,
             // Fe (Iron) data from soil_statistics
             fe: soilStats.fe_ppm_estimated || data.fe || data.fe_ppm_estimated || 0,
             fe_index_primary: soilStats.fe_index_primary || data.fe_index_primary || 0,
@@ -510,7 +502,7 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
     };
 
     fetchSoilData();
-  }, [currentPlotName]);
+  }, [currentPlotName, profile, profileLoading]);
 
   function getPHLevel(
     pHValue: number | null

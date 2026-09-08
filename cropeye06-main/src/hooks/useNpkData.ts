@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppContext } from "../context/AppContext";
 import { useFarmerProfile } from "./useFarmerProfile";
 import { getGrapesMainBaseUrl } from "../utils/serviceUrls";
+import { collectPlotApiIds } from "../utils/grapesEventsBundle";
 import { isValidSoilNpkResponse, normalizeNpkFromApi } from "../utils/npkNormalize";
 
 export function useNpkData(plotName: string) {
@@ -47,32 +48,44 @@ export function useNpkData(plotName: string) {
     try {
       const currentDate = new Date().toISOString().split("T")[0];
       const baseUrl = getGrapesMainBaseUrl();
-      const url = `${baseUrl}/required-n/${encodeURIComponent(plotName)}?end_date=${currentDate}`;
       const selectedPlot =
         profile?.plots?.find((p) => p.fastapi_plot_id === plotName) || profile?.plots?.[0];
-      const crop = (
-        selectedPlot?.farms?.[0]?.crop_type?.crop_type || "grapes"
-      ).toLowerCase();
+      const plantationDate =
+        (selectedPlot?.farms?.[0]?.plantation_date &&
+          String(selectedPlot.farms[0].plantation_date).split("T")[0]) ||
+        "2025-01-01";
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        mode: "cors",
-        body: JSON.stringify({
-          plot_id: plotName,
+      // OpenAPI: path + query only (no JSON body). Try alternate plot ids.
+      const plotCandidates = collectPlotApiIds(profile, plotName);
+
+      let json: any = null;
+      let lastError = "NPK API failed";
+      for (const id of plotCandidates) {
+        const qs = new URLSearchParams({
           end_date: currentDate,
-          crop_type: crop,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "");
-        throw new Error(`NPK API ${res.status}${errorText ? `: ${errorText.slice(0, 120)}` : ""}`);
+          plantation_date: plantationDate,
+        });
+        const url = `${baseUrl}/required-n/${encodeURIComponent(id)}?${qs}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          mode: "cors",
+        });
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => "");
+          lastError = `NPK API ${res.status}${errorText ? `: ${errorText.slice(0, 120)}` : ""}`;
+          continue;
+        }
+        const body = await res.json();
+        if (isValidSoilNpkResponse(body)) {
+          json = body;
+          break;
+        }
+        lastError = "Invalid NPK response from required-n API";
       }
 
-      const json = await res.json();
-      if (!isValidSoilNpkResponse(json)) {
-        throw new Error("Invalid NPK response from required-n API");
+      if (!json) {
+        throw new Error(lastError);
       }
 
       const npk = {

@@ -9,6 +9,7 @@ import {
 import Login from "../components/Login";
 import App from "../App";
 import CommonSpinner from "../components/CommanSpinner";
+import GrapesOwnerHierarchyPage from "../components/grapesOwnerHierarchy/GrapesOwnerHierarchyPage";
 import {
   getAuthToken,
   getUserRole,
@@ -22,6 +23,7 @@ import { USE_MOCK_AUTH } from "../config/authConfig";
 import { setNavigationCallback, resetRedirectFlag } from "../utils/navigation";
 import { clearAllCache } from "../components/utils/cache";
 import { useAppContext } from "../context/AppContext";
+import { saveUserIndustryFromProfile } from "../utils/userIndustry";
 import { clearFrontendRolePreview } from "../utils/frontendRolePreview";
 
 const bootstrapTokensFromUrl = () => {
@@ -122,6 +124,7 @@ const AppRoutesContent: React.FC = () => {
             setIsAuthenticated(false);
             setUserRole(null);
             setLoading(false);
+            // Stay on grapes /login so Network shows /api/backend/login/ (Railway via Vite proxy)
             if (window.location.pathname !== "/login") {
               navigate("/login", { replace: true });
             }
@@ -192,6 +195,7 @@ const AppRoutesContent: React.FC = () => {
       // Use the API function to get current user (automatically uses stored token)
       const response = await getCurrentUser();
       const userData = response.data;
+      saveUserIndustryFromProfile(userData);
 
       // Handle both string roles and numeric role_id
       let normalizedRole: UserRole;
@@ -329,6 +333,7 @@ const AppRoutesContent: React.FC = () => {
     setUserRole(null);
     setIsAuthenticated(false);
 
+    // Grapes login page — login call visible in Network as /api/backend/login/
     navigate("/login", { replace: true });
   };
 
@@ -359,6 +364,28 @@ const AppRoutesContent: React.FC = () => {
         element={
           isAuthenticated && userRole ? (
             <App userRole={userRole} onLogout={handleLogout} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* Grapes-only owner hierarchy (isolated from sugarcane owner-hierarchy) */}
+      <Route
+        path="/owner"
+        element={
+          isAuthenticated && userRole ? (
+            <GrapesOwnerHierarchyPage />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/owner/grapes-hierarchy"
+        element={
+          isAuthenticated && userRole ? (
+            <GrapesOwnerHierarchyPage />
           ) : (
             <Navigate to="/login" replace />
           )

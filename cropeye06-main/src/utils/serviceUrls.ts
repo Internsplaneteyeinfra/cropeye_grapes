@@ -142,19 +142,33 @@ export function getGrapesSefBaseUrl(): string {
   return PROXY.grapesSef;
 }
 
-/** Backend REST API (`/api/...` on cropeye-backendd). */
+/** Backend REST API.
+ * Dev: same-origin Vite proxy `/api/backend` → Railway (shows as /api/backend/login/ in Network).
+ * Prod: Railway (or nginx /api/backend). LAN Django IPs are never used.
+ */
 export function getBackendApiBaseUrl(): string {
-  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  if (raw && raw.length > 0) {
-    if (!import.meta.env.DEV && isLocalhostUrl(raw)) return PROXY.backend;
-    const withoutTrailing = stripTrailingSlashes(raw);
-    return /\/api$/i.test(withoutTrailing)
-      ? withoutTrailing
-      : `${withoutTrailing}/api`;
+  const railway = BACKEND_API_PROD;
+
+  // Dev: always use Vite proxy so browser Network shows /api/backend/* and CORS is avoided
+  if (import.meta.env.DEV) {
+    return PROXY.backend;
   }
 
-  if (import.meta.env.DEV) {
-    return devServiceUrl(PROXY.backend, BACKEND_API_PROD);
+  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+  if (raw && raw.length > 0) {
+    const withoutTrailing = stripTrailingSlashes(raw);
+    const withApi = /\/api$/i.test(withoutTrailing)
+      ? withoutTrailing
+      : `${withoutTrailing}/api`;
+    if (
+      /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|localhost|127\.0\.0\.1)/i.test(
+        withApi,
+      )
+    ) {
+      return railway;
+    }
+    if (isLocalhostUrl(withApi)) return PROXY.backend;
+    return withApi;
   }
 
   return PROXY.backend;

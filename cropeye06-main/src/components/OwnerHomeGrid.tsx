@@ -1,6 +1,7 @@
 import React from 'react';
 import { BarChart3, Users as TeamConnect, Wheat, Cloud, BarChart, User, MapPin } from 'lucide-react';
 import { DashboardNo } from './Dashboardno';
+import GrapesOwnerHierarchyHomeLink from './grapesOwnerHierarchy/GrapesOwnerHierarchyHomeLink';
 
 interface OwnerHomeGridProps {
   onMenuClick: (menuTitle: string) => void;
@@ -41,6 +42,8 @@ const OwnerHomeGrid: React.FC<OwnerHomeGridProps> = ({ onMenuClick }) => {
             </div>
           </button>
         ))}
+        {/* Grapes-only cascade hierarchy — does not replace Farm Crop Status */}
+        <GrapesOwnerHierarchyHomeLink />
       </div>
       {/* Dashboard stats row */}
       <div className="mt-6 bg-white rounded-xl shadow-md p-4">

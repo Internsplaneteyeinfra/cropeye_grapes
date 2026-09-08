@@ -1,8 +1,16 @@
 // vite.config.ts
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const backendTarget =
+    (env.VITE_BACKEND_PROXY_TARGET || env.VITE_API_BASE_URL || "")
+      .replace(/\/api\/?$/i, "")
+      .replace(/\/+$/, "") || "https://cropeye-backendd.up.railway.app";
+  console.info(`[vite] /api/backend proxy → ${backendTarget}`);
+
+  return {
   plugins: [react()],
   assetsInclude: ["**/*.geojson"],
   // When deployed behind one domain (Render + nginx), grapes app is served under /grapes/
@@ -196,21 +204,21 @@ export default defineConfig(({ mode }) => ({
           });
         },
       },
-      // Proxy for backend API (main API server)
+      // Proxy for backend API (main API server) — local Django from .env
       '/api/backend/ws': {
-        target: 'https://cropeye-backendd.up.railway.app',
+        target: backendTarget,
         changeOrigin: true,
         ws: true,
         rewrite: (path) => path.replace(/^\/api\/backend\/ws/, '/ws'),
       },
       // Proxy for backend REST API (main API server)
       '/api/backend': {
-        target: 'https://cropeye-backendd.up.railway.app',
+        target: backendTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/backend/, '/api'),
         configure: (proxy, _options) => {
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            proxyReq.setHeader('Origin', 'https://cropeye-backendd.up.railway.app');
+            proxyReq.setHeader('Origin', backendTarget);
           });
 
           proxy.on('proxyRes', (proxyRes, req, _res) => {
@@ -229,13 +237,13 @@ export default defineConfig(({ mode }) => ({
           });
 
           proxy.on('error', (err, _req, res) => {
-            console.log('Backend API proxy error:', err);
+            console.log('Backend API proxy error →', backendTarget, err.message || err);
             if (res && !res.headersSent) {
-              res.writeHead(500, {
+              res.writeHead(502, {
                 'Access-Control-Allow-Origin': '*',
                 'Content-Type': 'text/plain'
               });
-              res.end('Proxy error');
+              res.end(`Proxy error: cannot reach ${backendTarget}`);
             }
           });
         },
@@ -323,4 +331,5 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+};
+});

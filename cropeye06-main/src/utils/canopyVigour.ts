@@ -9,14 +9,6 @@ export type VigourPixelPct = {
   excellent: number;
 };
 
-/** Fallback when API is unavailable (matches prior demo proportions). */
-export const FALLBACK_VIGOUR_PCT: VigourPixelPct = {
-  poor: 12,
-  moderate: 28,
-  good: 40,
-  excellent: 20,
-};
-
 export function parseCanopyVigourPixelSummary(
   data: unknown
 ): VigourPixelPct | null {

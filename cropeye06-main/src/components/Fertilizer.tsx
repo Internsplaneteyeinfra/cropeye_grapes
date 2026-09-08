@@ -130,15 +130,21 @@ const Fertilizer: React.FC = () => {
 
     try {
       const currentDate = new Date().toISOString().split("T")[0];
-      const url = `${API_BASE_URL}/required-n/${encodeURIComponent(
-        PLOT_NAME
-      )}?end_date=${currentDate}`;
-
-      // Get crop type from profile
       const selectedPlot = profile?.plots?.find(
         (p) => p.fastapi_plot_id === PLOT_NAME
       ) || profile?.plots?.[0];
-      const crop = (selectedPlot?.farms?.[0]?.crop_type?.crop_type || "grapes").toLowerCase();
+      const plantationDate =
+        (selectedPlot?.farms?.[0]?.plantation_date &&
+          String(selectedPlot.farms[0].plantation_date).split("T")[0]) ||
+        "2025-01-01";
+
+      const qs = new URLSearchParams({
+        end_date: currentDate,
+        plantation_date: plantationDate,
+      });
+      const url = `${API_BASE_URL}/required-n/${encodeURIComponent(
+        PLOT_NAME
+      )}?${qs}`;
 
       console.log(`🌱 Fertilizer: Fetching required-n data from: ${url}`);
 
@@ -147,19 +153,14 @@ const Fertilizer: React.FC = () => {
       const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
 
       try {
+        // Grapes-main OpenAPI: path + query only (no JSON body)
         const res = await fetch(url, {
           method: "POST",
           headers: {
             Accept: "application/json",
-            "Content-Type": "application/json"
           },
           mode: "cors",
           signal: controller.signal,
-          body: JSON.stringify({
-            plot_id: PLOT_NAME,
-            end_date: currentDate,
-            crop_type: crop
-          }),
         });
 
         clearTimeout(timeoutId);

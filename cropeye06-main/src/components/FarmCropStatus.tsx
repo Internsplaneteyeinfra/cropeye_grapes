@@ -80,14 +80,6 @@ type VigourPixelPct = {
   excellent: number;
 };
 
-/** Fallback when API is unavailable (matches prior demo proportions). */
-const FALLBACK_VIGOUR_PCT: VigourPixelPct = {
-  poor: 12,
-  moderate: 28,
-  good: 40,
-  excellent: 20,
-};
-
 function parseCanopyVigourPixelSummary(data: unknown): VigourPixelPct | null {
   if (!data || typeof data !== "object") return null;
   const ps = (data as { pixel_summary?: Record<string, unknown> })
@@ -1274,15 +1266,15 @@ const OfficerDashboard: React.FC = () => {
         });
         if (cancelled) return;
         if (!res.ok) {
-          setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+          setVigourPixelPct(null);
           return;
         }
         const data = await res.json();
         setCache(`canopyVigour_${selectedPlotId}`, data);
         const parsed = parseCanopyVigourPixelSummary(data);
-        setVigourPixelPct(parsed ?? FALLBACK_VIGOUR_PCT);
+        setVigourPixelPct(parsed);
       } catch {
-        if (!cancelled) setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+        if (!cancelled) setVigourPixelPct(null);
       } finally {
         if (!cancelled) setVigourChartLoading(false);
       }
@@ -1294,11 +1286,11 @@ const OfficerDashboard: React.FC = () => {
   }, [selectedPlotId]);
 
   const recoveryQualityBarRows = useMemo(
-    () => vigourToBarRows(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? vigourToBarRows(vigourPixelPct) : []),
     [vigourPixelPct]
   );
   const dominantRecoveryQuality = useMemo(
-    () => dominantVigourCategory(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? dominantVigourCategory(vigourPixelPct) : null),
     [vigourPixelPct]
   );
 
@@ -2187,11 +2179,17 @@ const OfficerDashboard: React.FC = () => {
 
                 <p className="mt-2 text-center text-xs text-gray-600">
                   Your Farm Quality:{" "}
-                  <span className="font-bold" style={{ color: dominantRecoveryQuality.color }}>
-                    {dominantRecoveryQuality.name} (
-                    {dominantRecoveryQuality.pct.toFixed(dominantRecoveryQuality.pct >= 10 ? 1 : 2)}
-                    %)
-                  </span>
+                  {dominantRecoveryQuality ? (
+                    <span className="font-bold" style={{ color: dominantRecoveryQuality.color }}>
+                      {dominantRecoveryQuality.name} (
+                      {dominantRecoveryQuality.pct.toFixed(dominantRecoveryQuality.pct >= 10 ? 1 : 2)}
+                      %)
+                    </span>
+                  ) : (
+                    <span className="font-bold text-gray-500">
+                      {vigourChartLoading ? "Loading…" : "—"}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

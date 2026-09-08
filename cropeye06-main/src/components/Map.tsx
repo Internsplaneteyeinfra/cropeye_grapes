@@ -4,7 +4,7 @@ import { divIcon } from "leaflet";
 import { LatLngTuple, LatLngBounds, LeafletMouseEvent } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./Map.css";
-import { useFarmerProfile } from "../hooks/useFarmerProfile";
+import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile";
 import { FaExpand } from 'react-icons/fa';
 import { ArrowLeft } from 'lucide-react';
 import SoilAnalysis from "./SoilAnalysis";
@@ -324,7 +324,7 @@ const Map: React.FC<MapProps> = ({
   onPestDataChange,
   onPlotChange,
 }) => {
-  const { profile, loading: profileLoading } = useFarmerProfile();
+  const { profile, loading: profileLoading, error: profileError, refreshMyProfile } = useFarmerProfile();
   const { appState, selectedPlotName: contextSelectedPlotName, setSelectedPlotName: setContextSelectedPlotName, getApiData, hasApiData, setApiData } = useAppContext();
   const mapWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -710,7 +710,7 @@ const Map: React.FC<MapProps> = ({
     return {
       type: "Feature",
       properties: {
-        plot_name: plot.fastapi_plot_id || plot.id,
+        plot_name: resolveFarmerPlotId(plot) || plot.id,
         ...plot
       },
       geometry: {
@@ -729,7 +729,10 @@ const Map: React.FC<MapProps> = ({
       return;
     }
 
-    const plotNames = profile.plots?.map(plot => plot.fastapi_plot_id) || [];
+    const plotNames =
+      profile.plots
+        ?.map((plot) => resolveFarmerPlotId(plot))
+        .filter(Boolean) || [];
     const defaultPlot = plotNames.length > 0 ? plotNames[0] : null;
     
     console.log('🗺️ Map: Available plots:', plotNames);
@@ -741,7 +744,9 @@ const Map: React.FC<MapProps> = ({
       localStorage.setItem('selectedPlot', defaultPlot);
       
       // Find the plot in profile to get coordinates immediately
-      const selectedPlot = profile.plots?.find(p => p.fastapi_plot_id === defaultPlot);
+      const selectedPlot = profile.plots?.find(
+        (p) => resolveFarmerPlotId(p) === defaultPlot,
+      );
       
       if (selectedPlot) {
         console.log('🗺️ Map: Found plot in profile, extracting coordinates...');
@@ -2769,7 +2774,9 @@ const Map: React.FC<MapProps> = ({
                 localStorage.setItem('selectedPlot', newPlot);
                 
                 // Find the plot in profile to get coordinates immediately
-                const selectedPlot = profile.plots?.find(p => p.fastapi_plot_id === newPlot);
+                const selectedPlot = profile.plots?.find(
+                  (p) => resolveFarmerPlotId(p) === newPlot,
+                );
                 
                 if (selectedPlot) {
                   console.log('🗺️ Map: Plot selected, loading coordinates from profile...');
@@ -2794,7 +2801,9 @@ const Map: React.FC<MapProps> = ({
               }}
               disabled={loading}
             >
-              {profile.plots?.map(plot => {
+              {profile.plots?.map((plot) => {
+                const plotValue = resolveFarmerPlotId(plot);
+                if (!plotValue) return null;
                 let displayName = '';
                 
                 if (plot.gat_number && plot.plot_number && 
@@ -2813,12 +2822,12 @@ const Map: React.FC<MapProps> = ({
                     displayName = `Plot in ${village}`;
                     if (taluka) displayName += `, ${taluka}`;
                   } else {
-                    displayName = 'Plot (No GAT/Plot Number)';
+                    displayName = plotValue;
                   }
                 }
                 
                 return (
-                  <option key={plot.fastapi_plot_id} value={plot.fastapi_plot_id}>
+                  <option key={plotValue} value={plotValue}>
                     {displayName}
                   </option>
                 );
@@ -2828,7 +2837,29 @@ const Map: React.FC<MapProps> = ({
         )}
 
         {profileLoading && <div className="loading-indicator">Loading farmer profile...</div>}
-        {!profileLoading && !selectedPlotName && <div className="error-message">No plot data available for this farmer</div>}
+        {!profileLoading && !selectedPlotName && (
+          <div className="error-message">
+            <span>
+              {!profile
+                ? (profileError ||
+                  "Could not load farmer profile. Log out and log in again via gateway.")
+                : (profile.plots?.length || 0) > 0
+                  ? "Plot loaded but ID is missing. Refresh or re-login."
+                  : "No plot linked to this farmer account (plots[] empty from /farms/my-profile/)."}
+            </span>
+            {!profile ? (
+              <button
+                type="button"
+                className="ml-2 underline text-sm"
+                onClick={() => {
+                  void refreshMyProfile();
+                }}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        )}
         {loading && <div className="loading-indicator">Loading plot data...</div>}
         {error && <div className="error-message">{error}</div>}
       </div>
@@ -3054,12 +3085,12 @@ const Map: React.FC<MapProps> = ({
         </div>
       </div>
 
-      {/* Fertilizer + Soil Moisture — align with 3-card row above (fertilizer = cols 1–2, soil = col 3) */}
-      <div className="mt-4 dashboard-cards-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full">
-        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 lg:col-span-2">
+      {/* Fertilizer + Soil Moisture — equal width side by side */}
+      <div className="mt-4 dashboard-cards-row grid grid-cols-1 lg:grid-cols-2 gap-4 w-full items-stretch">
+        <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
           <FertilizerTable embedded />
         </div>
-        <SoilMoistureCard optimalRange={[40, 60]} className="dashboard-card-soil lg:col-span-1" />
+        <SoilMoistureCard className="dashboard-card-soil h-full" />
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}

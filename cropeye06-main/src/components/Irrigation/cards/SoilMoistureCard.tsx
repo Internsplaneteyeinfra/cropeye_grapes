@@ -1,316 +1,1066 @@
-import React, { useEffect, useState } from "react";
-import { Droplets } from "lucide-react";
+/**
+ * Water Balance / Soil Moisture card — CropO Flutter logic port:
+ * - SoilMoistureApi: GET irrigation-and-soil-moisture/{plot}
+ * - WaterBalanceApi: GET water-remain-per-day?plot_name&crop_name&lat&lon&dates
+ * - Irrigation needed kL = remain < 0 ? abs(remainL)/1000 : 0
+ * - ETo loss card = eto_loss_liters / 1000 (kL)
+ * - Chart: Day = hourly remain line (H0–H23); Week/Month = diverging bars
+ */
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Droplets, Sun } from "lucide-react";
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "../Irrigation.css";
 import { useAppContext } from "../../../context/AppContext";
 import { useFarmerProfile } from "../../../hooks/useFarmerProfile";
+import {
+  fetchSoilMoistureForPlot,
+  moistureBandForCrop,
+} from "../../../utils/soilMoistureApi";
+import {
+  fetchWaterRemainForPlot,
+  filterDaysInRange,
+  formatIrrigationDateRange,
+  formatWaterRemainError,
+  pastRange,
+  waterBalanceStatus,
+  type WaterHourStep,
+  type WaterRemainDay,
+} from "../../../utils/waterRemainApi";
 
 interface SoilMoistureCardProps {
-  optimalRange: [number, number]; // [min%, max%]
+  optimalRange?: [number, number];
   moistGroundPercent?: number | null;
-  targetDate?: string; // Optional date input (format: YYYY-MM-DD)
+  targetDate?: string;
+  compact?: boolean;
+  medium?: boolean;
+  fullWidth?: boolean;
   className?: string;
 }
 
-// New 9006 endpoint types
-interface SoilMoistureStackItem {
+type TubeDay = {
   day: string;
-  soil_moisture: number;
+  shortDate: string;
+  soilMoisture: number;
+  etoSumMm: number;
+  waterRemainLiters: number;
+  waterRemainM3: number;
+  etoLossLiters: number;
+  oneMmLiters?: number;
+  rainfallMm: number;
+  hourlySteps: WaterHourStep[];
+};
+
+type WaterRange = "day" | "week" | "month";
+
+/** Flutter ListView diverging-bar colors */
+const SURPLUS_COLOR = "#1565C0";
+const DEFICIT_COLOR = "#D32F2F";
+const SELECT_DOT = "#29B6F6";
+const HOUR_LINE_COLOR = "#2E7D32";
+
+function hourBarColor(kl: number, maxAbs: number): string {
+  if (kl < 0) return DEFICIT_COLOR;
+  const frac = maxAbs <= 0 ? 0 : Math.min(1, Math.max(0, kl / maxAbs));
+  if (frac < 0.3) return "#FFA000";
+  if (frac < 0.7) return HOUR_LINE_COLOR;
+  return SURPLUS_COLOR;
 }
 
-interface SoilMoistureStackResponse {
-  plot_name: string;
-  latitude: number;
-  longitude: number;
-  soil_moisture_stack: SoilMoistureStackItem[];
+function parsePrecipMm(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
+  if (typeof raw === "string") {
+    const n = Number(raw.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+  return 0;
+}
+
+async function fetchPastDailyRainfall(
+  lat: number,
+  lon: number,
+  daysBack = 7,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const qs = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    past_days: String(daysBack),
+    forecast_days: "1",
+    daily: "precipitation_sum",
+    timezone: "Asia/Kolkata",
+  });
+  const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${qs}`);
+  if (!resp.ok) throw new Error(`Rainfall API ${resp.status}`);
+  const data = await resp.json();
+  const times: string[] = data?.daily?.time ?? [];
+  const precip: unknown[] = data?.daily?.precipitation_sum ?? [];
+  times.forEach((iso, i) => {
+    const key = String(iso).slice(0, 10);
+    if (key) map.set(key, parsePrecipMm(precip[i]));
+  });
+  return map;
+}
+
+function shortDateLabel(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso.slice(5, 10) || iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/** Flutter: irrigation needed kL only when remain is deficit. */
+function irrigationNeededKl(remainLiters: number): number {
+  if (!(remainLiters < 0)) return 0;
+  return Math.abs(remainLiters) / 1000;
+}
+
+/** Flutter: ETo loss card = eto_loss_liters / 1000 kL. */
+function etoLossKl(etoLossLiters: number): number {
+  return Math.max(0, Number(etoLossLiters) || 0) / 1000;
+}
+
+function remainKl(remainLiters: number): number {
+  return (Number(remainLiters) || 0) / 1000;
+}
+
+function buildTubesFromWaterRemain(
+  days: WaterRemainDay[],
+  moistureByDate: Map<string, number>,
+  fallbackMoisture: number,
+  rainByDate: Map<string, number>,
+  range: { start_date: string; end_date: string },
+): TubeDay[] {
+  return filterDaysInRange(days, range.start_date, range.end_date).map((d) => ({
+    day: d.date,
+    shortDate: shortDateLabel(d.date),
+    soilMoisture: moistureByDate.get(d.date) ?? fallbackMoisture,
+    etoSumMm: d.eto_sum_mm,
+    waterRemainLiters: d.water_remain_liters,
+    waterRemainM3: d.water_remain_m3,
+    etoLossLiters: d.eto_loss_liters,
+    oneMmLiters: d.one_mm_liters,
+    rainfallMm: rainByDate.get(d.date) ?? 0,
+    hourlySteps: d.hourly_steps ?? [],
+  }));
+}
+
+/** When water-remain is unavailable (grapes SEF), still chart soil-moisture stack. */
+function buildTubesFromMoistureStack(
+  moistureByDate: Map<string, number>,
+  rainByDate: Map<string, number>,
+  fallbackMoisture: number,
+): TubeDay[] {
+  const keys = [...moistureByDate.keys()].sort();
+  if (!keys.length) {
+    const today = new Date().toISOString().slice(0, 10);
+    return [
+      {
+        day: today,
+        shortDate: shortDateLabel(today),
+        soilMoisture: fallbackMoisture,
+        etoSumMm: 0,
+        waterRemainLiters: 0,
+        waterRemainM3: 0,
+        etoLossLiters: 0,
+        rainfallMm: rainByDate.get(today) ?? 0,
+        hourlySteps: [],
+      },
+    ];
+  }
+  return keys.map((day) => ({
+    day,
+    shortDate: shortDateLabel(day),
+    soilMoisture: moistureByDate.get(day) ?? fallbackMoisture,
+    etoSumMm: 0,
+    waterRemainLiters: 0,
+    waterRemainM3: 0,
+    etoLossLiters: 0,
+    rainfallMm: rainByDate.get(day) ?? 0,
+    hourlySteps: [],
+  }));
+}
+
+function sliceForRange(days: TubeDay[], range: WaterRange): TubeDay[] {
+  if (!days.length) return [];
+  if (range === "day") return days.slice(-1);
+  if (range === "week") return days.length > 7 ? days.slice(-7) : days;
+  return days;
 }
 
 const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
   optimalRange,
-  targetDate,
+  compact = false,
+  medium = false,
+  fullWidth = false,
   className = "",
 }) => {
-  // Use current date if no target date provided
-  const currentDate = targetDate || new Date().toISOString().split('T')[0];
-  const { appState, setAppState, getCached, setCached, selectedPlotName } = useAppContext();
+  const { setAppState, selectedPlotName } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
-  const moisturePercent = appState.moisturePercent ?? 0;
-  const currentSoilMoisture = appState.currentSoilMoisture ?? moisturePercent; // may be set by trend card
-  const status = appState.moistureStatus ?? "Loading...";
-  
-  // Prioritize shared value from SoilMoistureTrendCard
-  const [yesterdayMoisture, setYesterdayMoisture] = useState<number | null>(null);
-  const [yesterdayDate, setYesterdayDate] = useState<string | null>(null);
-  const displayMoisture =
-    (yesterdayMoisture ?? 0) > 0
-      ? (yesterdayMoisture as number)
-      : currentSoilMoisture > 0
-      ? currentSoilMoisture
-      : moisturePercent;
-  
-  // Debug: Log the values being used
-  console.log('SoilMoistureCard Debug:', {
-    currentSoilMoisture: currentSoilMoisture,
-    moisturePercent: moisturePercent,
-    displayMoisture: displayMoisture,
-    appState: appState,
-    selectedPlotName: selectedPlotName
-  });
-  
-  const [loading, setLoading] = useState<boolean>(!displayMoisture);
+
+  const [tubeDays, setTubeDays] = useState<TubeDay[]>([]);
+  const [selDay, setSelDay] = useState<number>(-1);
+  const [waterRange, setWaterRange] = useState<WaterRange>("week");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [chartLoading, setChartLoading] = useState<boolean>(false);
+  const [monthLoaded, setMonthLoaded] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [plotName, setPlotName] = useState<string>("");
+  const [plotCoords, setPlotCoords] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
+  const [cropName, setCropName] = useState<string>("grapes");
+  const chartScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Set plot name from global selectedPlotName or fallback to first plot
+  const band = useMemo(() => {
+    if (optimalRange) {
+      return {
+        minOptimal: optimalRange[0],
+        maxOptimal: optimalRange[1],
+      };
+    }
+    return moistureBandForCrop(cropName);
+  }, [optimalRange, cropName]);
+
   useEffect(() => {
-    if (profile && !profileLoading) {
-      let plotToUse = "";
-      
-      // Use global selectedPlotName if available
-      if (selectedPlotName) {
-        // Find the plot by fastapi_plot_id or constructed ID
-        const foundPlot = profile.plots?.find((plot: any) => 
+    if (!profile || profileLoading) return;
+
+    let plotToUse = "";
+    let coords: { lat: number; lon: number } | null = null;
+    let crop = "grapes";
+
+    let selectedPlot: any = null;
+    if (selectedPlotName) {
+      selectedPlot = profile.plots?.find(
+        (plot: any) =>
           plot.fastapi_plot_id === selectedPlotName ||
-          `${plot.gat_number}_${plot.plot_number}` === selectedPlotName
-        );
-        
-        if (foundPlot && foundPlot.fastapi_plot_id) {
-          plotToUse = foundPlot.fastapi_plot_id;
-        } else {
-          plotToUse = selectedPlotName || ""; // Use as-is if not found (might be a different format)
+          `${plot.gat_number}_${plot.plot_number}` === selectedPlotName ||
+          `${plot.gat_number}/${plot.plot_number}` === selectedPlotName,
+      );
+    }
+    if (!selectedPlot && profile.plots?.length) {
+      selectedPlot = profile.plots[0];
+    }
+
+    if (selectedPlot) {
+      plotToUse =
+        selectedPlot.fastapi_plot_id ||
+        `${selectedPlot.gat_number}_${selectedPlot.plot_number}` ||
+        "";
+
+      const loc = selectedPlot?.coordinates?.location?.coordinates;
+      if (Array.isArray(loc) && loc.length >= 2) {
+        const lon = Number(loc[0]);
+        const lat = Number(loc[1]);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          coords = { lat, lon };
         }
       } else {
-        // Fallback to first plot
-        const plotNames = profile.plots?.map((plot: any) => plot.fastapi_plot_id) || [];
-        plotToUse = plotNames.length > 0 ? plotNames[0] : "";
+        // Flutter: centroid of polygon when point missing
+        const ring =
+          selectedPlot?.coordinates?.boundary?.coordinates?.[0] ||
+          selectedPlot?.boundary?.coordinates?.[0];
+        if (Array.isArray(ring) && ring.length >= 3) {
+          let sx = 0;
+          let sy = 0;
+          let n = 0;
+          for (const pt of ring) {
+            if (!Array.isArray(pt) || pt.length < 2) continue;
+            sx += Number(pt[0]);
+            sy += Number(pt[1]);
+            n += 1;
+          }
+          if (n > 0) coords = { lat: sy / n, lon: sx / n };
+        }
       }
-      
-      if (plotToUse && plotToUse !== plotName) {
-        setPlotName(plotToUse);
-        console.log('SoilMoistureCard: Setting plot name to:', plotToUse);
-      }
+
+      const cropRaw =
+        selectedPlot?.crop_variety ??
+        selectedPlot?.crop_type?.crop_variety ??
+        selectedPlot?.farms?.[0]?.crop_variety ??
+        selectedPlot?.farms?.[0]?.crop_type?.crop_variety ??
+        profile?.agricultural_summary?.crop_types?.[0] ??
+        "grapes";
+      if (cropRaw) crop = String(cropRaw);
     }
-  }, [profile, profileLoading, selectedPlotName]);
 
-  // Monitor when value changes
-  useEffect(() => {
-    if (displayMoisture > 0) setLoading(false);
-  }, [displayMoisture]);
+    if (plotToUse && plotToUse !== plotName) setPlotName(plotToUse);
+    setPlotCoords(coords);
+    setCropName(crop);
+  }, [profile, profileLoading, selectedPlotName, plotName]);
 
-  // Fetch yesterday moisture from 9006 endpoint
+  // Flutter WaterBalanceApi: last 30 days ending today (NOT same-day-last-month).
+  // Cumulative water_remain_liters depends on start_date — wrong window ⇒ wrong Aug values.
+  const chartRange = useMemo(() => pastRange(30), []);
+
   useEffect(() => {
     if (!plotName) return;
-    fetchYesterdayFromStack();
-  }, [plotName]);
+    let cancelled = false;
 
-  const fetchSoilMoistureStack = async (plot: string): Promise<SoilMoistureStackResponse> => {
-    // API: https://cropeye-grapes-sef-production.up.railway.app/docs#/default/soil_moisture_soil_moisture__plot_name__post
-    // Response URL: https://cropeye-grapes-sef-production.up.railway.app/soil-moisture/14D_14
-    const baseUrl = 'https://cropeye-grapes-sef-production.up.railway.app';
-    const url = `${baseUrl}/soil-moisture/${encodeURIComponent(plot)}`;
-    
-    console.log(`💧 SoilMoistureCard: Fetching soil moisture data from: ${url}`);
-    
-    // Create AbortController with 5 minute timeout to prevent session timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-    
-    try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        mode: 'cors',
-        cache: 'no-cache',
-        credentials: 'omit',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        // Empty body as per API specification
-      });
-      
-      clearTimeout(timeoutId);
-      
-        if (!resp.ok) {
-        const errorText = await resp.text().catch(() => 'Unable to read error response');
-        throw new Error(`HTTP ${resp.status}: ${errorText || resp.statusText}`);
-      }
-      
-      const data = await resp.json();
-      console.log(`✅ SoilMoistureCard: Soil moisture data received:`, data);
-      
-      // Validate response structure
-      if (!data || typeof data !== 'object') {
-        throw new Error('Invalid response: Expected JSON object');
-      }
-      
-      // Check if soil_moisture_stack exists and is an array
-      if (!data.soil_moisture_stack || !Array.isArray(data.soil_moisture_stack)) {
-        console.warn('⚠️ SoilMoistureCard: Response missing or invalid soil_moisture_stack:', data);
-        // Return empty array if structure is invalid but don't throw error
-        return {
-          plot_name: data.plot_name || plot,
-          latitude: data.latitude || 0,
-          longitude: data.longitude || 0,
-          soil_moisture_stack: []
-        };
-      }
-      
-      return data as SoilMoistureStackResponse;
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      
-      // Handle timeout errors gracefully
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.warn('⚠️ Soil moisture request timed out after 5 minutes');
-        throw new Error('Request timed out. The server is taking longer than expected to respond.');
-      } else {
-        // Handle network/CORS errors
-        if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS') || error.message?.includes('NetworkError')) {
-          console.error('❌ SoilMoistureCard: Network/CORS error:', error);
-          throw new Error('Network error: Unable to connect to the server. Please check your connection.');
-        } else {
-          console.error('❌ SoilMoistureCard: Error fetching soil moisture data:', error);
-          throw error;
+    const applyTubeDays = (
+      waterParsed: { days: WaterRemainDay[]; plotName: string },
+      range: { start_date: string; end_date: string },
+      moistureByDate: Map<string, number>,
+      currentMoisture: number,
+      rainByDate: Map<string, number>,
+    ) => {
+      const days = buildTubesFromWaterRemain(
+        waterParsed.days,
+        moistureByDate,
+        currentMoisture,
+        rainByDate,
+        range,
+      );
+      if (!days.length) return false;
+      setTubeDays(days);
+      setSelDay(days.length - 1);
+      return true;
+    };
+
+    const publishWaterSeries = (
+      waterParsed: { days: WaterRemainDay[]; plotName: string },
+      range: { start_date: string; end_date: string },
+    ) => {
+      setAppState((prev: any) => ({
+        ...prev,
+        waterRemainSeries: filterDaysInRange(
+          waterParsed.days,
+          range.start_date,
+          range.end_date,
+        ),
+        waterRemainPlot: waterParsed.plotName,
+      }));
+    };
+
+    const load = async () => {
+      setLoading(true);
+      setChartLoading(true);
+      setMonthLoaded(false);
+      setError(null);
+      setTubeDays([]);
+      setSelDay(-1);
+
+      const quickRange = pastRange(7);
+      const monthRange = chartRange;
+      const rainDaysBack = Math.max(
+        7,
+        Math.ceil(
+          (new Date(`${monthRange.end_date}T12:00:00`).getTime() -
+            new Date(`${monthRange.start_date}T12:00:00`).getTime()) /
+            86400000,
+        ) + 1,
+      );
+
+      // Flutter WaterBalanceApi: crop + field centroid + date window
+      const waterExtras = {
+        cropName: cropName || "grapes",
+        lat: plotCoords?.lat,
+        lon: plotCoords?.lon,
+      };
+
+      const monthWaterPromise = fetchWaterRemainForPlot(
+        plotName,
+        profile?.plots,
+        30,
+        monthRange,
+        waterExtras,
+      );
+
+      try {
+        const [moistureParsed, quickWater, rainByDate] = await Promise.all([
+          fetchSoilMoistureForPlot(plotName, profile?.plots).catch(() => null),
+          fetchWaterRemainForPlot(
+            plotName,
+            profile?.plots,
+            7,
+            quickRange,
+            waterExtras,
+          ).catch(() => null),
+          plotCoords
+            ? fetchPastDailyRainfall(plotCoords.lat, plotCoords.lon, 7).catch(
+                () => new Map<string, number>(),
+              )
+            : Promise.resolve(new Map<string, number>()),
+        ]);
+        if (cancelled) return;
+
+        const moistureByDate = new Map<string, number>();
+        let currentMoisture = 50;
+        if (moistureParsed) {
+          currentMoisture = moistureParsed.currentMoisture;
+          for (const row of moistureParsed.stack) {
+            moistureByDate.set(row.day, row.soil_moisture);
+            const key = String(row.day).slice(0, 10);
+            const rain = Number(row.rainfall_mm_yesterday);
+            if (key && Number.isFinite(rain) && rain > 0) {
+              rainByDate.set(key, rain);
+            }
+          }
+          setAppState((prev: any) => ({
+            ...prev,
+            soilMoisture: currentMoisture,
+            moistureStatus:
+              currentMoisture >= band.minOptimal &&
+              currentMoisture <= band.maxOptimal
+                ? ""
+                : currentMoisture < band.minOptimal
+                  ? "Low"
+                  : "High",
+          }));
+
+          // Prefer API coords when profile has none
+          if (
+            !plotCoords &&
+            moistureParsed.latitude != null &&
+            moistureParsed.longitude != null
+          ) {
+            setPlotCoords({
+              lat: moistureParsed.latitude,
+              lon: moistureParsed.longitude,
+            });
+          }
+        }
+
+        if (quickWater) {
+          applyTubeDays(
+            quickWater,
+            quickRange,
+            moistureByDate,
+            currentMoisture,
+            rainByDate,
+          );
+          publishWaterSeries(quickWater, quickRange);
+        } else if (moistureParsed) {
+          const moistureTubes = buildTubesFromMoistureStack(
+            moistureByDate,
+            rainByDate,
+            currentMoisture,
+          );
+          if (moistureTubes.length) {
+            setTubeDays(moistureTubes);
+            setSelDay(moistureTubes.length - 1);
+            setError(null);
+          }
+        }
+
+        try {
+          const monthWater = await monthWaterPromise.catch(() => null);
+          if (cancelled) return;
+
+          let monthRain = rainByDate;
+          if (plotCoords && rainDaysBack > 7) {
+            monthRain = await fetchPastDailyRainfall(
+              plotCoords.lat,
+              plotCoords.lon,
+              rainDaysBack,
+            ).catch(() => rainByDate);
+          }
+          if (cancelled) return;
+
+          if (monthWater) {
+            applyTubeDays(
+              monthWater,
+              monthRange,
+              moistureByDate,
+              currentMoisture,
+              monthRain,
+            );
+            publishWaterSeries(monthWater, monthRange);
+            setMonthLoaded(true);
+          } else if (!quickWater && moistureParsed) {
+            setMonthLoaded(true);
+          }
+        } catch (monthErr: any) {
+          if (cancelled) return;
+          if (quickWater) {
+            publishWaterSeries(quickWater, quickRange);
+          } else if (!moistureParsed) {
+            setTubeDays([]);
+            setSelDay(-1);
+            const msg = formatWaterRemainError(monthErr, plotName);
+            if (msg) setError(msg);
+          }
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setTubeDays([]);
+        setSelDay(-1);
+        const msg = formatWaterRemainError(err, plotName);
+        if (msg) setError(msg);
+      } finally {
+        if (!cancelled) {
+          setChartLoading(false);
+          setLoading(false);
         }
       }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    plotName,
+    plotCoords?.lat,
+    plotCoords?.lon,
+    cropName,
+    chartRange,
+    band.minOptimal,
+    band.maxOptimal,
+    setAppState,
+    profile?.plots,
+  ]);
+
+  const visibleDays = useMemo(
+    () => sliceForRange(tubeDays, waterRange),
+    [tubeDays, waterRange],
+  );
+
+  // Flutter: _selDay is always an index into the full time series.
+  // Week/Day tabs only change which slice is charted; cards stay on that day.
+  const visibleBase = useMemo(() => {
+    if (!tubeDays.length || !visibleDays.length) return 0;
+    return Math.max(0, tubeDays.length - visibleDays.length);
+  }, [tubeDays.length, visibleDays.length]);
+
+  useEffect(() => {
+    if (!tubeDays.length) {
+      setSelDay(-1);
+      return;
     }
-  };
+    setSelDay((prev) => {
+      if (prev < 0 || prev >= tubeDays.length) {
+        return tubeDays.length - 1;
+      }
+      // Day tab = hourly for the selected day — do not snap away from selection.
+      if (waterRange === "day") return prev;
+      // If current day is outside the visible Week/Month window, snap to last visible.
+      if (prev < visibleBase || prev >= visibleBase + visibleDays.length) {
+        return visibleBase + visibleDays.length - 1;
+      }
+      return prev;
+    });
+  }, [tubeDays, visibleBase, visibleDays.length, waterRange]);
 
-  const fetchYesterdayFromStack = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const rawCacheKey = `soilMoistureStack_${plotName}`;
-      const cachedStack = getCached(rawCacheKey);
-      const stack = cachedStack || await fetchSoilMoistureStack(plotName);
-      if (!cachedStack) {
-        setCached(rawCacheKey, stack);
-      }
-      console.log(`✅ SoilMoistureCard: Received stack data:`, stack);
-      
-      const arr = Array.isArray(stack.soil_moisture_stack) ? stack.soil_moisture_stack : [];
-      
-      if (!arr.length) {
-        console.warn('⚠️ SoilMoistureCard: Empty soil_moisture_stack array');
-        throw new Error('No soil moisture data available in response');
-      }
-      
-      // Sort by day and get the latest entry (API returns daily ascending)
-      const sorted = [...arr].sort((a, b) => {
-        const dateA = new Date(a.day).getTime();
-        const dateB = new Date(b.day).getTime();
-        return dateA - dateB;
-      });
-      
-      const last = sorted[sorted.length - 1];
-      console.log(`✅ SoilMoistureCard: Latest soil moisture entry:`, last);
-      
-      if (!last || last.soil_moisture === undefined) {
-        throw new Error('Invalid soil moisture data structure');
-      }
-      
-      const moistureValue = parseFloat((last.soil_moisture || 0).toFixed(2));
-      setYesterdayMoisture(moistureValue);
-      setYesterdayDate(last.day);
-      
-      // Set status based on optimalRange
-      let st = "Loading...";
-      if (moistureValue >= optimalRange[0] && moistureValue <= optimalRange[1]) {
-        st = "Moderated";
-      } else if (moistureValue < optimalRange[0]) {
-        st = "Low";
-      } else {
-        st = "High";
-      }
-      
-      setAppState((prev:any)=>({ 
-        ...prev, 
-        moisturePercent: moistureValue, 
-        moistureStatus: st,
-        currentSoilMoisture: moistureValue
-      }));
-      
-      console.log(`✅ SoilMoistureCard: Updated state - Moisture: ${moistureValue}%, Status: ${st}`);
-    } catch (err:any) {
-      // Fallback: use trend data from context if available
-      const trend = Array.isArray(appState.soilMoistureTrendData) ? appState.soilMoistureTrendData : [];
-      if (trend.length) {
-        const last = [...trend].sort((a:any,b:any)=> (a.date||a.day).localeCompare((b.date||b.day))).slice(-1)[0];
-        const val = typeof last?.value === 'number' ? last.value : (last?.soil_moisture || 0);
-        const dt = last?.date || last?.day || null;
-        setYesterdayMoisture(parseFloat((val || 0).toFixed(2)));
-        if (dt) setYesterdayDate(dt);
-        let st = "Loading...";
-        if (val >= optimalRange[0] && val <= optimalRange[1]) st = "Moderated"; else if (val < optimalRange[0]) st = "Low"; else st = "High";
-        setAppState((prev:any)=>({ ...prev, moisturePercent: val, moistureStatus: st }));
-        setError(null);
-      } else {
-        setError(`Failed to fetch soil moisture data: ${err.message || err}`);
-      }
-    } finally {
-      setLoading(false);
+  // Keep ~7 cards in view; scroll so the selected day is among them (usually the latest).
+  useEffect(() => {
+    const root = chartScrollRef.current;
+    if (!root || selDay < 0) return;
+    const idx = selDay - visibleBase;
+    if (idx < 0) return;
+    const el = root.querySelector(
+      `[data-day-idx="${idx}"]`,
+    ) as HTMLElement | null;
+    el?.scrollIntoView({
+      behavior: "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
+  }, [selDay, visibleBase, visibleDays.length, waterRange]);
+
+  const selected =
+    selDay >= 0 && selDay < tubeDays.length ? tubeDays[selDay] : null;
+
+  const irrigKl = irrigationNeededKl(selected?.waterRemainLiters ?? 0);
+  // Flutter ETo loss card: eto_loss_liters / 1000 → kL
+  const etoKl = etoLossKl(selected?.etoLossLiters ?? 0);
+  const etoTodayMm = selected?.etoSumMm ?? 0;
+  const selectedRemainKl = remainKl(selected?.waterRemainLiters ?? 0);
+
+  const chartH = compact ? 200 : medium ? 240 : fullWidth ? 280 : 280;
+
+  // Status badge uses full series; bar heights use visible window so Week fills space.
+  const seriesMaxRemainL = useMemo(() => {
+    let max = 0;
+    for (const d of tubeDays) {
+      max = Math.max(max, Math.abs(d.waterRemainLiters));
     }
-  };
+    return max > 0 ? max : 1;
+  }, [tubeDays]);
 
+  const visibleMaxRemainL = useMemo(() => {
+    let max = 0;
+    for (const d of visibleDays) {
+      max = Math.max(max, Math.abs(d.waterRemainLiters));
+    }
+    return max > 0 ? max : 1;
+  }, [visibleDays]);
 
+  /** Week/month with only surplus → grow bars from bottom (use full height). */
+  const weekFillFromBottom = useMemo(() => {
+    if (waterRange === "day" || !visibleDays.length) return false;
+    return !visibleDays.some(
+      (d) => irrigationNeededKl(d.waterRemainLiters) >= 0.05,
+    );
+  }, [visibleDays, waterRange]);
 
-  const statusColor =
-    status === "Moderated"
-      ? "text-green-500"
-      : status === "Low"
-      ? "text-yellow-500"
-      : status === "High"
-      ? "text-red-500"
-      : "text-gray-500";
+  // Day tab only — Flutter LineChart: hourly waterVolumeAfterLiters / 1000 (kL).
+  const hourlyBars = useMemo(() => {
+    if (!selected?.hourlySteps?.length) return [];
+    return selected.hourlySteps.map((h, i) => {
+      const clock = `${String(i).padStart(2, "0")}:00`;
+      return {
+        hour: i,
+        label: `H${i}`,
+        clock,
+        kl: Number((h.waterVolumeAfterLiters / 1000).toFixed(2)),
+        liters: h.waterVolumeAfterLiters,
+      };
+    });
+  }, [selected]);
+
+  const hourlyMaxAbsKl = useMemo(() => {
+    let max = 0;
+    for (const h of hourlyBars) max = Math.max(max, Math.abs(h.kl));
+    return max > 0.01 ? max : 1;
+  }, [hourlyBars]);
+
+  /** Day Y-axis: match ref screenshot for all-deficit; Flutter symmetric when mixed. */
+  const hourlyYDomain = useMemo((): [number, number] => {
+    if (!hourlyBars.length) return [-1, 1];
+    const vals = hourlyBars.map((h) => h.kl);
+    const dataMin = Math.min(...vals);
+    const dataMax = Math.max(...vals);
+    // All deficit (screenshot case): top ≈ 0/1, bottom below min
+    if (dataMax <= 0) {
+      return [Math.floor(dataMin * 1.08), 1];
+    }
+    // All surplus: from 0 up
+    if (dataMin >= 0) {
+      return [0, Math.max(1, Math.ceil(dataMax * 1.08))];
+    }
+    // Mixed remain/deficit — Flutter: ±maxAbs
+    const m = hourlyMaxAbsKl;
+    return [-m, m];
+  }, [hourlyBars, hourlyMaxAbsKl]);
+
+  const balanceStatus = waterBalanceStatus(
+    selectedRemainKl,
+    Math.max(1, seriesMaxRemainL / 1000),
+  );
+
+  const dateRangeLabel = useMemo(() => {
+    if (!visibleDays.length) {
+      return formatIrrigationDateRange(
+        chartRange.start_date,
+        chartRange.end_date,
+      );
+    }
+    return formatIrrigationDateRange(
+      visibleDays[0].day,
+      visibleDays[visibleDays.length - 1].day,
+    );
+  }, [visibleDays, chartRange]);
+
+  const statusBadgeClass =
+    balanceStatus.label === "Low"
+      ? "water-balance-badge--low"
+      : balanceStatus.label === "Moderate"
+        ? "water-balance-badge--moderated"
+        : "water-balance-badge--high";
 
   return (
-    <div className={`irrigation-card h-full ${className}`.trim()}>
-      <div className="card-header">
-        <Droplets className="card-icon" size={24} />
-        <h3 className="font-semibold">Soil Moisture</h3>
+    <div
+      className={`irrigation-card ${compact ? "irrigation-card--compact" : ""} ${medium ? "irrigation-card--medium" : ""} ${fullWidth ? "irrigation-card--full" : ""} ${className}`.trim()}
+    >
+      <div className="card-header water-balance-card-header">
+        <div className="flex items-center gap-2 min-w-0">
+          <Droplets className="card-icon shrink-0" size={22} />
+          <h3 className="font-semibold truncate">soil moisture</h3>
+        </div>
+        {!loading && !error && selected && (
+          <span
+            className={`water-balance-badge ${statusBadgeClass}`}
+            style={{ borderColor: balanceStatus.color, color: balanceStatus.color }}
+          >
+            {balanceStatus.label}
+          </span>
+        )}
       </div>
-      <div className="card-content soil-moisture flex-1">
-        <div className="moisture-beaker-container">
-          <div className="moisture-beaker">
-            {loading && (!displayMoisture || displayMoisture === 0) ? (
-              <div className="moisture-loading-overlay">
-                <p>Loading...</p>
-              </div>
-            ) : null}
-            <div
-              className="moisture-liquid"
-              style={{
-                height: `${Math.min(Math.max(displayMoisture || 0, 0), 100)}%`,
-                backgroundColor: (displayMoisture || 0) > 0 ? "#3b82f6" : "transparent",
-              }}
-            >
-              {!loading && (displayMoisture || 0) > 0 && (
-                <span className="moisture-percentage-text">
-                  {displayMoisture.toFixed(2)}%
-            </span>
-              )}
-              {!loading && (displayMoisture || 0) === 0 && (
-                <span className="moisture-percentage-text-empty">0.00%</span>
-              )}
-            </div>
-          </div>
-        </div>
 
-        <div className="moisture-info-section">
-          <p className="moisture-label">Soil Moisture Level</p>
-        <div className="moisture-status">
-          {error ? (
-            <span className="text-red-500">{error}</span>
-            ) : loading ? (
-              <span className="text-gray-500">Loading...</span>
-          ) : (
-            <span className={statusColor}>{status}</span>
-          )}
-        </div>
-        <div className="moisture-range">
-          Range: {optimalRange[0]}–{optimalRange[1]}%
-          </div>
-        </div>
+      <div className="card-content soil-moisture soil-moisture--diverging">
+        {error && <p className="text-xs text-red-500 px-1">{error}</p>}
+
+        {loading && !tubeDays.length ? (
+          <p className="text-xs text-gray-400 text-center py-4">
+            Loading Soil Moisture 
+          </p>
+        ) : (
+          <>
+            {/* Flutter KPI row */}
+            <div className="water-balance-kpi-row">
+              <div
+                className="water-balance-kpi water-balance-kpi--irrigation"
+                style={{
+                  backgroundColor:
+                    (selected?.waterRemainLiters ?? 0) < 0
+                      ? "#FFEBEE"
+                      : "#E3F2FD",
+                }}
+              >
+                <div className="water-balance-kpi-label">
+                  <Droplets
+                    className="h-3.5 w-3.5"
+                    style={{
+                      color:
+                        (selected?.waterRemainLiters ?? 0) < 0
+                          ? "#D32F2F"
+                          : "#0288D1",
+                    }}
+                  />
+                  Irrigation Need
+                </div>
+                <div
+                  className="water-balance-kpi-value"
+                  style={{
+                    color:
+                      (selected?.waterRemainLiters ?? 0) < 0
+                        ? "#D32F2F"
+                        : "#0288D1",
+                  }}
+                >
+                  {irrigKl.toFixed(1)} kL
+                </div>
+              </div>
+              <div className="water-balance-kpi water-balance-kpi--eto">
+                <div className="water-balance-kpi-label">
+                  <Sun className="h-3.5 w-3.5" />
+                  ETo loss
+                </div>
+                <div className="water-balance-kpi-value">{etoKl.toFixed(1)} kL</div>
+              </div>
+            </div>
+
+            <p className="water-balance-eto-hint">
+              ETo today: {etoTodayMm.toFixed(1)} mm/day
+              {dateRangeLabel ? ` · ${dateRangeLabel}` : ""}
+              {chartLoading && !monthLoaded && (
+                <span className="text-gray-400"> · loading month…</span>
+              )}
+            </p>
+
+            <div className="water-balance-range-tabs">
+              {(
+                [
+                  ["day", "Day"],
+                  ["week", "Week"],
+                  ["month", "Month"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`water-balance-tab ${waterRange === key ? "is-active" : ""}`}
+                  onClick={() => setWaterRange(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {visibleDays.length > 0 ? (
+              <>
+                <p className="water-balance-chart-hint">
+                  {waterRange === "day"
+                    ? hourlyBars.length
+                      ? "Hover or tap a point to see the clock time and remain (kL)."
+                      : "No hourly steps for this day"
+                    : "Tap a day for detail"}
+                </p>
+
+                {waterRange === "day" ? (
+                  hourlyBars.length > 0 ? (
+                    <div
+                      className={`moisture-hourly-chart ${compact ? "moisture-hourly-chart--compact" : ""}`}
+                      style={{ height: chartH }}
+                      aria-label="Hourly water remain"
+                    >
+                      <div className="moisture-hourly-chart-plot">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart
+                            data={hourlyBars}
+                            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                          >
+                            <CartesianGrid
+                              strokeDasharray="3 3"
+                              vertical={false}
+                              stroke="#e2e8f0"
+                            />
+                            <XAxis
+                              dataKey="label"
+                              tick={{ fontSize: 13, fill: "#64748b" }}
+                              ticks={hourlyBars
+                                .filter(
+                                  (h) =>
+                                    h.hour % 2 === 0 ||
+                                    h.hour === hourlyBars.length - 1,
+                                )
+                                .map((h) => h.label)}
+                              tickLine={false}
+                              axisLine={{ stroke: "#e2e8f0" }}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 13, fill: "#64748b" }}
+                              tickFormatter={(v) => `${Number(v).toFixed(0)}`}
+                              width={42}
+                              tickLine={false}
+                              axisLine={false}
+                              domain={hourlyYDomain}
+                              label={{
+                                value: "kL",
+                                angle: -90,
+                                position: "insideLeft",
+                                style: { fontSize: 13, fill: "#64748b" },
+                              }}
+                            />
+                            <ReferenceLine
+                              y={0}
+                              stroke="#94a3b8"
+                              strokeWidth={1.5}
+                            />
+                            <Tooltip
+                              formatter={(value: number) => [
+                                `${Number(value).toFixed(1)} kL`,
+                                "Remain",
+                              ]}
+                              labelFormatter={(_label, payload) => {
+                                const row = payload?.[0]?.payload as
+                                  | { clock?: string; hour?: number; label?: string }
+                                  | undefined;
+                                const clock =
+                                  row?.clock ??
+                                  (row?.hour != null
+                                    ? `${String(row.hour).padStart(2, "0")}:00`
+                                    : String(_label ?? ""));
+                                return `${clock} (${row?.label ?? _label})`;
+                              }}
+                              contentStyle={{
+                                fontSize: 13,
+                                borderRadius: 8,
+                                border: "1px solid #e2e8f0",
+                              }}
+                            />
+                            {/* Flutter belowBarData fill under the remain line */}
+                            <Area
+                              type="monotone"
+                              dataKey="kl"
+                              stroke="none"
+                              fill={HOUR_LINE_COLOR}
+                              fillOpacity={0.12}
+                              baseValue={0}
+                              isAnimationActive={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="kl"
+                              stroke={HOUR_LINE_COLOR}
+                              strokeWidth={2.5}
+                              strokeDasharray="6 4"
+                              dot={
+                                ((props: {
+                                  cx?: number;
+                                  cy?: number;
+                                  payload?: { hour?: number; kl?: number };
+                                }) => {
+                                  const { cx, cy, payload } = props;
+                                  if (cx == null || cy == null) {
+                                    return (
+                                      <circle
+                                        key={`dot-empty-${payload?.hour ?? 0}`}
+                                        r={0}
+                                      />
+                                    );
+                                  }
+                                  const color = hourBarColor(
+                                    Number(payload?.kl) || 0,
+                                    hourlyMaxAbsKl,
+                                  );
+                                  return (
+                                    <circle
+                                      key={`dot-${payload?.hour ?? 0}`}
+                                      cx={cx}
+                                      cy={cy}
+                                      r={3.5}
+                                      fill={color}
+                                      stroke="#fff"
+                                      strokeWidth={1}
+                                    />
+                                  );
+                                }) as any
+                              }
+                              activeDot={{ r: 5 }}
+                              isAnimationActive={false}
+                            />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 text-center py-6">
+                      No hourly water data for{" "}
+                      {selected?.shortDate ?? "this day"}
+                    </p>
+                  )
+                ) : (
+                <div
+                  ref={chartScrollRef}
+                  className={`moisture-diverging-scroll moisture-diverging-scroll--flutter ${weekFillFromBottom ? "moisture-diverging-scroll--fill-bottom" : ""} ${medium ? "moisture-diverging-scroll--medium" : ""} ${fullWidth ? "moisture-diverging-scroll--full" : ""} ${compact ? "moisture-diverging-scroll--compact" : ""}`}
+                  style={{ height: chartH }}
+                  data-range={waterRange}
+                  role="list"
+                  aria-label="Water remain by day"
+                >
+                  {visibleDays.map((day, i) => {
+                    const fullIdx = visibleBase + i;
+                    const isSel = fullIdx === selDay;
+                    const remainL = day.waterRemainLiters;
+                    const needKl = irrigationNeededKl(remainL);
+                    const rKl = remainKl(remainL);
+                    const isDeficit = needKl >= 0.05;
+                    const isSurplus = rKl >= 0.05;
+                    const frac =
+                      isDeficit || isSurplus
+                        ? Math.min(
+                            1,
+                            Math.max(0, Math.abs(remainL) / visibleMaxRemainL),
+                          )
+                        : 0;
+                    const barColor = isDeficit ? DEFICIT_COLOR : SURPLUS_COLOR;
+                    // Surplus-only week: use almost full track height. Mixed: half above/below zero.
+                    const heightCss = weekFillFromBottom
+                      ? `max(12px, calc(${frac} * 92%))`
+                      : `max(10px, calc(${frac} * 48%))`;
+
+                    return (
+                      <button
+                        key={day.day || i}
+                        type="button"
+                        role="listitem"
+                        data-day-idx={i}
+                        className="moisture-diverging-day moisture-diverging-day--flutter"
+                        style={{
+                          backgroundColor: isSel
+                            ? `${barColor}1A`
+                            : "transparent",
+                          borderColor: isSel ? `${barColor}73` : "transparent",
+                          height: "100%",
+                        }}
+                        onClick={() => setSelDay(fullIdx)}
+                        title={`${day.shortDate}: ${rKl.toFixed(1)} kL remain · need ${needKl.toFixed(1)} kL`}
+                      >
+                        {isSel ? (
+                          <span
+                            className="moisture-diverging-dot"
+                            style={{ backgroundColor: SELECT_DOT }}
+                          />
+                        ) : (
+                          <span className="moisture-diverging-dot-spacer" />
+                        )}
+
+                        <div
+                          className={`moisture-diverging-track ${
+                            weekFillFromBottom
+                              ? "moisture-diverging-track--fill"
+                              : ""
+                          }`}
+                        >
+                          {!weekFillFromBottom && (
+                            <div className="moisture-diverging-baseline" />
+                          )}
+                          {frac > 0 ? (
+                            <div
+                              className={`moisture-diverging-bar ${
+                                weekFillFromBottom
+                                  ? "is-absolute"
+                                  : isDeficit
+                                    ? "is-deficit"
+                                    : "is-surplus"
+                              }`}
+                              style={{
+                                backgroundColor: barColor,
+                                height: heightCss,
+                              }}
+                            />
+                          ) : (
+                            <span className="moisture-diverging-zero">0</span>
+                          )}
+                        </div>
+
+                        <span
+                          className="moisture-diverging-label"
+                          style={{
+                            color: isSel ? barColor : "#64748b",
+                            fontWeight: isSel ? 800 : 600,
+                          }}
+                        >
+                          {day.shortDate}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                )}
+
+                <div className="moisture-diverging-legend">
+                  <span>
+                    <i style={{ backgroundColor: SURPLUS_COLOR }} /> Remain
+                  </span>
+                  <span>
+                    <i style={{ backgroundColor: DEFICIT_COLOR }} /> Deficit
+                  </span>
+                </div>
+
+                {/* Flutter selected-day footer: date · water remain · ETo mm */}
+                {selected && (
+                  <div className="water-balance-day-footer">
+                    <span className="water-balance-day-footer-date">
+                      {selected.shortDate}
+                    </span>
+                    <span className="water-balance-day-footer-right">
+                      <Droplets
+                        className="h-3 w-3 shrink-0"
+                        style={{
+                          color:
+                            selected.waterRemainLiters < 0
+                              ? "#D32F2F"
+                              : "#0288D1",
+                        }}
+                      />
+                      <span
+                        style={{
+                          color:
+                            selected.waterRemainLiters < 0
+                              ? "#D32F2F"
+                              : "#0288D1",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {remainKl(selected.waterRemainLiters).toFixed(1)} kL
+                        remain
+                      </span>
+                      <span className="water-balance-day-footer-eto">
+                        ETo {Number(selected.etoSumMm || 0).toFixed(1)} mm
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-4">
+                No water-remain series for this plot
+              </p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

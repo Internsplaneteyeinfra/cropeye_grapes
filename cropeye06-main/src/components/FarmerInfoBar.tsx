@@ -221,7 +221,7 @@ function ForecastPeriodRows({
   const rows = periods
     .map(({ key, label }) => {
       const p = prediction[key] as ForecastPeriodPrediction | undefined;
-      if (!hasMeaningfulRainSignal(p)) return null;
+      if (!p || !hasMeaningfulRainSignal(p)) return null;
       return (
         <div key={key} className="notif-forecast-period">
           <span className="notif-forecast-period-label">{label}</span>

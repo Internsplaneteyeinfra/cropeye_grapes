@@ -1,134 +1,684 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import "./Irrigation/Irrigation.css";
-import { Droplets, CloudRain } from "lucide-react";
+import { useAppContext } from "../context/AppContext";
+import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useIrrigationSchedule } from "../hooks/useIrrigationSchedule";
+import {
+  fetchWaterRemainForPlot,
+  filterPastDays,
+  formatIrrigationDateRange,
+  formatWaterRemainError,
+  pastRange,
+  todayIsoInTz,
+  type WaterRemainDay,
+} from "../utils/waterRemainApi";
+import { plotKeyFromRecord } from "../utils/plotName";
+import { fetchSoilMoistureForPlot } from "../utils/soilMoistureApi";
+import { CloudRain, Sun } from "lucide-react";
 
-const compactTime = (time: string) =>
-  time
-    .replace(/\b0\s*hrs?\s*0\s*mins?\b/i, "0m")
-    .replace(/(\d+)\s*hrs?\s*(\d+)\s*mins?/i, "$1h $2m");
+type ScheduleDay = {
+  day: string;
+  etoSumMm: number;
+  etoLossLiters: number;
+  oneMmLiters?: number;
+  waterRemainLiters: number;
+  waterRemainM3: number;
+  waterVolumeLiters: number;
+  rainfall: number;
+};
+
+type PlotCoords = { lat: number; lon: number };
+
+function parsePrecipMm(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
+  if (typeof raw === "string") {
+    const n = Number(raw.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+  return 0;
+}
+
+/** Flutter: irrigation needed kL only when remain is deficit. */
+function irrigationNeededKl(remainLiters: number): number {
+  if (!(remainLiters < 0)) return 0;
+  return Math.abs(remainLiters) / 1000;
+}
+
+/** Flutter: ETo loss volume in kL. */
+function etoLossKl(etoLossLiters: number): number {
+  return Math.max(0, Number(etoLossLiters) || 0) / 1000;
+}
+
+/** Calendar day in Asia/Kolkata: today minus N days → YYYY-MM-DD. */
+function istDayOffset(daysBack: number): string {
+  const today = todayIsoInTz();
+  const d = new Date(`${today}T12:00:00`);
+  d.setDate(d.getDate() - daysBack);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function mapWaterRemainToScheduleDays(
+  days: WaterRemainDay[],
+  rainByDate: Map<string, number>,
+  todayStr: string,
+  rainfallMm: number,
+): ScheduleDay[] {
+  return days.map((item) => {
+    const fromMap = rainByDate.get(item.date);
+    const rainfall =
+      fromMap != null && Number.isFinite(fromMap)
+        ? fromMap
+        : item.date === todayStr
+          ? rainfallMm
+          : 0;
+    return {
+      day: item.date,
+      etoSumMm: item.eto_sum_mm,
+      etoLossLiters: item.eto_loss_liters,
+      oneMmLiters: item.one_mm_liters,
+      waterRemainLiters: item.water_remain_liters,
+      waterRemainM3: item.water_remain_m3,
+      waterVolumeLiters: item.water_volume_liters,
+      rainfall,
+    };
+  });
+}
+
+/** Daily rainfall (mm) for last N days at plot lat/lon — Open-Meteo past_days. */
+async function fetchPastDailyRainfall(
+  lat: number,
+  lon: number,
+  daysBack = 7,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const qs = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    past_days: String(daysBack),
+    forecast_days: "1",
+    daily: "precipitation_sum",
+    timezone: "Asia/Kolkata",
+  });
+  const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${qs}`);
+  if (!resp.ok) throw new Error(`Rainfall API ${resp.status}`);
+  const data = await resp.json();
+  const times: string[] = data?.daily?.time ?? [];
+  const precip: unknown[] = data?.daily?.precipitation_sum ?? [];
+  times.forEach((iso, i) => {
+    const key = String(iso).slice(0, 10);
+    if (key) map.set(key, parsePrecipMm(precip[i]));
+  });
+  return map;
+}
+
+/** Merge CropEye forecast precip for overlapping dates (today + near future). */
+async function fetchForecastRainfall(
+  lat: number,
+  lon: number,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  try {
+    const resp = await fetch(
+      `https://weather-cropeye.up.railway.app/forecast?lat=${lat}&lon=${lon}`,
+    );
+    if (!resp.ok) return map;
+    const data = await resp.json();
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    for (const row of rows) {
+      const key = String(row?.date ?? "").slice(0, 10);
+      if (!key) continue;
+      map.set(key, parsePrecipMm(row?.precipitation));
+    }
+  } catch {
+    /* optional */
+  }
+  return map;
+}
 
 const IrrigationSchedule: React.FC = () => {
-  const {
-    schedule: scheduleData,
-    totals,
-    etLoading,
-    loading,
-    error,
-    irrigationType,
-    getETRangeColor,
-  } = useIrrigationSchedule(true);
+  const { appState, setAppState, selectedPlotName } = useAppContext();
+  const { profile, loading: profileLoading } = useFarmerProfile();
+  const legacySchedule = useIrrigationSchedule(true);
+  const [plotName, setPlotName] = useState<string>("");
+  const [plotCoords, setPlotCoords] = useState<PlotCoords | null>(null);
+  const [cropName, setCropName] = useState<string>("grapes");
+  const [etValue, setEtValue] = useState<number>(0.1);
+  const [rainfallMm, setRainfallMm] = useState<number>(0);
+  /** Past 7 days from water-remain + daily rainfall (Open-Meteo / forecast) */
+  const [remainDays, setRemainDays] = useState<ScheduleDay[]>([]);
+  const [rainByDate, setRainByDate] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [usingLegacyEt, setUsingLegacyEt] = useState(false);
+
+  const getETRange = (etMm: number): "Low" | "Medium" | "High" => {
+    if (etMm <= 3.0) return "Low";
+    if (etMm <= 5.5) return "Medium";
+    return "High";
+  };
+
+  const getETRangeColor = (range: "Low" | "Medium" | "High"): string => {
+    switch (range) {
+      case "Low":
+        return "text-green-600 bg-green-50";
+      case "Medium":
+        return "text-orange-600 bg-orange-50";
+      case "High":
+        return "text-red-600 bg-red-50";
+      default:
+        return "text-gray-600 bg-gray-50";
+    }
+  };
+
+  const fetchCurrentRainfall = async (lat: number, lon: number) => {
+    try {
+      const url = `https://weather-cropeye.up.railway.app/current-weather?lat=${lat}&lon=${lon}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Current weather ${resp.status}`);
+      const data = await resp.json();
+      setRainfallMm(Number(data?.precip_mm) || 0);
+    } catch {
+      setRainfallMm(0);
+    }
+  };
+
+  useEffect(() => {
+    if (!profile || profileLoading) return;
+
+    let selectedPlot = null;
+    if (selectedPlotName) {
+      selectedPlot = profile.plots?.find(
+        (p: any) =>
+          p.fastapi_plot_id === selectedPlotName ||
+          `${p.gat_number}_${p.plot_number}` === selectedPlotName,
+      );
+    }
+    if (!selectedPlot && profile.plots?.length) {
+      selectedPlot = profile.plots[0];
+    }
+    if (!selectedPlot) {
+      setPlotName("");
+      setPlotCoords(null);
+      return;
+    }
+
+    const plotId =
+      plotKeyFromRecord(selectedPlot) ||
+      selectedPlot.fastapi_plot_id ||
+      `${selectedPlot.gat_number}_${selectedPlot.plot_number}`;
+    setPlotName(plotId);
+
+    const cropRaw =
+      selectedPlot?.crop_variety ??
+      selectedPlot?.crop_type?.crop_variety ??
+      selectedPlot?.farms?.[0]?.crop_variety ??
+      selectedPlot?.farms?.[0]?.crop_type?.crop_variety ??
+      profile?.agricultural_summary?.crop_types?.[0] ??
+      "grapes";
+    setCropName(cropRaw ? String(cropRaw) : "grapes");
+
+    try {
+      let latN: number | null = null;
+      let lonN: number | null = null;
+      const loc = selectedPlot?.coordinates?.location?.coordinates;
+      if (Array.isArray(loc) && loc.length >= 2) {
+        lonN = Number(loc[0]);
+        latN = Number(loc[1]);
+      } else {
+        const plotAny = selectedPlot as {
+          coordinates?: { boundary?: { coordinates?: number[][][] } };
+          boundary?: { coordinates?: number[][][] };
+        };
+        const ring =
+          plotAny.coordinates?.boundary?.coordinates?.[0] ||
+          plotAny.boundary?.coordinates?.[0];
+        if (Array.isArray(ring) && ring.length >= 3) {
+          let sx = 0;
+          let sy = 0;
+          let n = 0;
+          for (const pt of ring) {
+            if (!Array.isArray(pt) || pt.length < 2) continue;
+            sx += Number(pt[0]);
+            sy += Number(pt[1]);
+            n += 1;
+          }
+          if (n > 0) {
+            lonN = sx / n;
+            latN = sy / n;
+          }
+        }
+      }
+      if (
+        latN != null &&
+        lonN != null &&
+        Number.isFinite(latN) &&
+        Number.isFinite(lonN)
+      ) {
+        setPlotCoords({ lat: latN, lon: lonN });
+        void fetchCurrentRainfall(latN, lonN);
+      } else {
+        setPlotCoords(null);
+      }
+    } catch {
+      setPlotCoords(null);
+    }
+  }, [profile, profileLoading, selectedPlotName]);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    try {
+      if (!profile || !selectedPlotName) return;
+      let selectedPlot = profile.plots?.find(
+        (p: any) =>
+          p.fastapi_plot_id === selectedPlotName ||
+          `${p.gat_number}_${p.plot_number}` === selectedPlotName,
+      );
+      if (!selectedPlot && profile.plots?.length) selectedPlot = profile.plots[0];
+      const coords = selectedPlot?.coordinates?.location?.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        const [lon, lat] = coords;
+        interval = setInterval(() => {
+          void fetchCurrentRainfall(lat, lon);
+        }, 3600 * 1000);
+      }
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [profile, selectedPlotName]);
+
+  useEffect(() => {
+    if (!plotName) return;
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const rainPromise = plotCoords
+          ? Promise.all([
+              fetchPastDailyRainfall(plotCoords.lat, plotCoords.lon, 7).catch(
+                () => new Map<string, number>(),
+              ),
+              fetchForecastRainfall(plotCoords.lat, plotCoords.lon),
+            ]).then(([past, forecast]) => {
+              const merged = new Map(past);
+              for (const [k, v] of forecast) {
+                // Prefer past/history when present; fill gaps from forecast.
+                if (!merged.has(k) || (merged.get(k) === 0 && v > 0)) {
+                  merged.set(k, v);
+                }
+              }
+              return merged;
+            })
+          : Promise.resolve(new Map<string, number>());
+
+        // Flutter WaterBalanceApi: last 30 days (cumulative remain depends on start_date).
+        const seriesRange = pastRange(30);
+        const waterExtras = {
+          cropName: cropName || "grapes",
+          lat: plotCoords?.lat,
+          lon: plotCoords?.lon,
+        };
+        const [apiResp, moistureResp, rainMap] = await Promise.all([
+          fetchWaterRemainForPlot(
+            plotName,
+            profile?.plots,
+            30,
+            seriesRange,
+            waterExtras,
+          ),
+          fetchSoilMoistureForPlot(plotName, profile?.plots).catch(() => null),
+          rainPromise,
+        ]);
+        if (cancelled) return;
+
+        // Soil-moisture may include rainfall on some plots (often missing).
+        if (moistureResp?.stack?.length) {
+          for (const row of moistureResp.stack) {
+            const key = String(row.day).slice(0, 10);
+            const rain = Number(row.rainfall_mm_yesterday);
+            if (key && Number.isFinite(rain) && rain > 0) {
+              rainMap.set(key, rain);
+            }
+          }
+        }
+        setRainByDate(new Map(rainMap));
+
+        const todayStr = todayIsoInTz();
+        const last7 = filterPastDays(apiResp.days, 7);
+        const mapped = mapWaterRemainToScheduleDays(
+          last7,
+          rainMap,
+          todayStr,
+          rainfallMm,
+        );
+
+        setRemainDays(mapped);
+        setUsingLegacyEt(false);
+        setError(null);
+        setAppState((prev: any) => {
+          const existing = Array.isArray(prev.waterRemainSeries)
+            ? prev.waterRemainSeries
+            : [];
+          const keepLonger =
+            existing.length >= apiResp.days.length &&
+            (!prev.waterRemainPlot ||
+              String(prev.waterRemainPlot).toLowerCase() ===
+                String(apiResp.plotName || plotName).toLowerCase());
+          return {
+            ...prev,
+            waterRemainSeries: keepLonger ? existing : apiResp.days,
+            waterRemainPlot: apiResp.plotName || plotName,
+          };
+        });
+        if (last7.length) {
+          const latestEt = last7[last7.length - 1].eto_sum_mm;
+          if (latestEt > 0) setEtValue(latestEt);
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        // Grapes SEF has no water-remain yet — fall back to compute-et schedule UI.
+        setUsingLegacyEt(true);
+        setRemainDays([]);
+        const msg = formatWaterRemainError(e, plotName);
+        if (msg) {
+          console.warn("IrrigationSchedule: water-remain unavailable,", msg);
+        }
+        setError(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    plotName,
+    plotCoords,
+    cropName,
+    profile?.plots,
+    rainfallMm,
+    setAppState,
+  ]);
+
+  // When Soil Moisture finishes loading a longer series, refresh the 7-day table from it.
+  useEffect(() => {
+    const shared = Array.isArray(appState.waterRemainSeries)
+      ? (appState.waterRemainSeries as WaterRemainDay[])
+      : [];
+    if (!plotName || shared.length < 7) return;
+    const plotMatch =
+      !appState.waterRemainPlot ||
+      String(appState.waterRemainPlot).toLowerCase() ===
+        String(plotName).toLowerCase();
+    if (!plotMatch) return;
+
+    const todayStr = todayIsoInTz();
+    const last7 = filterPastDays(shared, 7);
+    setRemainDays(
+      mapWaterRemainToScheduleDays(last7, rainByDate, todayStr, rainfallMm),
+    );
+  }, [
+    appState.waterRemainSeries,
+    appState.waterRemainPlot,
+    plotName,
+    rainByDate,
+    rainfallMm,
+  ]);
+
+  const generateScheduleData = () => {
+    const todayStr = todayIsoInTz();
+
+    // Grapes SEF fallback: map compute-et / Water(L) schedule into sugarcane kL grid.
+    if (
+      (usingLegacyEt || remainDays.length === 0) &&
+      legacySchedule.schedule.length > 0
+    ) {
+      return legacySchedule.schedule.map((row) => {
+        const irrigKl = Math.max(0, Number(row.waterRequired) || 0) / 1000;
+        return {
+          date: row.date,
+          isoDate: row.isoDate,
+          isToday: row.isToday,
+          etDisplayed: Number(row.etDisplayed || 0),
+          etRange: row.etRange,
+          etoLossLiters: 0,
+          etoLossKl: 0,
+          irrigationNeedKl: irrigKl,
+          waterRemainLiters: irrigKl > 0 ? -(irrigKl * 1000) : 0,
+          waterRemainM3: 0,
+          rainfall: Number(row.rainfall) || 0,
+          dataMissing: false,
+        };
+      });
+    }
+
+    const scheduleData: Array<any> = [];
+
+    // Always show 7 IST calendar days. Missing API rows → irrigation need = 0.0 kL.
+    const byDate = new Map(remainDays.map((d) => [d.day, d]));
+    const sourceDays: ScheduleDay[] = [];
+    for (let idx = 6; idx >= 0; idx -= 1) {
+      const key = istDayOffset(idx);
+      const hist = byDate.get(key);
+      sourceDays.push(
+        hist ?? {
+          day: key,
+          etoSumMm: key === todayStr ? etValue : 0,
+          etoLossLiters: 0,
+          oneMmLiters: undefined,
+          waterRemainLiters: 0,
+          waterRemainM3: 0,
+          waterVolumeLiters: 0,
+          rainfall: key === todayStr ? rainfallMm : 0,
+        },
+      );
+    }
+
+    for (const hist of sourceDays) {
+      const date = new Date(hist.day + "T12:00:00");
+      const isToday = hist.day === todayStr;
+      const hasRemainSeries = byDate.has(hist.day);
+      const etMm = hasRemainSeries
+        ? hist.etoSumMm > 0
+          ? hist.etoSumMm
+          : isToday
+            ? etValue
+            : 0
+        : isToday
+          ? etValue
+          : 0;
+      const rainMm =
+        hist.rainfall > 0
+          ? hist.rainfall
+          : isToday
+            ? rainfallMm
+            : hist.rainfall;
+
+      // Same rule as soil-moisture card: deficit remain → irrigation need kL.
+      const irrigKl = hasRemainSeries
+        ? irrigationNeededKl(hist.waterRemainLiters)
+        : 0;
+      const lossKl = hasRemainSeries ? etoLossKl(hist.etoLossLiters) : 0;
+
+      scheduleData.push({
+        date: date.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+        }),
+        isoDate: hist.day,
+        isToday,
+        etDisplayed: Number(etMm.toFixed(1)),
+        etRange: getETRange(etMm),
+        etoLossLiters: hasRemainSeries ? hist.etoLossLiters : 0,
+        etoLossKl: lossKl,
+        irrigationNeedKl: irrigKl,
+        waterRemainLiters: hasRemainSeries ? hist.waterRemainLiters : 0,
+        waterRemainM3: hasRemainSeries ? hist.waterRemainM3 : 0,
+        rainfall: rainMm,
+        dataMissing: !hasRemainSeries,
+      });
+    }
+
+    return scheduleData;
+  };
+
+  const scheduleData = generateScheduleData();
+  const tableLoading =
+    loading ||
+    (usingLegacyEt && legacySchedule.loading && scheduleData.length === 0);
+  const dateRangeLabel =
+    scheduleData.length >= 2
+      ? formatIrrigationDateRange(
+          scheduleData[0].isoDate,
+          scheduleData[scheduleData.length - 1].isoDate,
+        )
+      : scheduleData.length === 1
+        ? formatIrrigationDateRange(
+            scheduleData[0].isoDate,
+            scheduleData[0].isoDate,
+          )
+        : "";
+  const totalEtoMm = scheduleData.reduce(
+    (sum, day) => sum + (Number(day.etDisplayed) || 0),
+    0,
+  );
+  const totalRainMm = scheduleData.reduce(
+    (sum, day) => sum + (Number(day.rainfall) || 0),
+    0,
+  );
+  const totalIrrigationNeedKl = scheduleData.reduce(
+    (sum, day) => sum + (Number(day.irrigationNeedKl) || 0),
+    0,
+  );
+
+  useEffect(() => {
+    const data = generateScheduleData();
+    if (data.length > 0) {
+      setAppState((prev: any) => ({
+        ...prev,
+        irrigationScheduleData: data,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etValue, rainfallMm, remainDays, usingLegacyEt, legacySchedule.schedule, setAppState]);
 
   return (
-    <div className="irrigation-schedule-card bg-white rounded-2xl overflow-hidden shadow h-full min-h-[300px] min-w-0 w-full max-w-full flex flex-col">
-      <div className="bg-white border-b border-gray-100 px-3 py-2.5 flex items-center shrink-0">
-        <h2 className="text-sm font-semibold text-green-700">7-Day Irrigation Schedule</h2>
+    <div className="bg-white rounded-lg overflow-hidden shadow h-full flex flex-col">
+      {/* Slim title bar */}
+      <div className="bg-green-600 text-white px-2 py-1 flex flex-col items-center justify-center shrink-0 gap-0.5">
+        <h2 className="text-xs font-semibold text-center leading-tight">
+          Past 7-Day Irrigation /Acre
+        </h2>
+        {dateRangeLabel && (
+          <p className="text-[9px] text-green-100 leading-tight">{dateRangeLabel}</p>
+        )}
       </div>
 
-      {error && (
-        <p className="text-xs text-red-600 bg-red-50 px-3 py-2 border-b border-red-100">
-          {error}
-        </p>
-      )}
+      <div className="flex-1 min-h-0 flex flex-col px-1.5 pt-1 pb-1 gap-0.5 overflow-hidden">
+        {/* Header row */}
+        <div className="irrigation-schedule-grid irrigation-schedule-grid--head shrink-0 rounded bg-green-100 px-2 py-0.5 text-[9px] font-semibold text-gray-700">
+          <span>Date</span>
+          <span>ETO Loss (mm)</span>
+          <span>Rain (mm)</span>
+          <span>Irrigation needed (kL)</span>
+        </div>
 
-      <div className="irrigation-schedule-table-wrap flex-1 min-h-0">
-        {loading && scheduleData.length === 0 ? (
-          <p className="text-xs text-gray-500 p-4">Loading irrigation schedule...</p>
-        ) : (
-        <table className="irrigation-schedule-table">
-          <thead className="bg-green-100">
-            <tr>
-              <th>Date</th>
-              <th className="text-center">Action</th>
-              <th>ETO</th>
-              <th>Rain(mm)</th>
-              <th>Water(L)</th>
-              <th title={`${irrigationType} Time`}>Drip</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scheduleData.map((day, idx) => (
-              <tr
-                key={day.isoDate || idx}
-                className={`${idx % 2 ? "bg-white" : "bg-gray-50"} ${
-                  day.isToday ? "irrigation-schedule-today" : ""
-                }`}
-              >
-                <td>
-                  <div className="flex flex-col gap-0.5 items-start justify-center h-full">
-                    <span className="whitespace-nowrap">{day.date}</span>
-                    {day.isToday && (
-                      <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                        Today
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="text-center">
-                  <span
-                    className={`irrigation-action-badge ${
-                      day.needsIrrigation ? "irrigate" : "skip"
-                    }`}
-                    title={
-                      day.needsIrrigation
-                        ? `Irrigate — ${day.time}`
-                        : "No irrigation — rainfall covers water need"
-                    }
-                  >
-                    {day.needsIrrigation ? (
-                      <Droplets className="h-4 w-4" aria-hidden />
-                    ) : (
-                      <CloudRain className="h-4 w-4" aria-hidden />
-                    )}
+        {/* 7 data rows — flex-1 so they share space equally, no scroll */}
+        <div className="irrigation-schedule-days flex-1 min-h-0 flex flex-col gap-0.5">
+          {scheduleData.length === 0 && error ? (
+            <p className="flex-1 flex items-center justify-center text-[10px] text-red-600 px-2 text-center leading-snug">
+              {error}
+            </p>
+          ) : (
+            scheduleData.map((day, idx) => (
+            <div
+              key={day.isoDate || idx}
+              className={[
+                "irrigation-schedule-grid irrigation-schedule-day-card flex-1 min-h-0 rounded px-2 py-0.5 text-[9px]",
+                day.isToday
+                  ? "bg-blue-50 ring-1 ring-blue-300"
+                  : idx % 2
+                    ? "bg-white"
+                    : "bg-gray-50",
+              ].join(" ")}
+            >
+              <div className="min-w-0 flex items-center gap-1">
+                <span className="font-semibold text-gray-800 whitespace-nowrap">
+                  {day.date}
+                </span>
+                <Sun className="h-2.5 w-2.5 shrink-0 text-orange-500" />
+                {day.isToday && (
+                  <span className="inline-block rounded bg-blue-100 px-0.5 text-[7px] font-semibold text-blue-800">
+                    Today
                   </span>
-                </td>
-                <td>
-                  {etLoading && day.isToday ? (
-                    <div className="loading-spinner-small" />
-                  ) : (
+                )}
+              </div>
+
+              <div className="flex flex-col items-start justify-center min-w-0 gap-0.5">
+                {tableLoading ? (
+                  <div className="loading-spinner-small" />
+                ) : (
+                  <>
+                    <span className="text-[11px] font-semibold text-gray-800 whitespace-nowrap">
+                      {Number(day.etDisplayed || 0).toFixed(1)}
+                    </span>
                     <span
-                      className={`px-2 py-1 rounded-md font-semibold text-xs whitespace-nowrap ${getETRangeColor(
-                        day.etRange
-                      )}`}
+                      className={`inline-block rounded px-1 py-0.5 text-[11px] font-medium leading-none ${getETRangeColor(day.etRange)}`}
                     >
                       {day.etRange}
                     </span>
-                  )}
-                </td>
-                <td>
-                  <span className="font-medium text-gray-500 tabular-nums">
-                    {Number(day.rainfall).toFixed(1)}
-                  </span>
-                </td>
-                <td>
-                  <span className="text-blue-600 font-semibold tabular-nums">
-                    {day.waterRequired.toLocaleString()}
-                  </span>
-                </td>
-                <td>
-                  <strong className="tabular-nums" title={day.time}>
-                    {compactTime(day.time)}
-                  </strong>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {totals && (
-            <tfoot>
-              <tr className="bg-green-50 border-t-2 border-green-300 font-semibold">
-                <td colSpan={4}>7-Day Total</td>
-                <td className="text-blue-700 tabular-nums">
-                  {totals.totalWater.toLocaleString()} L
-                </td>
-                <td className="text-gray-900 tabular-nums" title={totals.totalDripFormatted}>
-                  {compactTime(totals.totalDripFormatted)}
-                </td>
-              </tr>
-            </tfoot>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-0.5 font-semibold text-sky-700 whitespace-nowrap">
+                <CloudRain className="h-2.5 w-2.5 shrink-0 text-sky-600" />
+                {Number(day.rainfall || 0).toFixed(1)}
+              </div>
+
+              <div
+                className={`font-semibold whitespace-nowrap ${
+                  (day.irrigationNeedKl ?? 0) > 0
+                    ? "text-red-700"
+                    : "text-emerald-800"
+                }`}
+              >
+                {(Number(day.irrigationNeedKl) || 0).toFixed(1)}
+              </div>
+            </div>
+            ))
           )}
-        </table>
+        </div>
+
+        {/* Total row */}
+        {scheduleData.length > 0 && (
+        <div className="irrigation-schedule-grid irrigation-schedule-grid--total shrink-0 rounded border border-green-200 bg-green-50 px-2 py-0.5 text-[9px] font-semibold">
+          <span className="text-gray-800">7-Day Total</span>
+          <span className="text-gray-700 whitespace-nowrap">
+            {totalEtoMm.toFixed(1)}
+          </span>
+          <span className="text-sky-700 whitespace-nowrap">{totalRainMm.toFixed(1)}</span>
+          <span className="text-emerald-800 whitespace-nowrap">
+            {totalIrrigationNeedKl.toFixed(1)}
+          </span>
+        </div>
         )}
       </div>
+
+      {error && scheduleData.length > 0 && (
+        <div className="error-message-small px-2 pb-2">{error}</div>
+      )}
     </div>
   );
 };

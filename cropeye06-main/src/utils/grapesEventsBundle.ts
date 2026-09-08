@@ -194,15 +194,22 @@ export function collectPlotApiIds(profile: any, plotId: string): string[] {
   for (const p of plots) {
     const gatPlot =
       p.gat_number && p.plot_number ? `${p.gat_number}_${p.plot_number}` : null;
+    const farmFastapi = p.farms?.[0]?.fastapi_plot_id;
     const matches =
       p.fastapi_plot_id === plotId ||
       gatPlot === plotId ||
       p.plot_name === plotId ||
-      String(p.id) === plotId;
+      String(p.id) === plotId ||
+      String(p.plot_id ?? "") === plotId ||
+      String(farmFastapi ?? "") === plotId ||
+      String(p.farms?.[0]?.id ?? "") === plotId;
     if (!matches) continue;
     if (p.fastapi_plot_id) ids.add(String(p.fastapi_plot_id));
     if (gatPlot) ids.add(gatPlot);
     if (p.plot_name) ids.add(String(p.plot_name));
+    if (p.id != null) ids.add(String(p.id));
+    if (p.plot_id != null) ids.add(String(p.plot_id));
+    if (farmFastapi) ids.add(String(farmFastapi));
   }
 
   return [...ids];

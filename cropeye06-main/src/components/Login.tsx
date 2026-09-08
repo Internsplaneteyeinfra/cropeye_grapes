@@ -5,6 +5,8 @@ import { Satellite, Leaf, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { setAuthData, setRefreshToken, getAuthToken, clearAuthData } from '../utils/auth';
 import { USE_MOCK_AUTH } from '../config/authConfig.js';
 import { login } from '../api';
+import { saveUserIndustryFromProfile } from '../utils/userIndustry';
+import { resetFarmerProfileStore } from '../hooks/useFarmerProfile';
 
 export type UserRole = "manager" | "admin" | "fieldofficer" | "farmer" | "owner";
 
@@ -45,191 +47,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   }, []); // Only run once on mount
 
-  // COMMENTED OUT: Send OTP to the provided email
-  // const handleSendOtp = async (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   setLoading(true);
-  //   setError('');
-
-  //   try {
-  //     const response = await fetch('http://192.168.41.67:8002:8000/api/otp/', {
-  //       method: 'POST',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //       },
-  //       body: JSON.stringify({ 
-  //         email: identifier.trim()
-  //       }),
-  //     });
-
-  //     const responseText = await response.text();
-
-  //     if (!response.ok) {
-  //       throw new Error(responseText || 'Error sending OTP');
-  //     }
-
-  //     // Successfully sent OTP
-  //     setStep('otp');
-  //     setError('');
-
-  //   } catch (err: any) {
-  //     console.error('OTP sending error:', err);
-  //     setError(err.message || 'Failed to send OTP. Please try again.');
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-  // COMMENTED OUT: Verify OTP and authenticate user
-  // const handleVerifyOtp = async (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   setLoading(true);
-  //   setError('');
-
-  //   try {
-  //     const response = await fetch('http://192.168.41.67:8002:8000/api/verify-otp/', {
-  //       method: 'POST',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //       },
-  //       body: JSON.stringify({ 
-  //         email: identifier.trim(),
-  //         otp: otp.trim()
-  //       }),
-  //     });
-
-  //     const responseText = await response.text();
-
-  //     if (!response.ok) {
-  //       throw new Error(responseText || 'OTP verification failed');
-  //     }
-
-  //     const result = JSON.parse(responseText);
-  //     const token = result.access || result.token;
-
-  //     if (!token) {
-  //       throw new Error('No authentication token received');
-  //     }
-
-  //     // Fetch user information
-  //     const userResponse = await fetch('http://192.168.41.67:8002:8000/api/users/me/', {
-  //       headers: {
-  //         'Authorization': `Bearer ${token}`,
-  //         'Content-Type': 'application/json',
-  //       },
-  //     });
-
-  //     if (!userResponse.ok) {
-  //       throw new Error('Failed to fetch user information');
-  //     }
-
-  //     const userData = await userResponse.json();
-  //     console.log('User data received:', userData); // Debug log
-  //     console.log('userData.role:', userData.role, 'type:', typeof userData.role);
-  //     console.log('userData.role_id:', userData.role_id, 'type:', typeof userData.role_id);
-
-  //     // Handle both string roles and numeric role_id
-  //     let userRole: UserRole;
-
-  //     // Create role mapping
-  //     const roleMap: { [key: number]: UserRole } = {
-  //       1: 'farmer',
-  //       2: 'fieldofficer', 
-  //       3: 'manager',
-  //       4: 'owner'
-  //     };
-
-  //     if (userData.role && typeof userData.role === 'object' && userData.role.name) {
-  //       // If role is an object with name property, use the name
-  //       userRole = userData.role.name.toLowerCase() as UserRole;
-  //       console.log('Using role object name:', userRole);
-  //     } else if (userData.role && typeof userData.role === 'object' && userData.role.id) {
-  //       // If role is an object with id property, map the id
-  //       userRole = roleMap[userData.role.id] || 'farmer';
-  //       console.log('Using role object id mapping:', userData.role.id, '->', userRole);
-  //     } else if (userData.role && typeof userData.role === 'string') {
-  //       // If role is a string, use it directly
-  //       userRole = userData.role.toLowerCase() as UserRole;
-  //       console.log('Using string role:', userRole);
-  //     } else if (userData.role_id && typeof userData.role_id === 'number') {
-  //       // If role_id is a number, map it to role string
-  //       userRole = roleMap[userData.role_id] || 'farmer';
-  //       console.log('Using role_id mapping:', userData.role_id, '->', userRole);
-  //     } else if (userData.role && typeof userData.role === 'number') {
-  //       // If role is a number, map it to role string
-  //       userRole = roleMap[userData.role] || 'farmer';
-  //       console.log('Using role number mapping:', userData.role, '->', userRole);
-  //     } else {
-  //       // Log all available properties for debugging
-  //       console.log('All userData properties:', Object.keys(userData));
-  //       console.log('Full userData object:', userData);
-
-  //       // Try to find any role-related property
-  //       const possibleRoleKeys = ['role', 'role_id', 'user_role', 'user_type', 'type'];
-  //       let foundRole = null;
-
-  //       for (const key of possibleRoleKeys) {
-  //         if (userData[key] !== undefined) {
-  //           console.log(`Found ${key}:`, userData[key], 'type:', typeof userData[key]);
-  //           if (typeof userData[key] === 'number' && roleMap[userData[key]]) {
-  //             foundRole = roleMap[userData[key]];
-  //             break;
-  //           } else if (typeof userData[key] === 'string') {
-  //             const lowerRole = userData[key].toLowerCase();
-  //             if (['farmer', 'fieldofficer', 'manager', 'admin', 'owner'].includes(lowerRole)) {
-  //               foundRole = lowerRole;
-  //               break;
-  //             }
-  //           }
-  //         }
-  //       }
-
-  //       if (foundRole) {
-  //         userRole = foundRole as UserRole;
-  //         console.log('Found role through property search:', foundRole);
-  //       } else {
-  //         console.error('Could not determine user role from userData:', userData);
-  //         throw new Error(`Invalid user role format. Available data: ${JSON.stringify(userData)}`);
-  //       }
-  //     }
-
-  //     // Validate role
-  //     if (!userRole || !['manager', 'admin', 'fieldofficer', 'farmer', 'owner'].includes(userRole)) {
-  //       throw new Error('Invalid user role');
-  //     }
-
-  //     // Store all authentication data using the utility function
-  //     const userDataToStore = {
-  //       first_name: userData.first_name || '',
-  //       last_name: userData.last_name || '',
-  //       email: userData.email || identifier,
-  //       username: userData.username || '',
-  //       id: userData.id || ''
-  //     };
-
-  //     console.log('🔐 Storing authentication data:', {
-  //       token: token ? `${token.substring(0, 20)}...` : 'null',
-  //       role: userRole,
-  //       userData: userDataToStore
-  //     });
-
-  //     setAuthData(token, userRole, userDataToStore);
-
-  //     // Verify token was stored
-  //     const storedToken = localStorage.getItem('token');
-  //     console.log('✅ Token stored verification:', storedToken ? 'Token stored successfully' : 'Token storage failed');
-
-  //     // Success - call the callback with role and token
-  //     onLoginSuccess(userRole, token);
-
-  //   } catch (err: any) {
-  //     console.error('OTP verification error:', err);
-  //     setError(err.message || 'OTP verification failed. Please try again.');
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
+  // OTP flow removed — use phone/password login against Railway backend
   // NEW: Username and Password Login
   const completeMockLogin = async (phoneOrAlias: string, pass: string) => {
     setLoading(true);
@@ -323,7 +141,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         last_name: userData.last_name || '',
         phone_number: userData.phone_number || phone_number,
         username: userData.username || phone_number,
-        id: userData.id || ''
+        id: userData.id || '',
+        industry: userData.industry ?? null,
+        industry_id:
+          userData.industry_id ??
+          userData.industry?.id ??
+          null,
       };
 
       // Store refresh token if available
@@ -335,6 +158,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       }
 
       setAuthData(token, userRole, userDataToStore, refreshToken);
+      saveUserIndustryFromProfile(userData);
+      resetFarmerProfileStore();
 
       console.log("✅ Login successful - Access token and refresh token stored");
 
@@ -364,9 +189,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           setError(data?.detail || data?.message || `Login failed (${status})`);
         }
       } else if (err.request) {
-        // Network error      
         console.error('Network error:', err.request);
-        setError('Network error. Please check your internet connection.');
+        setError(
+          'Cannot reach login API (/api/backend/login/ → Railway). Check Network tab for that request.',
+        );
       } else {
         // Other error
         setError(err.message || 'Login failed. Please check your credentials.');

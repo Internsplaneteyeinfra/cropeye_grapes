@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
-import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
+import { getEventsBaseUrl } from "../utils/serviceUrls";
 import {
   fetchPlotHarvestInfo,
   harvestInfoFromAgroStatsBatch,
@@ -44,7 +44,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import { useMap } from "react-leaflet";
 
-const API_BASE_URL = `${getBackendApiBaseUrl()}/users/my-field-officers/`;
+const API_BASE_URL = `/users/my-field-officers/`;
 
 // Chart Types
 const CHART_TYPES = {
@@ -749,14 +749,18 @@ const HarvestDashboard: React.FC = () => {
                     }
                   }
 
-                  let stage = "Germination Stage";
-                  if (days > 150) stage = "Maturity Stage";
-                  else if (days > 90) stage = "Grand Growth Stage";
-                  else if (days > 30) stage = "Tillering Stage";
-
-                  // Default status (will be updated from API)
-                  let status = "Growing";
-                  if (days > 270) status = "Ready to Harvest";
+                  const stage =
+                    farm.growth_stage ||
+                    farm.stage ||
+                    plot.growth_stage ||
+                    plot.stage ||
+                    "";
+                  const status =
+                    farm.harvest_status ||
+                    plot.harvest_status ||
+                    farm.status ||
+                    plot.status ||
+                    "";
 
                   // Defaults — overwritten from GET /plots/agroStats below
                   const brix = 0;
@@ -1161,34 +1165,18 @@ const HarvestDashboard: React.FC = () => {
   const stageDistribution = useMemo(() => {
     const stageCounts = filteredData.reduce(
       (acc: { [key: string]: number }, item) => {
-        const stage = item.Stage;
-        let groupedStage = stage;
-        if (stage && stage.toLowerCase().includes("vegetative")) {
-          groupedStage = "Tillering Stage";
-        } else if (stage && stage.toLowerCase().includes("maturity")) {
-          groupedStage = "Maturity Stage";
-        } else if (stage && stage.toLowerCase().includes("germination")) {
-          groupedStage = "Germination Stage";
-        } else if (stage && stage.toLowerCase().includes("grand growth")) {
-          groupedStage = "Grand Growth Stage";
-        }
-        acc[groupedStage] = (acc[groupedStage] || 0) + 1;
+        const stage = String(item.Stage || "").trim();
+        if (!stage) return acc;
+        acc[stage] = (acc[stage] || 0) + 1;
         return acc;
       },
       {},
     );
 
-    const requiredStages = [
-      { stage: "Germination Stage", color: STATUS_COLOR_PALETTE[0] },
-      { stage: "Grand Growth Stage", color: STATUS_COLOR_PALETTE[1] },
-      { stage: "Maturity Stage", color: STATUS_COLOR_PALETTE[2] },
-      { stage: "Tillering Stage", color: STATUS_COLOR_PALETTE[3] },
-    ];
-
-    return requiredStages.map(({ stage, color }) => ({
+    return Object.entries(stageCounts).map(([stage, plots], i) => ({
       stage,
-      plots: stageCounts[stage] || 0,
-      color,
+      plots,
+      color: STATUS_COLOR_PALETTE[i % STATUS_COLOR_PALETTE.length],
     }));
   }, [filteredData]);
 

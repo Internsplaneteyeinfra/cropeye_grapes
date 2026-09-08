@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import api, { getFieldOfficersByManager } from "../api";
+import { loadOwnerFieldOfficers } from "../api";
 import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
@@ -38,14 +38,13 @@ import {
 import "leaflet/dist/leaflet.css";
 import { useMap } from "react-leaflet";
 
-import { getBackendApiBaseUrl, getEventsBaseUrl } from "../utils/serviceUrls";
+import { getStoredUserIndustry } from "../utils/userIndustry";
+import { getEventsBaseUrl } from "../utils/serviceUrls";
 import { extractAgroStatsPlotRow } from "../utils/grapesEventsBundle";
 import {
   fetchPlotHarvestInfo,
   harvestInfoFromAgroStatsBatch,
 } from "../utils/harvestStatusService";
-
-const API_BASE_URL = `${getBackendApiBaseUrl()}/users/owner-hierarchy/`;
 
 // Chart Types
 const CHART_TYPES = {
@@ -355,13 +354,18 @@ function buildHarvestPoint(
     }
   }
 
-  let stage = "Germination Stage";
-  if (days > 150) stage = "Maturity Stage";
-  else if (days > 90) stage = "Grand Growth Stage";
-  else if (days > 30) stage = "Tillering Stage";
-
-  let status = "Growing";
-  if (days > 270) status = "Ready to Harvest";
+  const stage =
+    farm.growth_stage ||
+    farm.stage ||
+    plot.growth_stage ||
+    plot.stage ||
+    "";
+  const status =
+    farm.harvest_status ||
+    plot.harvest_status ||
+    farm.status ||
+    plot.status ||
+    "";
 
   // Yield / brix filled from agroStats after hierarchy load
   const brix = 0;
@@ -751,23 +755,20 @@ const HarvestDashboard: React.FC = () => {
       setLoading(true);
       setLoadError(null);
       try {
-        // 1) Owner list: GET /users/owner-hierarchy/
-        const response = await api.get(API_BASE_URL, { timeout: 60_000 });
-        const apiData = response.data ?? {};
-        const managers = pickArray(
-          apiData.managers,
-          apiData.manager,
-          apiData.results,
-          apiData.data?.managers,
-        );
+        const industry = getStoredUserIndustry();
+        const { fieldOfficers, source } = await loadOwnerFieldOfficers({
+          industryId: industry.id,
+        });
 
-        if (managers.length === 0) {
+        if (fieldOfficers.length === 0) {
           setRawData([]);
           setLoadError(
-            "Owner hierarchy API returned no managers. Check that managers are linked under this owner.",
+            "No field officers found for your grapes industry. Tried my-field-officers, owner-team-connect, and owner-hierarchy — all returned empty.",
           );
           return;
         }
+
+        console.info(`OwnerHarvestDash: loaded ${fieldOfficers.length} FOs via ${source}`);
 
         let allData: HarvestData[] = [];
         const managerSet = new Set<string>();
@@ -775,120 +776,38 @@ const HarvestDashboard: React.FC = () => {
         const representativeSet = new Set<string>();
         const plantationTypeSet = new Set<string>();
 
-        // 2) For each manager: GET /users/owner-hierarchy/?manager_id=…
-        //    (same as Owner Farm Crop Status / getFieldOfficersByManager)
-        const enriched = await Promise.all(
-          managers.map(async (manager: any) => {
-            const mid = manager?.id ?? manager?.user_id ?? manager?.userId;
-            const managerName =
-              `${manager.first_name || ""} ${manager.last_name || ""}`.trim() ||
-              manager?.username ||
-              "Manager";
-            managerSet.add(managerName);
+        fieldOfficers.forEach((officer: any) => {
+          const managerName =
+            `${officer.manager?.first_name || ""} ${officer.manager?.last_name || ""}`.trim() ||
+            officer.manager_name ||
+            officer.manager?.username ||
+            "Owner scope";
+          managerSet.add(managerName);
 
-            let officers = extractOfficers(manager);
-            let payloadFarmers: any[] = [];
+          const representativeName =
+            `${officer.first_name || ""} ${officer.last_name || ""}`.trim() ||
+            officer?.username ||
+            "Field Officer";
+          representativeSet.add(representativeName);
 
-            if (mid != null) {
-              try {
-                const detail = await getFieldOfficersByManager(mid);
-                const detailData = detail?.data ?? {};
-                const detailOfficers = pickArray(
-                  detailData.field_officers,
-                  detailData.fieldOfficers,
+          extractFarmers(officer).forEach((farmer: any) => {
+            extractPlots(farmer).forEach((plot: any) => {
+              if (plot.taluka) talukaSet.add(plot.taluka);
+              else if (plot.district) talukaSet.add(plot.district);
+
+              extractFarms(plot).forEach((farm: any) => {
+                const plantationType =
+                  farm.plantation_type || plot.plantation_type;
+                if (plantationType) plantationTypeSet.add(plantationType);
+
+                allData.push(
+                  buildHarvestPoint(
+                    managerName,
+                    representativeName,
+                    plot,
+                    farm,
+                  ),
                 );
-                if (detailOfficers.length > 0) {
-                  officers = detailOfficers;
-                }
-                payloadFarmers = pickArray(
-                  detailData.farmers,
-                  detailData.farmer_list,
-                  detailData.all_farmers,
-                  detailData._raw?.farmers,
-                );
-              } catch (err) {
-                console.warn(
-                  `OwnerHarvestDash: failed owner-hierarchy?manager_id=${mid}`,
-                  err,
-                );
-              }
-            }
-
-            // Attach payload-level farmers onto FOs when FO.farmers is empty
-            if (payloadFarmers.length > 0) {
-              const anyLinked = payloadFarmers.some((farmer: any) => {
-                const link =
-                  farmer?.field_officer_id ??
-                  farmer?.field_officer?.id ??
-                  farmer?.created_by?.id ??
-                  farmer?.created_by ??
-                  farmer?.created_by_id ??
-                  farmer?.fo_id;
-                return link != null && link !== "";
-              });
-
-              officers = officers.map((officer: any) => {
-                const existing = extractFarmers(officer);
-                if (existing.length > 0) {
-                  return { ...officer, farmers: existing };
-                }
-                const foId = String(officer?.id ?? officer?.user_id ?? "");
-                const linked = payloadFarmers.filter((farmer: any) => {
-                  const link =
-                    farmer?.field_officer_id ??
-                    farmer?.field_officer?.id ??
-                    farmer?.created_by?.id ??
-                    farmer?.created_by ??
-                    farmer?.created_by_id ??
-                    farmer?.fo_id;
-                  return link != null && String(link) === foId;
-                });
-                if (linked.length > 0) {
-                  return { ...officer, farmers: linked };
-                }
-                if (officers.length === 1 || !anyLinked) {
-                  return { ...officer, farmers: payloadFarmers };
-                }
-                return officer;
-              });
-            } else {
-              officers = officers.map((officer: any) => ({
-                ...officer,
-                farmers: extractFarmers(officer),
-              }));
-            }
-
-            return { managerName, officers };
-          }),
-        );
-
-        enriched.forEach(({ managerName, officers }) => {
-          officers.forEach((officer: any) => {
-            const representativeName =
-              `${officer.first_name || ""} ${officer.last_name || ""}`.trim() ||
-              officer?.username ||
-              "Field Officer";
-            representativeSet.add(representativeName);
-
-            extractFarmers(officer).forEach((farmer: any) => {
-              extractPlots(farmer).forEach((plot: any) => {
-                if (plot.taluka) talukaSet.add(plot.taluka);
-                else if (plot.district) talukaSet.add(plot.district);
-
-                extractFarms(plot).forEach((farm: any) => {
-                  const plantationType =
-                    farm.plantation_type || plot.plantation_type;
-                  if (plantationType) plantationTypeSet.add(plantationType);
-
-                  allData.push(
-                    buildHarvestPoint(
-                      managerName,
-                      representativeName,
-                      plot,
-                      farm,
-                    ),
-                  );
-                });
               });
             });
           });
@@ -1015,7 +934,7 @@ const HarvestDashboard: React.FC = () => {
         setRawData(allData);
         if (allData.length === 0) {
           setLoadError(
-            "Owner hierarchy loaded, but no farms/plots were found under managers → field officers → farmers. Check that farmers have plots nested in owner-hierarchy?manager_id=.",
+            "Field officers loaded, but no farms/plots were found. Check that farmers have plots nested in my-field-officers response.",
           );
         }
       } catch (err: any) {
@@ -1024,15 +943,15 @@ const HarvestDashboard: React.FC = () => {
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
           setLoadError(
-            "Not authorized to load owner hierarchy (login may have expired). Please log in again.",
+            "Not authorized to load field officers (login may have expired). Please log in again.",
           );
         } else if (!err?.response) {
           setLoadError(
-            "Network/timeout while loading owner hierarchy. The backend may be slow — try refresh.",
+            "Network/timeout while loading field officers. The backend may be slow — try refresh.",
           );
         } else {
           setLoadError(
-            `Failed to load owner hierarchy (${status || "error"}).`,
+            `Failed to load field officers (${status || "error"}).`,
           );
         }
       } finally {
@@ -1186,34 +1105,18 @@ const HarvestDashboard: React.FC = () => {
   const stageDistribution = useMemo(() => {
     const stageCounts = filteredData.reduce(
       (acc: { [key: string]: number }, item) => {
-        const stage = item.Stage;
-        let groupedStage = stage;
-        if (stage && stage.toLowerCase().includes("vegetative")) {
-          groupedStage = "Tillering Stage";
-        } else if (stage && stage.toLowerCase().includes("maturity")) {
-          groupedStage = "Maturity Stage";
-        } else if (stage && stage.toLowerCase().includes("germination")) {
-          groupedStage = "Germination Stage";
-        } else if (stage && stage.toLowerCase().includes("grand growth")) {
-          groupedStage = "Grand Growth Stage";
-        }
-        acc[groupedStage] = (acc[groupedStage] || 0) + 1;
+        const stage = String(item.Stage || "").trim();
+        if (!stage) return acc;
+        acc[stage] = (acc[stage] || 0) + 1;
         return acc;
       },
       {},
     );
 
-    const requiredStages = [
-      { stage: "Germination Stage", color: STATUS_COLOR_PALETTE[0] },
-      { stage: "Grand Growth Stage", color: STATUS_COLOR_PALETTE[1] },
-      { stage: "Maturity Stage", color: STATUS_COLOR_PALETTE[2] },
-      { stage: "Tillering Stage", color: STATUS_COLOR_PALETTE[3] },
-    ];
-
-    return requiredStages.map(({ stage, color }) => ({
+    return Object.entries(stageCounts).map(([stage, plots], i) => ({
       stage,
-      plots: stageCounts[stage] || 0,
-      color,
+      plots,
+      color: STATUS_COLOR_PALETTE[i % STATUS_COLOR_PALETTE.length],
     }));
   }, [filteredData]);
 

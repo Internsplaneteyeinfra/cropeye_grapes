@@ -57,13 +57,15 @@ import {
 } from "../utils/ripeningMilestones";
 import {
   RECOVERY_QUALITY_CHART_PLOT_H,
-  FALLBACK_VIGOUR_PCT,
   type VigourPixelPct,
   parseCanopyVigourPixelSummary,
   vigourToBarRows,
   dominantVigourCategory,
 } from "../utils/canopyVigour";
-import api from "../api"; // Import the authenticated api instance
+import {
+  getMyFieldOfficers,
+  normalizeFieldOfficersFromResponse,
+} from "../api";
 
 // Constants (same as FarmerDashboard)
 const BASE_URL = getEventsBaseUrl();
@@ -150,6 +152,87 @@ interface PieChartWithNeedleProps {
 
 type TimePeriod = "daily" | "weekly" | "monthly" | "yearly";
 
+function pickArray(...candidates: unknown[]): any[] {
+  let fallback: any[] | null = null;
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      if (c.length > 0) return c;
+      if (fallback == null) fallback = c;
+      continue;
+    }
+    if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>;
+      for (const key of [
+        "results",
+        "data",
+        "farmers",
+        "farmer_list",
+        "field_officers",
+        "fieldOfficers",
+        "items",
+        "users",
+      ]) {
+        const nested = obj[key];
+        if (Array.isArray(nested) && nested.length > 0) return nested;
+        if (Array.isArray(nested) && fallback == null) fallback = nested;
+      }
+    }
+  }
+  return fallback ?? [];
+}
+
+function extractNestedFarmers(officer: any): any[] {
+  return pickArray(
+    officer?.farmers,
+    officer?.farmer_list,
+    officer?.farmer,
+    officer?.assigned_farmers,
+    officer?.farmer_details,
+    officer?.farmer_profiles,
+    officer?.my_farmers,
+    officer?.all_farmers,
+  ).map((farmer: any) => {
+    const user =
+      farmer?.user && typeof farmer.user === "object" ? farmer.user : null;
+    return {
+      ...user,
+      ...farmer,
+      id:
+        farmer?.id ??
+        farmer?.farmer_id ??
+        farmer?.farmerId ??
+        farmer?.user_id ??
+        user?.id,
+      first_name: farmer?.first_name ?? user?.first_name ?? farmer?.name,
+      last_name: farmer?.last_name ?? user?.last_name ?? "",
+      plots: pickArray(
+        farmer?.plots,
+        farmer?.plot_list,
+        farmer?.plot,
+        farmer?.farms,
+        user?.plots,
+      ),
+    };
+  });
+}
+
+function officerId(fo: any): string {
+  const id = fo?.id ?? fo?.user_id ?? fo?.userId ?? fo?.user?.id;
+  return id == null ? "" : String(id);
+}
+
+function farmerId(farmer: any): string {
+  const id =
+    farmer?.id ?? farmer?.farmer_id ?? farmer?.farmerId ?? farmer?.user_id;
+  return id == null ? "" : String(id);
+}
+
+function plotIdFromRow(plot: any): string {
+  const id =
+    plot?.fastapi_plot_id ?? plot?.plot_id ?? plot?.id ?? plot?.farm_id;
+  return id == null || id === "" ? "" : String(id);
+}
+
 const ManagerFarmDash: React.FC = () => {
   // const center: [number, number] = [17.5789, 75.053]; // Unused - using mapCenter state instead
   const mapWrapperRef = useRef<HTMLDivElement>(null);
@@ -165,6 +248,7 @@ const ManagerFarmDash: React.FC = () => {
   >([]);
   const [plots, setPlots] = useState<string[]>([]);
   const [loadingFarmers, setLoadingFarmers] = useState<boolean>(false);
+  const [hierarchyError, setHierarchyError] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const [showDebugInfo] = useState(false);
   void showDebugInfo;
@@ -300,11 +384,15 @@ const ManagerFarmDash: React.FC = () => {
 
   // NEW: Function to set plot coordinates from existing state
   const setPlotCoordinatesFromState = (plotId: string): void => {
-    // Find the selected farmer and their plot
     const farmer = farmersForSelectedOfficer.find(
-      (f) => String(f.id) === selectedFarmerId,
+      (f) => farmerId(f) === String(selectedFarmerId),
     );
-    const plot = farmer?.plots?.find((p: any) => p.fastapi_plot_id === plotId);
+    const plot = pickArray(
+      farmer?.plots,
+      farmer?.plot_list,
+      farmer?.plot,
+      farmer?.farms,
+    ).find((p: any) => plotIdFromRow(p) === String(plotId));
 
     if (plot && plot.boundary?.coordinates) {
       const geom = plot.boundary.coordinates[0];
@@ -327,17 +415,20 @@ const ManagerFarmDash: React.FC = () => {
 
   // Update farmers dropdown when field officer changes
   useEffect(() => {
-    if (selectedFieldOfficerId) {
-      const officer = fieldOfficers.find(
-        (fo) => String(fo.id) === selectedFieldOfficerId,
-      );
-      const farmersList = officer ? officer.farmers : [];
-      setFarmersForSelectedOfficer(farmersList);
-      if (farmersList.length > 0) {
-        setSelectedFarmerId(String(farmersList[0].id));
-      } else {
-        setSelectedFarmerId("");
-      }
+    if (!selectedFieldOfficerId) {
+      setFarmersForSelectedOfficer([]);
+      setSelectedFarmerId("");
+      return;
+    }
+    const officer = fieldOfficers.find(
+      (fo) => officerId(fo) === String(selectedFieldOfficerId),
+    );
+    const farmersList = extractNestedFarmers(officer);
+    setFarmersForSelectedOfficer(farmersList);
+    if (farmersList.length > 0) {
+      setSelectedFarmerId(farmerId(farmersList[0]));
+    } else {
+      setSelectedFarmerId("");
     }
   }, [selectedFieldOfficerId, fieldOfficers]);
 
@@ -345,22 +436,23 @@ const ManagerFarmDash: React.FC = () => {
   useEffect(() => {
     if (selectedFarmerId) {
       const selectedFarmer = farmersForSelectedOfficer.find(
-        (f) =>
-          String(f.id || f.farmer_id || f.farmerId) ===
-          String(selectedFarmerId),
+        (f) => farmerId(f) === String(selectedFarmerId),
       );
 
       if (selectedFarmer) {
-        // Extract fastapi_plot_id from plots array
-        const farmerPlots = selectedFarmer.plots || [];
-        const plotIds = farmerPlots.map((plot: any) => plot.fastapi_plot_id);
+        const plotIds = pickArray(
+          selectedFarmer.plots,
+          selectedFarmer.plot_list,
+          selectedFarmer.plot,
+          selectedFarmer.farms,
+        )
+          .map(plotIdFromRow)
+          .filter(Boolean);
 
         setPlots(plotIds);
 
-        // Auto-select first plot if available
         if (plotIds.length > 0) {
-          const firstPlotId = plotIds[0];
-          setSelectedPlotId(firstPlotId);
+          setSelectedPlotId(plotIds[0]);
         } else {
           setSelectedPlotId("");
         }
@@ -503,11 +595,17 @@ const ManagerFarmDash: React.FC = () => {
     setLoadingData(true);
     try {
       const selectedFarmer = farmersForSelectedOfficer.find(
-        (f) =>
-          String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
+        (f) => farmerId(f) === String(selectedFarmerId),
       );
       const managerProfile = selectedFarmer
-        ? { plots: selectedFarmer.plots || [] }
+        ? {
+            plots: pickArray(
+              selectedFarmer.plots,
+              selectedFarmer.plot_list,
+              selectedFarmer.plot,
+              selectedFarmer.farms,
+            ),
+          }
         : null;
 
       const { metrics, lineChartData, stressEvents } =
@@ -556,25 +654,34 @@ const ManagerFarmDash: React.FC = () => {
   // Fetch farmers from API - using authenticated endpoint
   const fetchManagerData = async (): Promise<void> => {
     setLoadingFarmers(true);
+    setHierarchyError(null);
     try {
-      // Use authenticated API call from api.ts
-      const response = await api.get(
-        `${getBackendApiBaseUrl()}/users/my-field-officers/`,
-      );
-      const responseData = response.data;
-      // Extract the array of field officers from the response object
-      const officersData = responseData.field_officers || [];
+      const response = await getMyFieldOfficers();
+      const officersData = normalizeFieldOfficersFromResponse(response.data);
 
       setFieldOfficers(officersData);
 
-      // Auto-select first field officer if available
       if (officersData.length > 0) {
-        setSelectedFieldOfficerId(String(officersData[0].id));
+        setSelectedFieldOfficerId(officerId(officersData[0]));
+      } else {
+        setSelectedFieldOfficerId("");
+        setHierarchyError(
+          "No field officers found. Confirm GET /users/my-field-officers/ returns field_officers[] with nested farmers.",
+        );
       }
     } catch (error: any) {
-      // Show user-friendly error message
-      if (error.response?.status === 401) {
-      } else if (error.response?.status === 403) {
+      setFieldOfficers([]);
+      const status = error?.response?.status;
+      if (status === 401 || status === 403) {
+        setHierarchyError(
+          "Not authorized to load field officers. Please log in again as manager.",
+        );
+      } else {
+        setHierarchyError(
+          status
+            ? `Could not load field officers (${status}).`
+            : "Could not load field officers for this manager.",
+        );
       }
     } finally {
       setLoadingFarmers(false);
@@ -920,15 +1027,15 @@ const ManagerFarmDash: React.FC = () => {
         });
         if (cancelled) return;
         if (!res.ok) {
-          setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+          setVigourPixelPct(null);
           return;
         }
         const data = await res.json();
         setCache(`canopyVigour_${selectedPlotId}`, data);
         const parsed = parseCanopyVigourPixelSummary(data);
-        setVigourPixelPct(parsed ?? FALLBACK_VIGOUR_PCT);
+        setVigourPixelPct(parsed);
       } catch {
-        if (!cancelled) setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+        if (!cancelled) setVigourPixelPct(null);
       } finally {
         if (!cancelled) setVigourChartLoading(false);
       }
@@ -940,13 +1047,35 @@ const ManagerFarmDash: React.FC = () => {
   }, [selectedPlotId]);
 
   const recoveryQualityBarRows = useMemo(
-    () => vigourToBarRows(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? vigourToBarRows(vigourPixelPct) : []),
     [vigourPixelPct]
   );
   const dominantRecoveryQuality = useMemo(
-    () => dominantVigourCategory(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? dominantVigourCategory(vigourPixelPct) : null),
     [vigourPixelPct]
   );
+
+  const selectedOfficerLabel = useMemo(() => {
+    const officer = fieldOfficers.find(
+      (fo) => officerId(fo) === String(selectedFieldOfficerId),
+    );
+    return (
+      `${officer?.first_name || ""} ${officer?.last_name || ""}`.trim() ||
+      officer?.username ||
+      "—"
+    );
+  }, [fieldOfficers, selectedFieldOfficerId]);
+
+  const selectedFarmerLabel = useMemo(() => {
+    const farmer = farmersForSelectedOfficer.find(
+      (f) => farmerId(f) === String(selectedFarmerId),
+    );
+    return (
+      `${farmer?.first_name || ""} ${farmer?.last_name || ""}`.trim() ||
+      farmer?.name ||
+      "—"
+    );
+  }, [farmersForSelectedOfficer, selectedFarmerId]);
 
   const chartDataToUse =
     combinedChartData.length > 0 ? combinedChartData : aggregatedData;
@@ -1156,6 +1285,11 @@ const ManagerFarmDash: React.FC = () => {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div className="flex items-center gap-3">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
+              {hierarchyError && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 w-full">
+                  {hierarchyError}
+                </p>
+              )}
               {/* Filters */}
               <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                 <div className="flex flex-col flex-1 sm:flex-none">
@@ -1176,15 +1310,16 @@ const ManagerFarmDash: React.FC = () => {
                     ) : (
                       <>
                         <option value="">Select an officer</option>
-                        {fieldOfficers.map((officer) => (
-                          <option
-                            key={`officer-${officer.id}`}
-                            value={officer.id}
-                          >
-                            {officer.first_name} {officer.last_name} (
-                            {officer.farmers.length} farmers)
-                          </option>
-                        ))}
+                        {fieldOfficers.map((officer) => {
+                          const oid = officerId(officer);
+                          const foFarmers = extractNestedFarmers(officer);
+                          return (
+                            <option key={`officer-${oid}`} value={oid}>
+                              {officer.first_name} {officer.last_name} (
+                              {foFarmers.length} farmers)
+                            </option>
+                          );
+                        })}
                       </>
                     )}
                   </select>
@@ -1214,13 +1349,19 @@ const ManagerFarmDash: React.FC = () => {
                       <>
                         <option value="">Select a farmer</option>
                         {farmersForSelectedOfficer.map((farmer) => {
-                          const farmerId = String(farmer.id);
+                          const fid = farmerId(farmer);
                           const farmerName =
-                            `${farmer.first_name} ${farmer.last_name}`.trim();
-                          const plotsCount = farmer.plots?.length || 0;
+                            `${farmer.first_name || ""} ${farmer.last_name || ""}`.trim() ||
+                            farmer.name ||
+                            `Farmer ${fid}`;
+                          const plotsCount = pickArray(
+                            farmer.plots,
+                            farmer.plot_list,
+                            farmer.farms,
+                          ).length;
 
                           return (
-                            <option key={`farmer-${farmerId}`} value={farmerId}>
+                            <option key={`farmer-${fid}`} value={fid}>
                               {farmerName} ({plotsCount} plot
                               {plotsCount !== 1 ? "s" : ""})
                             </option>
@@ -1595,10 +1736,10 @@ const ManagerFarmDash: React.FC = () => {
                           <strong>Plot:</strong> {selectedPlotId}
                         </p>
                         <p>
-                          <strong>Farmer:</strong> Ramesh Patil
+                          <strong>Farmer:</strong> {selectedFarmerLabel}
                         </p>
                         <p>
-                          <strong>Representative:</strong> Sunil Joshi
+                          <strong>Representative:</strong> {selectedOfficerLabel}
                         </p>
                         <p>
                           <strong>Status:</strong>{" "}
@@ -1882,16 +2023,22 @@ const ManagerFarmDash: React.FC = () => {
 
                 <p className="mt-2 text-center text-xs text-gray-600">
                   Your Farm Quality:{" "}
-                  <span
-                    className="font-bold"
-                    style={{ color: dominantRecoveryQuality.color }}
-                  >
-                    {dominantRecoveryQuality.name} (
-                    {dominantRecoveryQuality.pct.toFixed(
-                      dominantRecoveryQuality.pct >= 10 ? 1 : 2
-                    )}
-                    %)
-                  </span>
+                  {dominantRecoveryQuality ? (
+                    <span
+                      className="font-bold"
+                      style={{ color: dominantRecoveryQuality.color }}
+                    >
+                      {dominantRecoveryQuality.name} (
+                      {dominantRecoveryQuality.pct.toFixed(
+                        dominantRecoveryQuality.pct >= 10 ? 1 : 2
+                      )}
+                      %)
+                    </span>
+                  ) : (
+                    <span className="font-bold text-gray-500">
+                      {vigourChartLoading ? "Loading…" : "—"}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

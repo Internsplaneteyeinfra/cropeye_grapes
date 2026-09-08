@@ -57,15 +57,20 @@ import {
 } from "../utils/ripeningMilestones";
 import {
   RECOVERY_QUALITY_CHART_PLOT_H,
-  FALLBACK_VIGOUR_PCT,
   type VigourPixelPct,
   parseCanopyVigourPixelSummary,
   vigourToBarRows,
   dominantVigourCategory,
 } from "../utils/canopyVigour";
-import api, {
+import {
   getFieldOfficersByManager,
-} from "../api"; // Import the authenticated api instance
+  loadOwnerFieldOfficers,
+} from "../api";
+import { fetchGrapesOwnerFarmersByFieldOfficer } from "../api/grapesOwnerHierarchy";
+import {
+  getStoredUserIndustry,
+  isGrapesIndustry,
+} from "../utils/userIndustry";
 
 /** Prefer non-empty arrays; unwrap {results|data|farmers|items}. */
 function pickArray(...candidates: unknown[]): any[] {
@@ -379,10 +384,82 @@ const OwnerFarmDash: React.FC = () => {
     Map<string, [number, number][]>
   >(new Map());
 
-  // Fetch farmers list on component mount
+  // Grapes owner: load managers (then FOs after manager pick) like sugarcane
   useEffect(() => {
-    fetchOwnerHierarchy();
+    fetchOwnerFieldOfficers();
   }, []);
+
+  // When manager changes: show that manager's FOs only (do not auto-select FO)
+  useEffect(() => {
+    if (!selectedManagerId) {
+      setFieldOfficers([]);
+      setSelectedFieldOfficerId("");
+      setFarmersForSelectedOfficer([]);
+      setSelectedFarmerId("");
+      setPlots([]);
+      setSelectedPlotId("");
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      setLoadingFieldOfficers(true);
+      const clearDownstream = () => {
+        setSelectedFieldOfficerId("");
+        setFarmersForSelectedOfficer([]);
+        setSelectedFarmerId("");
+        setPlots([]);
+        setSelectedPlotId("");
+      };
+
+      const applyFilteredRaw = () => {
+        const filtered = teamFieldOfficersRaw.filter((fo: any) => {
+          const mid =
+            fo?.manager_id ?? fo?.manager?.id ?? fo?.managerId ?? null;
+          return mid != null && String(mid) === String(selectedManagerId);
+        });
+        setFieldOfficers(filtered);
+        clearDownstream();
+      };
+
+      try {
+        // Same as sugarcane: GET /users/owner-hierarchy/?manager_id=
+        // (Do not call /users/owner-hierarchy/grapes/ here — Railway returns 404)
+        try {
+          const detail = await getFieldOfficersByManager(selectedManagerId);
+          if (cancelled) return;
+          const fos = Array.isArray(detail?.data?.field_officers)
+            ? detail.data.field_officers
+            : Array.isArray(detail?.data)
+              ? detail.data
+              : [];
+          if (fos.length > 0) {
+            setFieldOfficers(fos);
+            clearDownstream();
+            return;
+          }
+        } catch (hierErr) {
+          console.warn(
+            "OwnerFarmDash: owner-hierarchy?manager_id= failed",
+            hierErr,
+          );
+        }
+
+        if (cancelled) return;
+        applyFilteredRaw();
+      } catch (err) {
+        console.error("OwnerFarmDash: failed to load FOs for manager", err);
+        if (!cancelled) applyFilteredRaw();
+      } finally {
+        if (!cancelled) setLoadingFieldOfficers(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedManagerId, teamFieldOfficersRaw]);
 
   // Ripening / Harvest milestones for selected plot
   useEffect(() => {
@@ -433,7 +510,15 @@ const OwnerFarmDash: React.FC = () => {
     const farmer = farmersForSelectedOfficer.find(
       (f) => String(f.id) === selectedFarmerId,
     );
-    const plot = farmer?.plots?.find((p: any) => p.fastapi_plot_id === plotId);
+    const plot = pickArray(
+      farmer?.plots,
+      farmer?.plot_list,
+      farmer?.plot,
+      farmer?.farms,
+    ).find(
+      (p: any) =>
+        String(p.fastapi_plot_id || p.plot_id || p.id || "") === String(plotId),
+    );
 
     if (plot && plot.boundary?.coordinates) {
       const geom = plot.boundary.coordinates[0];
@@ -454,165 +539,7 @@ const OwnerFarmDash: React.FC = () => {
     }
   };
 
-  // Always load FOs from owner-hierarchy?manager_id= (sugarcane) so nested
-  // field_officers (+ farmers) are used — never skip with incomplete cache.
-  useEffect(() => {
-    if (!selectedManagerId) {
-      setFieldOfficers([]);
-      setSelectedFieldOfficerId("");
-      setFarmersForSelectedOfficer([]);
-      setHierarchyFarmers([]);
-      setSelectedFarmerId("");
-      setPlots([]);
-      setSelectedPlotId("");
-      setLoadingFieldOfficers(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingFieldOfficers(true);
-    setHierarchyError(null);
-
-    (async () => {
-      try {
-        const res = await getFieldOfficersByManager(selectedManagerId);
-        if (cancelled) return;
-        const data: any = res?.data ?? {};
-        const list = pickArray(
-          data.field_officers,
-          data.fieldOfficers,
-        ).map((fo: any) => normalizeOfficer(fo, String(selectedManagerId)));
-
-        // If FO rows still lack farmers, attach from payload-level farmers list
-        const payloadFarmers = pickArray(
-          data.farmers,
-          data.farmer_list,
-          data.all_farmers,
-          data._raw?.farmers,
-          data._raw?.all_farmers,
-          // If backend wraps everything under `all`, unwrap farmers from it
-          data.all?.farmers,
-          data.all?.farmer_list,
-          data._raw?.all?.farmers,
-        ).map((farmer: any) => {
-          const user =
-            farmer?.user && typeof farmer.user === "object" ? farmer.user : null;
-          return {
-            ...user,
-            ...farmer,
-            id:
-              farmer?.id ??
-              farmer?.farmer_id ??
-              farmer?.farmerId ??
-              farmer?.user_id ??
-              user?.id,
-            plots: pickArray(
-              farmer?.plots,
-              farmer?.plot_list,
-              farmer?.plot,
-              farmer?.farms,
-            ),
-          };
-        });
-        setHierarchyFarmers(payloadFarmers);
-
-        const withFarmers =
-          payloadFarmers.length === 0
-            ? list
-            : list.map((fo: any) => {
-                if ((fo.farmers?.length ?? 0) > 0) return fo;
-                const foId = String(fo.id ?? fo.user_id ?? "");
-                const linked = payloadFarmers.filter((farmer: any) => {
-                  const link =
-                    farmer?.field_officer_id ??
-                    farmer?.field_officer?.id ??
-                    farmer?.created_by?.id ??
-                    farmer?.created_by ??
-                    farmer?.created_by_id ??
-                    farmer?.fo_id;
-                  return link != null && String(link) === foId;
-                });
-                if (linked.length > 0) return { ...fo, farmers: linked };
-                if (list.length === 1) return { ...fo, farmers: payloadFarmers };
-                // No FO link fields in response → still show farmers on each FO
-                const anyLinked = payloadFarmers.some((farmer: any) => {
-                  const link =
-                    farmer?.field_officer_id ??
-                    farmer?.field_officer?.id ??
-                    farmer?.created_by?.id ??
-                    farmer?.created_by ??
-                    farmer?.created_by_id ??
-                    farmer?.fo_id;
-                  return link != null && link !== "";
-                });
-                if (!anyLinked) return { ...fo, farmers: payloadFarmers };
-                return fo;
-              });
-
-        setFieldOfficers(withFarmers);
-        if (withFarmers.length > 0) {
-          setTeamFieldOfficersRaw((prev) => {
-            const map = new Map<string, any>();
-            [...prev, ...withFarmers].forEach((fo) => {
-              const oid = fo?.id ?? fo?.user_id;
-              if (oid != null) map.set(String(oid), fo);
-            });
-            return Array.from(map.values());
-          });
-          const first = withFarmers[0];
-          const firstId = String(first.id ?? first.user_id ?? "");
-          setSelectedFieldOfficerId(firstId);
-          // Bind farmers immediately so dropdown does not stay empty
-          let immediateFarmers = extractNestedFarmers(first);
-          if (immediateFarmers.length === 0 && payloadFarmers.length > 0) {
-            immediateFarmers = payloadFarmers;
-          }
-          setFarmersForSelectedOfficer(immediateFarmers);
-          if (immediateFarmers.length > 0) {
-            const farmerId =
-              immediateFarmers[0]?.id ??
-              immediateFarmers[0]?.farmer_id ??
-              immediateFarmers[0]?.farmerId;
-            setSelectedFarmerId(farmerId != null ? String(farmerId) : "");
-          } else {
-            setSelectedFarmerId("");
-            setPlots([]);
-            setSelectedPlotId("");
-          }
-          setHierarchyError(null);
-        } else {
-          setSelectedFieldOfficerId("");
-          setFarmersForSelectedOfficer([]);
-          setSelectedFarmerId("");
-          setPlots([]);
-          setSelectedPlotId("");
-          setHierarchyError(
-            `No field officers for manager #${selectedManagerId}. Confirm GET /users/owner-hierarchy/?manager_id=${selectedManagerId} returns field_officers[].`,
-          );
-        }
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error("Failed to load field officers for manager:", err);
-        setFieldOfficers([]);
-        setHierarchyFarmers([]);
-        setSelectedFieldOfficerId("");
-        const status = err?.response?.status;
-        setHierarchyError(
-          status
-            ? `Could not load field officers for manager #${selectedManagerId} (${status}) from owner-hierarchy.`
-            : "Could not load field officers for this manager from owner-hierarchy.",
-        );
-      } finally {
-        if (!cancelled) setLoadingFieldOfficers(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedManagerId]);
-
-  // Farmers: use nested farmers already attached on FO (from owner-hierarchy)
+  // Farmers: nested on FO, else grapes farmers-by-field-officer API
   useEffect(() => {
     if (!selectedFieldOfficerId) {
       setFarmersForSelectedOfficer([]);
@@ -625,45 +552,71 @@ const OwnerFarmDash: React.FC = () => {
 
     if (loadingFieldOfficers) return;
 
-    const officer = fieldOfficers.find(
-      (fo) =>
-        String(fo?.id) === String(selectedFieldOfficerId) ||
-        String(fo?.user_id ?? "") === String(selectedFieldOfficerId),
-    );
-    let nestedFarmers = extractNestedFarmers(officer);
+    let cancelled = false;
 
-    // Fallback: top-level farmers from same hierarchy response
-    if (nestedFarmers.length === 0 && hierarchyFarmers.length > 0) {
-      const foId = String(selectedFieldOfficerId);
-      const linked = hierarchyFarmers.filter((farmer: any) => {
-        const link =
-          farmer?.field_officer_id ??
-          farmer?.field_officer?.id ??
-          farmer?.created_by?.id ??
-          farmer?.created_by ??
-          farmer?.created_by_id ??
-          farmer?.fo_id;
-        return link != null && String(link) === foId;
-      });
-      nestedFarmers =
-        linked.length > 0
-          ? linked
-          : hierarchyFarmers;
-    }
+    (async () => {
+      setLoadingFarmers(true);
+      const officer = fieldOfficers.find(
+        (fo) =>
+          String(fo?.id) === String(selectedFieldOfficerId) ||
+          String(fo?.user_id ?? "") === String(selectedFieldOfficerId),
+      );
+      let nestedFarmers = extractNestedFarmers(officer);
 
-    setFarmersForSelectedOfficer(nestedFarmers);
-    if (nestedFarmers.length > 0) {
-      const firstId =
-        nestedFarmers[0]?.id ??
-        nestedFarmers[0]?.farmer_id ??
-        nestedFarmers[0]?.farmerId;
-      setSelectedFarmerId(firstId != null ? String(firstId) : "");
-    } else {
-      setSelectedFarmerId("");
-      setPlots([]);
-      setSelectedPlotId("");
-    }
-    setLoadingFarmers(false);
+      if (
+        nestedFarmers.length === 0 &&
+        isGrapesIndustry(getStoredUserIndustry())
+      ) {
+        try {
+          const foId = Number(selectedFieldOfficerId);
+          if (!Number.isNaN(foId)) {
+            const res = await fetchGrapesOwnerFarmersByFieldOfficer(foId);
+            if (cancelled) return;
+            nestedFarmers = res.farmers || [];
+          }
+        } catch (err) {
+          console.error(
+            "OwnerFarmDash: farmers-by-field-officer failed",
+            err,
+          );
+        }
+      }
+
+      // Fallback: top-level farmers from same hierarchy response
+      if (nestedFarmers.length === 0 && hierarchyFarmers.length > 0) {
+        const foId = String(selectedFieldOfficerId);
+        const linked = hierarchyFarmers.filter((farmer: any) => {
+          const link =
+            farmer?.field_officer_id ??
+            farmer?.field_officer?.id ??
+            farmer?.created_by?.id ??
+            farmer?.created_by ??
+            farmer?.created_by_id ??
+            farmer?.fo_id;
+          return link != null && String(link) === foId;
+        });
+        nestedFarmers = linked.length > 0 ? linked : hierarchyFarmers;
+      }
+
+      if (cancelled) return;
+      setFarmersForSelectedOfficer(nestedFarmers);
+      if (nestedFarmers.length > 0) {
+        const firstId =
+          nestedFarmers[0]?.id ??
+          nestedFarmers[0]?.farmer_id ??
+          nestedFarmers[0]?.farmerId;
+        setSelectedFarmerId(firstId != null ? String(firstId) : "");
+      } else {
+        setSelectedFarmerId("");
+        setPlots([]);
+        setSelectedPlotId("");
+      }
+      setLoadingFarmers(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     selectedFieldOfficerId,
     fieldOfficers,
@@ -685,6 +638,7 @@ const OwnerFarmDash: React.FC = () => {
           selectedFarmer.plots,
           selectedFarmer.plot_list,
           selectedFarmer.plot,
+          selectedFarmer.farms,
         );
         const plotIds = farmerPlots
           .map(
@@ -843,7 +797,14 @@ const OwnerFarmDash: React.FC = () => {
           String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
       );
       const ownerProfile = selectedFarmer
-        ? { plots: selectedFarmer.plots || [] }
+        ? {
+            plots: pickArray(
+              selectedFarmer.plots,
+              selectedFarmer.plot_list,
+              selectedFarmer.plot,
+              selectedFarmer.farms,
+            ),
+          }
         : null;
 
       const { metrics, lineChartData, stressEvents } =
@@ -890,118 +851,112 @@ const OwnerFarmDash: React.FC = () => {
     }
   };
 
-  // Fetch managers from owner-hierarchy only (same as sugarcane).
-  // FOs + farmers load via owner-hierarchy?manager_id= on manager select.
-  const fetchOwnerHierarchy = async (): Promise<void> => {
+  // Use working /users/owner-hierarchy/ (same as sugarcane).
+  // Do NOT call /users/owner-hierarchy/grapes/ — not deployed on Railway (404).
+  const fetchOwnerFieldOfficers = async (): Promise<void> => {
     setLoadingHierarchy(true);
+    setLoadingFieldOfficers(true);
     setHierarchyError(null);
-    try {
-      const response = await api.get(`/users/owner-hierarchy/`, {
-        timeout: 60_000,
-      });
-      const responseData = response.data ?? {};
 
-      const managersData = pickArray(
-        responseData.managers,
-        responseData.manager,
-        responseData.results,
-        responseData.data?.managers,
-        Array.isArray(responseData) ? responseData : null,
-      );
-
-      const flatFoMap = new Map<string, any>();
-
-      const normalizedManagers = managersData.map((m: any) => {
-        const mid = managerKey(m);
-        const nested = extractNestedOfficers(m).map((fo) =>
-          normalizeOfficer(fo, mid),
-        );
-        nested.forEach((fo) => {
-          const foId = fo?.id ?? fo?.user_id;
-          if (foId != null) flatFoMap.set(String(foId), fo);
-        });
-        return {
-          ...m,
-          id: m?.id ?? m?.user_id ?? m?.userId,
-          field_officers: nested,
-          field_officers_count:
-            m?.field_officers_count ??
-            m?.fieldOfficersCount ??
-            nested.length,
-        };
-      });
-
-      pickArray(
-        responseData.field_officers,
-        responseData.fieldOfficers,
-        responseData.data?.field_officers,
-      ).forEach((fo: any) => {
-        const normalized = normalizeOfficer(fo, null);
-        const foId = normalized?.id ?? normalized?.user_id;
-        if (foId != null) flatFoMap.set(String(foId), normalized);
-      });
-
-      const flatFos = Array.from(flatFoMap.values());
-      const managersWithCounts = normalizedManagers.map((m: any) => {
-        const mid = managerKey(m);
-        const linkedCount = flatFos.filter(
-          (fo) =>
-            mid != null &&
-            fo?.manager_id != null &&
-            String(fo.manager_id) === mid,
-        ).length;
-        return {
-          ...m,
-          field_officers_count:
-            linkedCount > 0
-              ? linkedCount
-              : Number(m.field_officers_count ?? 0) || 0,
-        };
-      });
-
-      setManagers(managersWithCounts);
-      setTeamFieldOfficersRaw(flatFos);
-
-      if (managersWithCounts.length > 0) {
-        const firstId = managerKey(managersWithCounts[0]);
-        setSelectedManagerId(firstId || "");
-        setHierarchyError(null);
-      } else {
-        setSelectedManagerId("");
-        setTeamFieldOfficersRaw([]);
-        setHierarchyError(
-          "Owner hierarchy loaded, but no managers were returned. Link managers under this owner in the backend.",
-        );
-      }
-    } catch (error: any) {
-      console.error("OwnerFarmDash hierarchy fetch failed:", error);
-      setManagers([]);
-      setTeamFieldOfficersRaw([]);
+    const resetSelection = () => {
       setSelectedManagerId("");
+      setSelectedFieldOfficerId("");
+      setFarmersForSelectedOfficer([]);
+      setSelectedFarmerId("");
+      setPlots([]);
+      setSelectedPlotId("");
+      setHierarchyFarmers([]);
+    };
+
+    const applyHierarchyResult = (
+      managersData: any[],
+      officersData: any[],
+      source: string,
+    ) => {
+      setManagers(managersData);
+      setTeamFieldOfficersRaw(officersData);
+      setHierarchyFarmers([]);
+
+      if (managersData.length > 0) {
+        setFieldOfficers([]);
+        resetSelection();
+        setHierarchyError(null);
+        console.info(
+          `OwnerFarmDash: loaded ${managersData.length} managers / ${officersData.length} FOs via ${source}`,
+        );
+        return;
+      }
+
+      if (officersData.length > 0) {
+        setFieldOfficers(officersData);
+        setSelectedManagerId("");
+        const first = officersData[0];
+        const firstId = String(first.id ?? first.user_id ?? "");
+        setSelectedFieldOfficerId(firstId);
+        const immediateFarmers = extractNestedFarmers(first);
+        setFarmersForSelectedOfficer(immediateFarmers);
+        if (immediateFarmers.length > 0) {
+          const fid =
+            immediateFarmers[0]?.id ??
+            immediateFarmers[0]?.farmer_id ??
+            immediateFarmers[0]?.farmerId;
+          setSelectedFarmerId(fid != null ? String(fid) : "");
+        } else {
+          setSelectedFarmerId("");
+          setPlots([]);
+          setSelectedPlotId("");
+        }
+        setHierarchyError(null);
+        console.info(
+          `OwnerFarmDash: loaded ${officersData.length} FOs via ${source} (no managers)`,
+        );
+        return;
+      }
+
+      resetSelection();
+      const industry = getStoredUserIndustry();
+      const cropHint = industry.crop_type ? ` (${industry.crop_type})` : "";
+      setHierarchyError(
+        `No managers or field officers found for your industry${cropHint}. Check owner → manager → FO links on the backend.`,
+      );
+    };
+
+    try {
+      const industry = getStoredUserIndustry();
+      const { fieldOfficers: officersData, managers: managersData, source } =
+        await loadOwnerFieldOfficers({ industryId: industry.id });
+      applyHierarchyResult(managersData, officersData, source);
+    } catch (error: any) {
+      console.error("OwnerFarmDash: hierarchy fetch failed:", error);
+      setManagers([]);
+      setFieldOfficers([]);
+      setTeamFieldOfficersRaw([]);
+      resetSelection();
       const status = error?.response?.status;
       const code = String(error?.code || "");
       if (status === 401 || status === 403) {
         setHierarchyError(
-          "Not authorized to load owner hierarchy. Please log out and log in again as Owner.",
+          "Not authorized to load managers / field officers. Please log out and log in again as Owner.",
         );
       } else if (
         code === "ECONNABORTED" ||
         String(error?.message || "").toLowerCase().includes("timeout")
       ) {
         setHierarchyError(
-          "Owner hierarchy request timed out after 60s. Backend is slow or stuck — try Retry.",
+          "Hierarchy request timed out after 60s. Backend is slow or stuck — try Retry.",
         );
       } else if (!error?.response) {
         setHierarchyError(
-          "Network error while loading managers. Check connection and Retry.",
+          "Network error while loading hierarchy. Check connection and Retry.",
         );
       } else {
         setHierarchyError(
-          `Failed to load managers (${status || "error"}). Try Retry.`,
+          `Failed to load hierarchy (${status || "error"}). Try Retry.`,
         );
       }
     } finally {
       setLoadingHierarchy(false);
+      setLoadingFieldOfficers(false);
     }
   };
 
@@ -1385,15 +1340,15 @@ const OwnerFarmDash: React.FC = () => {
         });
         if (cancelled) return;
         if (!res.ok) {
-          setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+          setVigourPixelPct(null);
           return;
         }
         const data = await res.json();
         setCache(`canopyVigour_${selectedPlotId}`, data);
         const parsed = parseCanopyVigourPixelSummary(data);
-        setVigourPixelPct(parsed ?? FALLBACK_VIGOUR_PCT);
+        setVigourPixelPct(parsed);
       } catch {
-        if (!cancelled) setVigourPixelPct(FALLBACK_VIGOUR_PCT);
+        if (!cancelled) setVigourPixelPct(null);
       } finally {
         if (!cancelled) setVigourChartLoading(false);
       }
@@ -1405,13 +1360,38 @@ const OwnerFarmDash: React.FC = () => {
   }, [selectedPlotId]);
 
   const recoveryQualityBarRows = useMemo(
-    () => vigourToBarRows(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? vigourToBarRows(vigourPixelPct) : []),
     [vigourPixelPct]
   );
   const dominantRecoveryQuality = useMemo(
-    () => dominantVigourCategory(vigourPixelPct ?? FALLBACK_VIGOUR_PCT),
+    () => (vigourPixelPct ? dominantVigourCategory(vigourPixelPct) : null),
     [vigourPixelPct]
   );
+
+  const selectedOfficerLabel = useMemo(() => {
+    const officer = fieldOfficers.find(
+      (fo) =>
+        String(fo?.id) === String(selectedFieldOfficerId) ||
+        String(fo?.user_id ?? "") === String(selectedFieldOfficerId),
+    );
+    return (
+      `${officer?.first_name || ""} ${officer?.last_name || ""}`.trim() ||
+      officer?.username ||
+      "—"
+    );
+  }, [fieldOfficers, selectedFieldOfficerId]);
+
+  const selectedFarmerLabel = useMemo(() => {
+    const farmer = farmersForSelectedOfficer.find(
+      (f) =>
+        String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
+    );
+    return (
+      `${farmer?.first_name || ""} ${farmer?.last_name || ""}`.trim() ||
+      farmer?.name ||
+      "—"
+    );
+  }, [farmersForSelectedOfficer, selectedFarmerId]);
 
   // Time period toggle component
   const TimePeriodToggle: React.FC = () => (
@@ -1593,10 +1573,10 @@ const OwnerFarmDash: React.FC = () => {
       {/* Enhanced Header */}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ">
-        {loadingHierarchy && managers.length === 0 && (
+        {loadingHierarchy && fieldOfficers.length === 0 && (
           <div className="mb-4 flex items-center gap-2 text-sm font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Loading managers and farms… (up to 60 seconds)
+            Loading field officers and farms… (up to 60 seconds)
           </div>
         )}
         {!loadingHierarchy && hierarchyError && (
@@ -1604,17 +1584,17 @@ const OwnerFarmDash: React.FC = () => {
             <p className="font-medium">{hierarchyError}</p>
             <button
               type="button"
-              onClick={() => void fetchOwnerHierarchy()}
+              onClick={() => void fetchOwnerFieldOfficers()}
               className="shrink-0 px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
             >
               Retry
             </button>
           </div>
         )}
-        {!loadingHierarchy && !hierarchyError && managers.length === 0 && (
+        {!loadingHierarchy && !hierarchyError && fieldOfficers.length === 0 && (
           <div className="mb-4 text-sm bg-gray-50 border border-gray-200 text-gray-700 rounded-lg px-3 py-2">
-            No managers found for this owner. Add managers under the owner in the
-            backend, then refresh.
+            No field officers found for your grapes industry. Confirm your owner
+            account has grapes field officers linked, then refresh.
           </div>
         )}
         {/* Debug Info Panel */}
@@ -1663,7 +1643,7 @@ const OwnerFarmDash: React.FC = () => {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div className="flex items-center gap-3">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
-              {/* Filters */}
+              {/* Filters: Manager → FO → Farmer (same cascade as sugarcane) */}
               <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                 <div className="flex flex-col flex-1 sm:flex-none">
                   <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
@@ -1685,11 +1665,14 @@ const OwnerFarmDash: React.FC = () => {
                         <option value="">Select a manager</option>
                         {managers.map((manager) => (
                           <option
-                            key={`manager-${managerKey(manager) || manager.id}`}
-                            value={managerKey(manager) || ""}
+                            key={`manager-${manager.id}`}
+                            value={String(manager.id)}
                           >
                             {manager.first_name} {manager.last_name} (
-                            {manager.field_officers_count ?? 0} FOs)
+                            {manager.field_officers_count ??
+                              manager.field_officers?.length ??
+                              "—"}{" "}
+                            FOs)
                           </option>
                         ))}
                       </>
@@ -1707,14 +1690,15 @@ const OwnerFarmDash: React.FC = () => {
                     value={selectedFieldOfficerId}
                     onChange={(e) => setSelectedFieldOfficerId(e.target.value)}
                     disabled={
-                      !selectedManagerId ||
+                      (managers.length > 0 && !selectedManagerId) ||
+                      loadingHierarchy ||
                       loadingFieldOfficers ||
                       fieldOfficers.length === 0
                     }
                   >
-                    {!selectedManagerId ? (
+                    {managers.length > 0 && !selectedManagerId ? (
                       <option>Select a manager first</option>
-                    ) : loadingFieldOfficers ? (
+                    ) : loadingHierarchy || loadingFieldOfficers ? (
                       <option>Loading officers...</option>
                     ) : fieldOfficers.length === 0 ? (
                       <option>No officers found</option>
@@ -2157,10 +2141,10 @@ const OwnerFarmDash: React.FC = () => {
                           <strong>Plot:</strong> {selectedPlotId}
                         </p>
                         <p>
-                          <strong>Farmer:</strong> Ramesh Patil
+                          <strong>Farmer:</strong> {selectedFarmerLabel}
                         </p>
                         <p>
-                          <strong>Representative:</strong> Sunil Joshi
+                          <strong>Representative:</strong> {selectedOfficerLabel}
                         </p>
                         <p>
                           <strong>Status:</strong>{" "}
@@ -2446,16 +2430,22 @@ const OwnerFarmDash: React.FC = () => {
 
                 <p className="mt-2 text-center text-xs text-gray-600">
                   Your Farm Quality:{" "}
-                  <span
-                    className="font-bold"
-                    style={{ color: dominantRecoveryQuality.color }}
-                  >
-                    {dominantRecoveryQuality.name} (
-                    {dominantRecoveryQuality.pct.toFixed(
-                      dominantRecoveryQuality.pct >= 10 ? 1 : 2
-                    )}
-                    %)
-                  </span>
+                  {dominantRecoveryQuality ? (
+                    <span
+                      className="font-bold"
+                      style={{ color: dominantRecoveryQuality.color }}
+                    >
+                      {dominantRecoveryQuality.name} (
+                      {dominantRecoveryQuality.pct.toFixed(
+                        dominantRecoveryQuality.pct >= 10 ? 1 : 2
+                      )}
+                      %)
+                    </span>
+                  ) : (
+                    <span className="font-bold text-gray-500">
+                      {vigourChartLoading ? "Loading…" : "—"}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

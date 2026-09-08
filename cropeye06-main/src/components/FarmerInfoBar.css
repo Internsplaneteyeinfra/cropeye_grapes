@@ -363,31 +363,12 @@
   position: fixed;
   inset: 0;
   z-index: 2147483646 !important;
-  background:
-    radial-gradient(circle at center, rgba(253, 224, 71, 0.20) 0%, rgba(17, 24, 39, 0.52) 52%, rgba(17, 24, 39, 0.72) 100%);
-  -webkit-backdrop-filter: blur(10px) saturate(125%);
-  backdrop-filter: blur(10px) saturate(125%);
+  /* Light dim only — keep plot/map sharp and visible behind the alert */
+  background: rgba(17, 24, 39, 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-}
-
-/* Force blur for composited map/UI layers while center alert is open */
-body.notif-modal-open .app-container {
-  filter: blur(8px) saturate(0.92);
-  transition: filter 180ms ease;
-}
-
-body.notif-modal-open .farmer-info-container {
-  filter: blur(6px) saturate(0.92);
-  transition: filter 180ms ease;
-}
-
-body.notif-modal-open .notif-toast-overlay,
-body.notif-modal-open .notif-toasts,
-body.notif-modal-open .notif-toast {
-  filter: none !important;
 }
 
 .notif-toasts {

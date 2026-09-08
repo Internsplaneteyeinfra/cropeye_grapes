@@ -11,22 +11,31 @@ import { checkAndRefreshToken, isTokenExpired, decodeToken } from "./utils/token
 import { navigateToLogin } from "./utils/navigation";
 import { getBackendApiBaseUrl } from "./utils/serviceUrls";
 import { USE_MOCK_AUTH } from "./config/authConfig";
+import { filterRowsByIndustry, getStoredUserIndustry } from "./utils/userIndustry";
 import { isFrontendRolePreview } from "./utils/frontendRolePreview";
 
-// Live Railway backend API
-const getBaseURL = () => `${getBackendApiBaseUrl()}/`;
+// Backend API — Railway via Vite proxy in DEV (`/api/backend` → cropeye-backendd.up.railway.app)
+const RAILWAY_API = "https://cropeye-backendd.up.railway.app/api/";
+const getBaseURL = () => {
+  const fromEnv = getBackendApiBaseUrl();
+  // Relative proxy path (dev) or absolute Railway URL
+  if (fromEnv.startsWith("/")) {
+    return fromEnv.endsWith("/") ? fromEnv : `${fromEnv}/`;
+  }
+  if (/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|localhost|127\.0\.0\.1)/i.test(fromEnv)) {
+    return RAILWAY_API;
+  }
+  return fromEnv.endsWith("/") ? fromEnv : `${fromEnv}/`;
+};
 
-const BASE_URLS = [
-  getBaseURL(), // Primary: direct API URL
-  "https://cropeye-backendd.up.railway.app/api/", // Fallback 1
-  "https://cropeye-backendd.up.railway.app/api", // Fallback 2
-  "http://192.168.41.67:8002/api/", // Fallback 3
-];
+const API_BASE_URL = getBaseURL();
+const BASE_URLS = [API_BASE_URL];
 let BASE_INDEX = 0;
-const API_BASE_URL = BASE_URLS[BASE_INDEX];
 
-// KML/GeoJSON API URL
-const KML_API_URL = "https://cropeye-backendd.up.railway.app";
+// KML/GeoJSON host
+const KML_API_URL = API_BASE_URL.startsWith("/")
+  ? "https://cropeye-backendd.up.railway.app"
+  : API_BASE_URL.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
 
 // Create axios instance with increased timeout to prevent session timeouts
 // 5 minutes (300000ms) timeout for slow APIs
@@ -242,9 +251,10 @@ api.interceptors.response.use(
 //return api.post('/verify-otp/', { email, otp });
 //};
 
-//Login function - backend expects phone_number field
-// Uses publicApi since login doesn't require authentication
+//Login function - Railway via /api/backend/login/ (visible in grapes Network tab)
 export const login = (phone_number: string, password: string) => {
+  const url = `${String(publicApi.defaults.baseURL || "").replace(/\/+$/, "")}/login/`;
+  console.info("[grapes] POST login →", url);
   return publicApi.post("/login/", {
     phone_number,
     password,
@@ -321,6 +331,307 @@ export const getFarmersByFieldOfficerId = (
   const id = encodeURIComponent(String(fieldOfficerId));
   return api.get(`/users/farmers-by-field-officer/${id}/`, { timeout: 60_000 });
 };
+
+/** Prefer non-empty arrays; unwrap common API envelope keys. */
+export function pickApiArray(...candidates: unknown[]): any[] {
+  let fallback: any[] | null = null;
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      if (c.length > 0) return c;
+      if (fallback == null) fallback = c;
+      continue;
+    }
+    if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>;
+      for (const key of [
+        "results",
+        "data",
+        "farmers",
+        "farmer_list",
+        "field_officers",
+        "fieldOfficers",
+        "items",
+        "users",
+      ]) {
+        const nested = obj[key];
+        if (Array.isArray(nested) && nested.length > 0) return nested;
+        if (Array.isArray(nested) && fallback == null) fallback = nested;
+      }
+    }
+  }
+  return fallback ?? [];
+}
+
+/**
+ * Manager / Owner (grapes): field officers scoped to logged-in user's industry.
+ * GET /users/my-field-officers/
+ */
+export const getMyFieldOfficers = () => {
+  return api.get("/users/my-field-officers/", { timeout: 60_000 });
+};
+
+function normalizeFarmerRowForOfficer(farmer: any): any {
+  if (!farmer || typeof farmer !== "object") return farmer;
+  const user = farmer.user && typeof farmer.user === "object" ? farmer.user : null;
+  return {
+    ...user,
+    ...farmer,
+    id:
+      farmer.id ??
+      farmer.farmer_id ??
+      farmer.farmerId ??
+      farmer.user_id ??
+      user?.id,
+    first_name: farmer.first_name ?? user?.first_name ?? farmer.name,
+    last_name: farmer.last_name ?? user?.last_name ?? "",
+    plots: pickApiArray(
+      farmer.plots,
+      farmer.plot_list,
+      farmer.plot,
+      farmer.farms,
+      user?.plots,
+    ),
+  };
+}
+
+/** Read nested farmers from a field-officer row. */
+export function extractFarmersFromOfficer(officer: any): any[] {
+  return pickApiArray(
+    officer?.farmers,
+    officer?.farmer_list,
+    officer?.farmer,
+    officer?.assigned_farmers,
+    officer?.farmer_details,
+    officer?.farmer_profiles,
+    officer?.my_farmers,
+    officer?.all_farmers,
+  ).map(normalizeFarmerRowForOfficer);
+}
+
+/** Normalize GET /users/my-field-officers/ for dashboard dropdowns. */
+export function normalizeFieldOfficersFromResponse(data: unknown): any[] {
+  const root = (data ?? {}) as Record<string, unknown>;
+  return pickApiArray(
+    root.field_officers,
+    root.fieldOfficers,
+    root.results,
+    (root.data as Record<string, unknown> | undefined)?.field_officers,
+    Array.isArray(data) ? data : null,
+  ).map((fo: any) => ({
+    ...fo,
+    id: fo?.id ?? fo?.user_id ?? fo?.userId ?? fo?.user?.id,
+    first_name: fo?.first_name ?? fo?.user?.first_name,
+    last_name: fo?.last_name ?? fo?.user?.last_name,
+    farmers: extractFarmersFromOfficer(fo),
+  }));
+}
+
+function dedupeFieldOfficers(list: any[]): any[] {
+  const map = new Map<string, any>();
+  list.forEach((fo) => {
+    const id = fo?.id ?? fo?.user_id ?? fo?.userId;
+    if (id == null) return;
+    map.set(String(id), fo);
+  });
+  return Array.from(map.values());
+}
+
+function parseTeamConnectFieldOfficers(data: unknown): any[] {
+  const root = (data ?? {}) as Record<string, unknown>;
+  let fieldOfficers = pickApiArray(
+    (root.users_by_role as Record<string, unknown> | undefined)?.field_officers,
+    root.field_officers,
+    root.fieldOfficers,
+  );
+  const managers = pickApiArray(
+    (root.users_by_role as Record<string, unknown> | undefined)?.managers,
+    root.managers,
+  );
+  if (fieldOfficers.length === 0 && managers.length > 0) {
+    fieldOfficers = managers.flatMap((manager: any) => {
+      const mid = manager?.id ?? manager?.user_id ?? null;
+      return pickApiArray(manager?.field_officers, manager?.fieldOfficers).map(
+        (fo: any) => ({
+          ...fo,
+          manager_id:
+            fo?.manager_id ?? fo?.manager?.id ?? fo?.managerId ?? mid,
+        }),
+      );
+    });
+  }
+  return normalizeFieldOfficersFromResponse({ field_officers: fieldOfficers });
+}
+
+/** Owner grapes: load field officers with industry-aware fallbacks. */
+export async function loadOwnerFieldOfficers(options?: {
+  industryId?: number | null;
+}): Promise<{
+  fieldOfficers: any[];
+  managers: any[];
+  source: string;
+}> {
+  const stored = getStoredUserIndustry();
+  const industryId = options?.industryId ?? stored.id;
+
+  const loadManagersFromOwnerHierarchy = async (): Promise<{
+    managers: any[];
+    fieldOfficers: any[];
+  }> => {
+    const res = await api.get("/users/owner-hierarchy/", { timeout: 60_000 });
+    const data = res.data ?? {};
+    let managers = pickApiArray(
+      data.managers,
+      data.manager,
+      data.results,
+      data.data?.managers,
+    );
+    if (industryId != null) {
+      managers = filterRowsByIndustry(managers, industryId);
+    }
+
+    let fieldOfficers = normalizeFieldOfficersFromResponse({
+      field_officers: pickApiArray(
+        data.field_officers,
+        data.fieldOfficers,
+        data.data?.field_officers,
+        ...managers.flatMap((m: any) =>
+          pickApiArray(m?.field_officers, m?.fieldOfficers).map((fo: any) => ({
+            ...fo,
+            manager_id: fo?.manager_id ?? fo?.manager?.id ?? m?.id,
+          })),
+        ),
+      ),
+    });
+
+    if (fieldOfficers.length === 0 && managers.length > 0) {
+      const detailed: any[] = [];
+      await Promise.all(
+        managers.map(async (manager: any) => {
+          const mid = manager?.id ?? manager?.user_id ?? manager?.userId;
+          if (mid == null) return;
+          try {
+            const detail = await getFieldOfficersByManager(mid);
+            detailed.push(
+              ...normalizeFieldOfficersFromResponse(detail.data).map(
+                (fo: any) => ({
+                  ...fo,
+                  manager_id: fo?.manager_id ?? fo?.manager?.id ?? mid,
+                }),
+              ),
+            );
+          } catch (err) {
+            console.warn(
+              `loadOwnerFieldOfficers: owner-hierarchy?manager_id=${mid} failed`,
+              err,
+            );
+          }
+        }),
+      );
+      fieldOfficers = dedupeFieldOfficers(detailed);
+    }
+
+    return {
+      managers,
+      fieldOfficers: dedupeFieldOfficers(fieldOfficers),
+    };
+  };
+
+  // A) GET /users/my-field-officers/ (works for manager; sometimes empty for owner)
+  try {
+    const res = await getMyFieldOfficers();
+    const fieldOfficers = normalizeFieldOfficersFromResponse(res.data);
+    if (fieldOfficers.length > 0) {
+      // Owners still need managers for Manager → FO cascade (like sugarcane)
+      try {
+        const hier = await loadManagersFromOwnerHierarchy();
+        if (hier.managers.length > 0) {
+          return {
+            fieldOfficers:
+              hier.fieldOfficers.length > 0
+                ? hier.fieldOfficers
+                : fieldOfficers,
+            managers: hier.managers,
+            source: "my-field-officers+owner-hierarchy",
+          };
+        }
+      } catch (err) {
+        console.warn(
+          "loadOwnerFieldOfficers: owner-hierarchy managers enrich failed",
+          err,
+        );
+      }
+      return { fieldOfficers, managers: [], source: "my-field-officers" };
+    }
+  } catch (err) {
+    console.warn("loadOwnerFieldOfficers: my-field-officers failed", err);
+  }
+
+  if (industryId != null) {
+    // B) GET /users/owner-team-connect/?industry_id=
+    try {
+      const res = await getOwnerTeamConnect(industryId);
+      const fieldOfficers = parseTeamConnectFieldOfficers(res.data);
+      if (fieldOfficers.length > 0) {
+        try {
+          const hier = await loadManagersFromOwnerHierarchy();
+          if (hier.managers.length > 0) {
+            return {
+              fieldOfficers:
+                hier.fieldOfficers.length > 0
+                  ? hier.fieldOfficers
+                  : fieldOfficers,
+              managers: hier.managers,
+              source: "owner-team-connect+owner-hierarchy",
+            };
+          }
+        } catch {
+          // keep FO-only
+        }
+        return { fieldOfficers, managers: [], source: "owner-team-connect" };
+      }
+    } catch (err) {
+      console.warn("loadOwnerFieldOfficers: owner-team-connect failed", err);
+    }
+
+    // B2) GET /users/team-connect/?industry_id=
+    try {
+      const res = await getTeamConnect(industryId);
+      const fieldOfficers = parseTeamConnectFieldOfficers(res.data);
+      if (fieldOfficers.length > 0) {
+        try {
+          const hier = await loadManagersFromOwnerHierarchy();
+          if (hier.managers.length > 0) {
+            return {
+              fieldOfficers:
+                hier.fieldOfficers.length > 0
+                  ? hier.fieldOfficers
+                  : fieldOfficers,
+              managers: hier.managers,
+              source: "team-connect+owner-hierarchy",
+            };
+          }
+        } catch {
+          // keep FO-only
+        }
+        return { fieldOfficers, managers: [], source: "team-connect" };
+      }
+    } catch (err) {
+      console.warn("loadOwnerFieldOfficers: team-connect failed", err);
+    }
+  }
+
+  // C) GET /users/owner-hierarchy/ filtered by grapes industry
+  try {
+    const { managers, fieldOfficers } = await loadManagersFromOwnerHierarchy();
+    if (fieldOfficers.length > 0 || managers.length > 0) {
+      return { fieldOfficers, managers, source: "owner-hierarchy" };
+    }
+  } catch (err) {
+    console.warn("loadOwnerFieldOfficers: owner-hierarchy failed", err);
+  }
+
+  return { fieldOfficers: [], managers: [], source: "none" };
+}
 
 /**
  * Owner: field officers for one manager.
@@ -1057,9 +1368,17 @@ export const getTotalCounts = () => {
 // Get team connect data (owners, field officers, farmers)
 export const getTeamConnect = (industryId?: number | string) => {
   const url = industryId
-    ? `/users/team-connect/?industry_id=${industryId}`
+    ? `/users/team-connect/?industry_id=${encodeURIComponent(String(industryId))}`
     : `/users/team-connect/`;
-  return api.get(url);
+  return api.get(url, { timeout: 60_000 });
+};
+
+/** Owner-scoped team connect for one industry (grapes id=3). */
+export const getOwnerTeamConnect = (industryId: number | string) => {
+  const id = encodeURIComponent(String(industryId));
+  return api.get(`/users/owner-team-connect/?industry_id=${id}`, {
+    timeout: 60_000,
+  });
 };
 
 // Messaging API functions
@@ -1321,18 +1640,23 @@ export const calculatePolygonArea = (
 
 // Get farmer profile using the dedicated my-profile endpoint
 export const getFarmerMyProfile = () => {
-  // Check if token exists and is valid before making the call
   const token = getAccessToken();
   if (!token || !isValidToken(token)) {
-    // Create a silent error that won't be logged to console
-    const error = new Error("No valid authentication token found");
+    const error = new Error(
+      "No access_token after login. Open gateway http://localhost:5174 , enable Network Preserve log, login, then confirm POST .../api/login/",
+    );
     (error as any).response = {
       status: 403,
       data: { detail: "Authentication credentials were not provided." },
     };
-    (error as any).isSilent = true; // Mark as silent to prevent console logging
+    (error as any).isSilent = false;
+    (error as any).code = "NO_AUTH_TOKEN";
     return Promise.reject(error);
   }
+  console.info(
+    "[grapes] GET /farms/my-profile/ →",
+    `${String(api.defaults.baseURL || "").replace(/\/+$/, "")}/farms/my-profile/`,
+  );
   return api.get("/farms/my-profile/");
 };
 

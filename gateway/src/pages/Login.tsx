@@ -6,6 +6,9 @@ import { Link } from "react-router-dom";
 import { API_BASE_URL, getRedirectURL } from "../config";
 import { getIndustry, getToken, logout, setIndustry, setToken } from "../auth/auth";
 
+const LOGIN_URL = `${API_BASE_URL.replace(/\/+$/, "")}/login/`;
+const ME_URL = `${API_BASE_URL.replace(/\/+$/, "")}/users/me/`;
+
 type LoginResponse = {
   access?: string;
   refresh?: string;
@@ -62,37 +65,70 @@ export default function LoginPage() {
     setError("");
 
     try {
+      const loginUrl = LOGIN_URL;
+      console.info("[gateway] POST login →", loginUrl);
       const response = await axios.post<LoginResponse>(
-        `${API_BASE_URL.replace(/\/+$/, "")}/login/`,
+        loginUrl,
         { phone_number: phone_number.trim(), password: password.trim() },
+        { headers: { "Content-Type": "application/json", Accept: "application/json" } },
       );
       const result = response.data || {};
 
       const access = result.access;
       const refresh = result.refresh;
-      const industryName = result.user?.industry?.name;
-      const cropType =
-        result.user?.industry?.crop_type ||
-        result.user?.crop_type ||
-        result.crop_type;
 
       if (!access || !refresh) {
-        throw new Error("Invalid login response");
+        throw new Error("Invalid login response: missing access/refresh tokens");
       }
 
       // Token storage (required keys)
       setToken(access, refresh);
-      // Store crop_type if available, otherwise store industry name
-      const routingKey = (cropType || industryName || "").trim();
+
+      let industryName = result.user?.industry?.name;
+      let cropType =
+        result.user?.industry?.crop_type ||
+        result.user?.crop_type ||
+        result.crop_type;
+      let industryId =
+        (result.user?.industry as { id?: number } | undefined)?.id ??
+        (result.user as { industry_id?: number } | undefined)?.industry_id;
+
+      // If industry missing on /login/, load /users/me/ for routing.
+      if (!(cropType || industryName || industryId)) {
+        try {
+          console.info("[gateway] GET users/me →", ME_URL);
+          const me = await axios.get(ME_URL, {
+            headers: { Authorization: `Bearer ${access}` },
+          });
+          const u = me.data || {};
+          industryName = u?.industry?.name || industryName;
+          cropType =
+            u?.industry?.crop_type || u?.crop_type || cropType;
+          industryId = u?.industry?.id ?? u?.industry_id ?? industryId;
+        } catch {
+          // keep whatever login returned
+        }
+      }
+
+      // Grapes industry id is commonly 3 when name/crop_type is missing
+      let routingKey = String(cropType || industryName || "").trim();
+      if (!routingKey && Number(industryId) === 3) routingKey = "grapes";
+      if (!routingKey && Number(industryId) === 1) routingKey = "sugarcane";
+
       if (!routingKey) {
-        throw new Error("Invalid login response");
+        setError(
+          "Login OK, but user has no industry/crop_type. Assign grapes or sugarcane industry in backend.",
+        );
+        return;
       }
       setIndustry(routingKey);
 
       // Redirect is driven by crop_type (sugarcane/grapes). Industry name is fallback.
-      const dest = getRedirectURL(cropType || industryName);
+      const dest = getRedirectURL(routingKey);
       if (!dest) {
-        setError("Invalid industry received from server");
+        setError(
+          `Unknown industry "${routingKey}". Expected grapes or sugarcane on the user profile.`,
+        );
         return;
       }
 
@@ -101,21 +137,33 @@ export default function LoginPage() {
       logout();
       if (err?.response) {
         const status = err.response.status;
+        const detail =
+          typeof err.response.data?.detail === "string"
+            ? err.response.data.detail
+            : "";
         if (status === 400) {
-          setError("Invalid phone_number or password. Please check your credentials.");
+          setError(
+            detail ||
+              "Invalid phone_number or password. Please check your credentials.",
+          );
         } else if (status === 401) {
-          setError("Authentication failed. Please check your phone_number and password.");
+          setError(
+            detail ||
+              "Authentication failed. Please check your phone_number and password.",
+          );
         } else if (status === 403) {
           setError("Access denied. Please contact your administrator.");
         } else if (status >= 500) {
           setError("Server error. Please try again later.");
         } else {
-          setError("Login failed. Please try again.");
+          setError(detail || "Login failed. Please try again.");
         }
       } else if (err?.request) {
-        setError("Network error. Please check your internet connection.");
+        setError(
+          ` Check Network tab and that the backend is running.`,
+        );
       } else {
-        setError("Login failed. Please check your credentials.");
+        setError(err?.message || "Login failed. Please check your credentials.");
       }
     } finally {
       setLoading(false);

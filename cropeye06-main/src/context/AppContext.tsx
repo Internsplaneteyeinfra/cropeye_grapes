@@ -47,6 +47,8 @@ interface AppContextType {
   setCached: (key: string, data: any) => void;
   selectedPlotName: string | null;
   setSelectedPlotName: (plotName: string | null) => void;
+  selectedAnalysisDate: string | null;
+  setSelectedAnalysisDate: (date: string | null) => void;
   getApiData: (endpoint: string, plotName: string) => any;
   setApiData: (endpoint: string, plotName: string, data: any) => void;
   isDataLoading: (endpoint: string) => boolean;
@@ -97,6 +99,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   });
   const [globalCache, setGlobalCache] = useState<GlobalCache>({});
+  const [selectedAnalysisDate, setSelectedAnalysisDate] = useState<string | null>(null);
 
   const getCached = useCallback(
     (key: string, maxAgeMs?: number) => {
@@ -265,6 +268,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         setCached,
         selectedPlotName: appState.selectedPlotName || null,
         setSelectedPlotName,
+        selectedAnalysisDate,
+        setSelectedAnalysisDate,
         getApiData,
         setApiData,
         isDataLoading,

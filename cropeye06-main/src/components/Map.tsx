@@ -18,6 +18,11 @@ import { useAppContext } from "../context/AppContext";
 import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
+import {
+  fetchAnalysisTimeline,
+  sortedRebinDatesForLayer,
+  type AnalysisTimelineResponse,
+} from "../services/analysisTimeline";
 import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
 
 // Add custom styles for the enhanced tooltip
@@ -315,6 +320,20 @@ const CustomTileLayer: React.FC<{
     />
   );
 };
+function isTodayDate(value: string): boolean {
+  return value === new Date().toISOString().split("T")[0];
+}
+
+function formatRibbonDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 
 const Map: React.FC<MapProps> = ({
   // onHealthDataChange,
@@ -325,7 +344,7 @@ const Map: React.FC<MapProps> = ({
   onPlotChange,
 }) => {
   const { profile, loading: profileLoading, error: profileError, refreshMyProfile } = useFarmerProfile();
-  const { appState, selectedPlotName: contextSelectedPlotName, setSelectedPlotName: setContextSelectedPlotName, getApiData, hasApiData, setApiData } = useAppContext();
+  const { appState, selectedPlotName: contextSelectedPlotName, setSelectedPlotName: setContextSelectedPlotName, selectedAnalysisDate, setSelectedAnalysisDate, getApiData, hasApiData, setApiData } = useAppContext();
   const mapWrapperRef = useRef<HTMLDivElement>(null);
 
   // Get pH value from soil data if available
@@ -376,16 +395,32 @@ const Map: React.FC<MapProps> = ({
   const [pixelTooltip, setPixelTooltip] = useState<{layers: Array<{layer: string, label: string, description: string, percentage: number}>, x: number, y: number} | null>(null);
   
   // Date navigation state (similar to Streamlit logic)
+    if (selectedAnalysisDate) return selectedAnalysisDate;
   const [currentEndDate, setCurrentEndDate] = useState<string>(() => {
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const day = String(today.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  useEffect(() => {
+    if (selectedAnalysisDate !== currentEndDate) {
+      setSelectedAnalysisDate(currentEndDate);
+    }
+  }, [currentEndDate, selectedAnalysisDate, setSelectedAnalysisDate]);
   });
   const [showDatePopup, setShowDatePopup] = useState(false);
   const [popupSide, setPopupSide] = useState<'left' | 'right' | null>(null);
   const DAYS_STEP = 15;
+  const [timelinePayload, setTimelinePayload] = useState<AnalysisTimelineResponse | null>(null);
+  const [datesLoading, setDatesLoading] = useState(false);
+  const [datesError, setDatesError] = useState<string | null>(null);
+  const selectedDateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const availableDates = useMemo(
+    () => sortedRebinDatesForLayer(timelinePayload?.timeline, activeLayer),
+    [timelinePayload, activeLayer],
+  );
+  const latestAvailableDate = availableDates[availableDates.length - 1] ?? null;
+
 
   const isHarvested = useMemo(() => {
     const s = (cropStatus || "").toString().toLowerCase();
@@ -465,41 +500,7 @@ const Map: React.FC<MapProps> = ({
 
   useEffect(() => {
     setLayerChangeKey(prev => prev + 1);
-    // Reset to current date when switching layers (for Growth, Water Uptake, Soil Moisture, PEST, and Brix)
-    if (activeLayer === "Growth" || activeLayer === "Water Uptake" || activeLayer === "Soil Moisture" || activeLayer === "PEST" || activeLayer === "Brix") {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${day}`;
-      setCurrentEndDate(todayStr);
-      
-      // Check if data exists in cache before showing loading spinner
-      let hasCachedData = false;
-      if (selectedPlotName) {
-        if (activeLayer === "Growth") {
-          hasCachedData = !!(growthData || hasApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${todayStr}`));
-        } else if (activeLayer === "Water Uptake") {
-          hasCachedData = !!(waterUptakeData || hasApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${todayStr}`));
-        } else if (activeLayer === "Soil Moisture") {
-          hasCachedData = !!(soilMoistureData || hasApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${todayStr}`));
-        } else if (activeLayer === "PEST") {
-          hasCachedData = !!(pestData || hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${todayStr}`));
-        } else if (activeLayer === "Brix") {
-          hasCachedData = !!(brixData || canopyVigourData || brixQualityData || 
-                          hasApiData('brix', selectedPlotName) || hasApiData('canopyVigour', selectedPlotName) || hasApiData('brixQuality', selectedPlotName) ||
-                          getCache(`brix_${selectedPlotName}_${todayStr}`) || getCache(`canopy_vigour_${selectedPlotName}_${todayStr}`) || getCache(`brixQuality_${selectedPlotName}`));
-        }
-      }
-      
-      // Only show loading spinner if data doesn't exist in cache
-      if ((!hasCachedData || shouldBypassMapLayerCache()) && selectedPlotName) {
-        setLoading(true);
-      } else {
-        setLoading(false); // Stop spinner if cached data exists
-      }
-      setError(null);
-    }
+    setError(null);
     
     // Ensure plotBoundary is preserved when switching layers
     // Try to extract from current layer data if plotBoundary is missing
@@ -526,32 +527,69 @@ const Map: React.FC<MapProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayer, selectedPlotName]);
+  // Fetch the available analysis dates once per plot, then filter them for the active layer.
+  useEffect(() => {
+    const plotName = activePlotName.trim();
+    if (!plotName) {
+      setTimelinePayload(null);
+      setDatesLoading(false);
+      setDatesError(null);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+    setDatesLoading(true);
+    setDatesError(null);
+    setTimelinePayload(null);
+
+    fetchAnalysisTimeline(plotName, controller.signal)
+      .then((data) => {
+        if (!cancelled) setTimelinePayload(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = controller.signal.aborted
+          ? "Date request timed out. Please retry."
+          : err instanceof Error
+            ? err.message
+            : "Could not load dates.";
+        setDatesError(message);
+        console.warn("Map date timeline fetch failed:", err);
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        if (!cancelled) setDatesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [activePlotName]);
+
+  useEffect(() => {
+    if (!latestAvailableDate || availableDates.includes(currentEndDate)) return;
+    setCurrentEndDate(latestAvailableDate);
+  }, [latestAvailableDate, availableDates, currentEndDate]);
+
+  useEffect(() => {
+    selectedDateButtonRef.current?.scrollIntoView({
+      inline: "center",
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [currentEndDate, availableDates.length]);
+
 
   // Fetch data when currentEndDate changes for Growth, Water Uptake, Soil Moisture, PEST, and Brix layers
   useEffect(() => {
     if (selectedPlotName && (activeLayer === "Growth" || activeLayer === "Water Uptake" || activeLayer === "Soil Moisture" || activeLayer === "PEST" || activeLayer === "Brix")) {
       // Create a unique key for this plot/layer/date combination
       const dataKey = `${selectedPlotName}_${activeLayer}_${currentEndDate}`;
-      
-      // Check if data already exists in component state
-      let hasStateData = false;
-      if (activeLayer === "Growth" && growthData) {
-        hasStateData = true;
-      } else if (activeLayer === "Water Uptake" && waterUptakeData) {
-        hasStateData = true;
-      } else if (activeLayer === "Soil Moisture" && soilMoistureData) {
-        hasStateData = true;
-      } else if (activeLayer === "PEST" && pestData) {
-        hasStateData = true;
-      } else if (activeLayer === "Brix" && (brixData || canopyVigourData || brixQualityData)) {
-        hasStateData = true;
-      }
-      
-      if (hasStateData && !shouldBypassMapLayerCache()) {
-        console.log(`✅ Data already exists in component state for ${dataKey} - skipping fetch`);
-        return;
-      }
-      
+      const isToday = isTodayDate(currentEndDate);
+
       // Check if data has already been loaded
       if (dataLoadedRef.current[dataKey] && !shouldBypassMapLayerCache()) {
         console.log(`✅ Data already loaded for ${dataKey} - skipping fetch`);
@@ -564,28 +602,28 @@ const Map: React.FC<MapProps> = ({
       let cachedDataFound = false;
 
       if (activeLayer === "Growth") {
-        if (!shouldBypassMapLayerCache() && (hasApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
+        if (!shouldBypassMapLayerCache() && ((isToday && hasApiData('growth', selectedPlotName)) || getCache(`growth_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Water Uptake") {
-        if (!shouldBypassMapLayerCache() && (hasApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
+        if (!shouldBypassMapLayerCache() && ((isToday && hasApiData('waterUptake', selectedPlotName)) || getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Soil Moisture") {
-        if (!shouldBypassMapLayerCache() && (hasApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
+        if (!shouldBypassMapLayerCache() && ((isToday && hasApiData('soilMoisture', selectedPlotName)) || getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "PEST") {
-        if (!shouldBypassMapLayerCache() && (hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
+        if (!shouldBypassMapLayerCache() && ((isToday && hasApiData('pest', selectedPlotName)) || getCache(`pest_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs()))) {
           shouldFetch = false;
           cachedDataFound = true;
         }
       } else if (activeLayer === "Brix") {
-        const hasBrix = hasApiData('brix', selectedPlotName) || getCache(`brix_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
-        const hasBrixQuality = hasApiData('brixQuality', selectedPlotName) || getCache(`brixQuality_${selectedPlotName}`, mapLayerCacheMaxAgeMs());
+        const hasBrix = (isToday && hasApiData('brix', selectedPlotName)) || getCache(`brix_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
+        const hasBrixQuality = (isToday && hasApiData('brixQuality', selectedPlotName)) || getCache(`brixQuality_${selectedPlotName}_${currentEndDate}`, mapLayerCacheMaxAgeMs());
         if (!shouldBypassMapLayerCache() && hasBrix && hasBrixQuality) {
           shouldFetch = false;
           cachedDataFound = true;
@@ -599,7 +637,7 @@ const Map: React.FC<MapProps> = ({
         
         // Load cached data into state
         if (activeLayer === "Growth") {
-          const cached = getApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${currentEndDate}`);
+          const cached = getCache(`growth_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('growth', selectedPlotName) : null);
           if (cached) {
             setGrowthData(cached);
             if (!plotBoundary && cached?.features?.[0]?.geometry) {
@@ -607,10 +645,10 @@ const Map: React.FC<MapProps> = ({
             }
           }
         } else if (activeLayer === "Water Uptake") {
-          const cached = getApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`);
+          const cached = getCache(`wateruptake_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('waterUptake', selectedPlotName) : null);
           if (cached) setWaterUptakeData(cached);
         } else if (activeLayer === "Soil Moisture") {
-          const cached = getApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`);
+          const cached = getCache(`soilmoisture_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('soilMoisture', selectedPlotName) : null);
           if (cached) {
             setSoilMoistureData(cached);
             if (!plotBoundary && cached?.features?.[0]?.geometry) {
@@ -618,7 +656,7 @@ const Map: React.FC<MapProps> = ({
             }
           }
         } else if (activeLayer === "PEST") {
-          const cached = getApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${currentEndDate}`);
+          const cached = getCache(`pest_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('pest', selectedPlotName) : null);
           if (cached) {
             setPestData(cached);
             if (!plotBoundary && cached?.features?.[0]?.geometry) {
@@ -626,9 +664,9 @@ const Map: React.FC<MapProps> = ({
             }
           }
         } else if (activeLayer === "Brix") {
-          const cachedCanopy = getApiData('canopyVigour', selectedPlotName) || getCache(`canopy_vigour_${selectedPlotName}_${currentEndDate}`);
-          const cachedBrix = getApiData('brix', selectedPlotName) || getCache(`brix_${selectedPlotName}_${currentEndDate}`);
-          const cachedBrixQuality = getApiData('brixQuality', selectedPlotName) || getCache(`brixQuality_${selectedPlotName}`);
+          const cachedCanopy = getCache(`canopy_vigour_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('canopyVigour', selectedPlotName) : null);
+          const cachedBrix = getCache(`brix_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('brix', selectedPlotName) : null);
+          const cachedBrixQuality = getCache(`brixQuality_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('brixQuality', selectedPlotName) : null);
           if (cachedCanopy) {
             setCanopyVigourData(cachedCanopy);
             if (!plotBoundary && cachedCanopy?.features?.[0]?.geometry) {
@@ -822,6 +860,15 @@ const Map: React.FC<MapProps> = ({
     date.setHours(0, 0, 0, 0);
     return date >= today;
   };
+  const availableDateIndex = availableDates.indexOf(currentEndDate);
+  const previousDateDisabled =
+    datesLoading || (availableDates.length > 0 && availableDateIndex === 0);
+  const nextDateDisabled =
+    datesLoading ||
+    (availableDates.length > 0
+      ? availableDateIndex >= 0 && availableDateIndex === availableDates.length - 1
+      : isAtOrAfterCurrentDate(currentEndDate));
+
 
   const adjustDate = (days: number) => {
     const current = new Date(currentEndDate);
@@ -836,10 +883,29 @@ const Map: React.FC<MapProps> = ({
   };
 
   const onLeftArrowClick = () => {
+    setShowDatePopup(true);
+    if (availableDates.length > 0) {
+      if (availableDateIndex > 0) {
+        setCurrentEndDate(availableDates[availableDateIndex - 1]);
+      } else if (availableDateIndex === -1) {
+        setCurrentEndDate(availableDates[availableDates.length - 1]);
+      }
+      return;
+    }
     setPopupSide('left');
     adjustDate(-DAYS_STEP);
   };
 
+    if (availableDates.length > 0) {
+      setPopupSide('right');
+      setShowDatePopup(true);
+      if (availableDateIndex >= 0 && availableDateIndex < availableDates.length - 1) {
+        setCurrentEndDate(availableDates[availableDateIndex + 1]);
+      } else if (availableDateIndex === -1) {
+        setCurrentEndDate(availableDates[availableDates.length - 1]);
+      }
+      return;
+    }
   const onRightArrowClick = () => {
     // Only allow forward navigation if we're not at or past the current date
     const today = getCurrentDate();
@@ -1089,7 +1155,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('growth', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Growth data from context for ${plotName}`);
       setGrowthData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1192,7 +1258,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('waterUptake', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Water Uptake data from context for ${plotName}`);
       setWaterUptakeData(preloadedData);
       setLoading(false);
@@ -1292,7 +1358,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('soilMoisture', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Soil Moisture data from context for ${plotName}`);
       setSoilMoistureData(preloadedData);
       setLoading(false);
@@ -1557,7 +1623,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('pest', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Pest Detection data from context for ${plotName}`);
       setPestData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1689,7 +1755,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('canopyVigour', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Canopy Vigour data from context for ${plotName}`);
       setCanopyVigourData(preloadedData);
       if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
@@ -1917,7 +1983,7 @@ const Map: React.FC<MapProps> = ({
 
     // If Brix grid values are already available (same backend response),
     // reuse them instead of making another request.
-    if (brixData?.grid_values && Array.isArray(brixData.grid_values)) {
+    if (isTodayDate(currentEndDate) && brixData?.grid_values && Array.isArray(brixData.grid_values)) {
       console.log(`✅ Reusing Brix grid values for Brix Quality (${plotName})`);
       setBrixQualityData(brixData);
       setApiData('brixQuality', plotName, brixData);
@@ -1926,7 +1992,7 @@ const Map: React.FC<MapProps> = ({
 
     // Check context first (preloaded data)
     const preloadedData = getApiData('brixQuality', plotName);
-    if (preloadedData && !shouldBypassMapLayerCache()) {
+    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using preloaded Brix Quality data from context for ${plotName}`);
       setBrixQualityData(preloadedData);
       return Promise.resolve(); // Return resolved promise to mark as loaded
@@ -2942,20 +3008,22 @@ const Map: React.FC<MapProps> = ({
             <button
               className="timeseries-nav-arrow-left"
               onClick={onLeftArrowClick}
-              aria-label="Previous date (-15 days)"
-              title="Previous (-15 days)"
+              aria-label={availableDates.length ? "Previous available date" : "Previous date (-15 days)"}
+              title={datesLoading ? "Loading dates..." : availableDates.length ? "Previous available date" : "Previous (-15 days)"}
+              disabled={previousDateDisabled}
+              style={{ opacity: previousDateDisabled ? 0.7 : 1, cursor: previousDateDisabled ? "not-allowed" : "pointer" }}
             >
               <span className="timeseries-arrow-icon timeseries-arrow-left-icon"></span>
             </button>
             <button
               className="timeseries-nav-arrow-right"
               onClick={onRightArrowClick}
-              aria-label="Next date (+15 days)"
-              title="Next (+15 days)"
-              disabled={isAtOrAfterCurrentDate(currentEndDate)}
+              aria-label={availableDates.length ? "Next available date" : "Next date (+15 days)"}
+              title={datesLoading ? "Loading dates..." : availableDates.length ? "Next available date" : "Next (+15 days)"}
+              disabled={nextDateDisabled}
               style={{
-                opacity: isAtOrAfterCurrentDate(currentEndDate) ? 0.5 : 1,
-                cursor: isAtOrAfterCurrentDate(currentEndDate) ? 'not-allowed' : 'pointer'
+                opacity: nextDateDisabled ? 0.5 : 1,
+                cursor: nextDateDisabled ? 'not-allowed' : 'pointer'
               }}
             >
               <span className="timeseries-arrow-icon timeseries-arrow-right-icon"></span>
@@ -2976,6 +3044,37 @@ const Map: React.FC<MapProps> = ({
                   </div>
                 </div>
               </div>
+
+            {/* Date Ribbon - available satellite image dates from stored-tiles */}
+            {activePlotName && (
+              <div className="date-ribbon">
+                {datesLoading && (
+                  <span className="date-ribbon-loading">Loading dates…</span>
+                )}
+                {!datesLoading && datesError && (
+                  <span className="date-ribbon-loading" role="status">
+                    Dates unavailable: {datesError}
+                  </span>
+                )}
+                {availableDates.map((d) => (
+                  <button
+                    key={d}
+                    ref={d === currentEndDate ? selectedDateButtonRef : undefined}
+                    type="button"
+                    className={`date-ribbon-cell${d === currentEndDate ? " date-ribbon-cell--selected" : ""}`}
+                    onClick={() => { setCurrentEndDate(d); setShowDatePopup(false); }}
+                    title={d}
+                  >
+                    <span className="date-ribbon-cell-label">{formatRibbonDate(d)}</span>
+                  </button>
+                ))}
+                {!datesLoading && !datesError && availableDates.length === 0 && (
+                  <span className="date-ribbon-loading" role="status">
+                    No dates available for this layer.
+                  </span>
+                )}
+              </div>
+            )}
             )}
           </>
         )}

@@ -1720,6 +1720,95 @@
 }
 
 /* Map legend bottom styles - positioned at bottom of map container */
+.date-ribbon {
+  position: absolute;
+  bottom: 10px;
+  left: 1px;
+  right: 1px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: rgb(2, 2, 2);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.date-ribbon::-webkit-scrollbar {
+  height: 5px;
+}
+
+.date-ribbon::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.date-ribbon-cell {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 102px;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 10px 8px;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.date-ribbon-cell:last-child {
+  border-right: 0;
+}
+
+.date-ribbon-cell:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.date-ribbon-cell--selected {
+  background: rgba(6, 101, 254, 0.84);
+  box-shadow: inset 0 -2px 0 #0565ff;
+}
+
+.date-ribbon-cell-label {
+  display: block;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.date-ribbon-loading {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .date-ribbon-cell {
+    min-width: 88px;
+    padding: 9px 8px 7px;
+  }
+
+  .date-ribbon-cell-label {
+    font-size: 11px;
+  }
+}
+
 .map-legend-bottom {
   position: absolute !important;
   bottom: 45px;
@@ -1733,6 +1822,10 @@
   width: auto !important;
   height: auto !important;
   max-width: 100vw !important;
+}
+
+.map-legend-bottom.has-date-ribbon {
+  bottom: 120px !important;
 }
 
 .legend-items-bottom {
@@ -1847,6 +1940,10 @@
     visibility: visible !important;
     opacity: 1 !important;
     z-index: 10000 !important;
+  }
+
+  .map-legend-bottom.has-date-ribbon {
+    bottom: 245px !important;
   }
 
   .legend-items-bottom {

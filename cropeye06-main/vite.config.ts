@@ -90,6 +90,11 @@ export default defineConfig(({ mode }) => {
     },
     // Proxy API requests to avoid CORS issues in development
     proxy: {
+      "/api/analysis-timeline": {
+        target: "https://cropeye-database-production.up.railway.app",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/analysis-timeline/, ""),
+      },
       // All cropeye-grapes-events-production routes (indices, stress, grapes/*, plots/*)
       '/api/events': {
         target: 'https://cropeye-grapes-events-production.up.railway.app',

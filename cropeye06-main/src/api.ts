@@ -436,17 +436,48 @@ function dedupeFieldOfficers(list: any[]): any[] {
   return Array.from(map.values());
 }
 
-function parseTeamConnectFieldOfficers(data: unknown): any[] {
+function parseTeamConnectUsers(data: unknown): {
+  managers: any[];
+  fieldOfficers: any[];
+} {
   const root = (data ?? {}) as Record<string, unknown>;
+  const usersByRole = (root.users_by_role ?? {}) as Record<string, unknown>;
+  let managers = pickApiArray(usersByRole.managers, root.managers);
   let fieldOfficers = pickApiArray(
-    (root.users_by_role as Record<string, unknown> | undefined)?.field_officers,
+    usersByRole.field_officers,
     root.field_officers,
     root.fieldOfficers,
   );
-  const managers = pickApiArray(
-    (root.users_by_role as Record<string, unknown> | undefined)?.managers,
-    root.managers,
-  );
+
+  if (Array.isArray(root.results)) {
+    root.results.forEach((user: any) => {
+      const roleId = user?.role_id ?? user?.role?.id;
+      const roleName = String(
+        user?.role?.name ?? user?.role_name ?? user?.roleName ?? user?.type ?? "",
+      ).toLowerCase();
+      if (roleId === 3 || roleName.includes("manager")) managers.push(user);
+      if (
+        roleId === 2 ||
+        (roleName.includes("field") && roleName.includes("officer"))
+      ) {
+        fieldOfficers.push(user);
+      }
+    });
+  }
+
+  managers = managers.map((manager: any) => {
+    const user = manager?.user && typeof manager.user === "object"
+      ? manager.user
+      : null;
+    return {
+      ...user,
+      ...manager,
+      id: manager?.id ?? manager?.user_id ?? manager?.userId ?? user?.id,
+      first_name: manager?.first_name ?? user?.first_name,
+      last_name: manager?.last_name ?? user?.last_name,
+    };
+  });
+
   if (fieldOfficers.length === 0 && managers.length > 0) {
     fieldOfficers = managers.flatMap((manager: any) => {
       const mid = manager?.id ?? manager?.user_id ?? null;
@@ -459,7 +490,37 @@ function parseTeamConnectFieldOfficers(data: unknown): any[] {
       );
     });
   }
-  return normalizeFieldOfficersFromResponse({ field_officers: fieldOfficers });
+
+  const managerByFieldOfficerId = new Map<string, string>();
+  managers.forEach((manager: any) => {
+    const managerId = manager?.id ?? manager?.user_id;
+    if (managerId == null) return;
+    pickApiArray(manager?.field_officers, manager?.fieldOfficers).forEach(
+      (fo: any) => {
+        const fieldOfficerId = fo?.id ?? fo?.user_id ?? fo?.userId;
+        if (fieldOfficerId != null) {
+          managerByFieldOfficerId.set(String(fieldOfficerId), String(managerId));
+        }
+      },
+    );
+  });
+
+    return {
+      managers,
+      fieldOfficers: normalizeFieldOfficersFromResponse({
+        field_officers: fieldOfficers.map((fo: any) => ({
+          ...fo,
+          manager_id:
+          fo?.manager_id ??
+          fo?.manager?.id ??
+          fo?.managerId ??
+          managerByFieldOfficerId.get(
+            String(fo?.id ?? fo?.user_id ?? fo?.userId ?? ""),
+          ) ??
+          null,
+        })),
+      }),
+    };
 }
 
 /** Owner grapes: load field officers with industry-aware fallbacks. */
@@ -537,10 +598,12 @@ export async function loadOwnerFieldOfficers(options?: {
   };
 
   // A) GET /users/my-field-officers/ (works for manager; sometimes empty for owner)
+  let standaloneFieldOfficers: any[] = [];
   try {
     const res = await getMyFieldOfficers();
     const fieldOfficers = normalizeFieldOfficersFromResponse(res.data);
     if (fieldOfficers.length > 0) {
+      standaloneFieldOfficers = fieldOfficers;
       // Owners still need managers for Manager → FO cascade (like sugarcane)
       try {
         const hier = await loadManagersFromOwnerHierarchy();
@@ -560,7 +623,6 @@ export async function loadOwnerFieldOfficers(options?: {
           err,
         );
       }
-      return { fieldOfficers, managers: [], source: "my-field-officers" };
     }
   } catch (err) {
     console.warn("loadOwnerFieldOfficers: my-field-officers failed", err);
@@ -570,24 +632,30 @@ export async function loadOwnerFieldOfficers(options?: {
     // B) GET /users/owner-team-connect/?industry_id=
     try {
       const res = await getOwnerTeamConnect(industryId);
-      const fieldOfficers = parseTeamConnectFieldOfficers(res.data);
-      if (fieldOfficers.length > 0) {
+      const team = parseTeamConnectUsers(res.data);
+      if (team.managers.length > 0 || team.fieldOfficers.length > 0) {
+        let hierarchy = { managers: [] as any[], fieldOfficers: [] as any[] };
         try {
-          const hier = await loadManagersFromOwnerHierarchy();
-          if (hier.managers.length > 0) {
-            return {
-              fieldOfficers:
-                hier.fieldOfficers.length > 0
-                  ? hier.fieldOfficers
-                  : fieldOfficers,
-              managers: hier.managers,
-              source: "owner-team-connect+owner-hierarchy",
-            };
-          }
+          hierarchy = await loadManagersFromOwnerHierarchy();
         } catch {
-          // keep FO-only
+          // Keep team-connect data when hierarchy enrichment is unavailable.
         }
-        return { fieldOfficers, managers: [], source: "owner-team-connect" };
+        if (team.managers.length > 0 || hierarchy.managers.length > 0) {
+          return {
+            managers:
+              team.managers.length > 0 ? team.managers : hierarchy.managers,
+            fieldOfficers:
+              team.fieldOfficers.length > 0
+                ? team.fieldOfficers
+                : hierarchy.fieldOfficers.length > 0
+                  ? hierarchy.fieldOfficers
+                  : standaloneFieldOfficers,
+            source: "owner-team-connect+owner-hierarchy",
+          };
+        }
+        if (team.fieldOfficers.length > 0) {
+          standaloneFieldOfficers = team.fieldOfficers;
+        }
       }
     } catch (err) {
       console.warn("loadOwnerFieldOfficers: owner-team-connect failed", err);
@@ -596,24 +664,30 @@ export async function loadOwnerFieldOfficers(options?: {
     // B2) GET /users/team-connect/?industry_id=
     try {
       const res = await getTeamConnect(industryId);
-      const fieldOfficers = parseTeamConnectFieldOfficers(res.data);
-      if (fieldOfficers.length > 0) {
+      const team = parseTeamConnectUsers(res.data);
+      if (team.managers.length > 0 || team.fieldOfficers.length > 0) {
+        let hierarchy = { managers: [] as any[], fieldOfficers: [] as any[] };
         try {
-          const hier = await loadManagersFromOwnerHierarchy();
-          if (hier.managers.length > 0) {
-            return {
-              fieldOfficers:
-                hier.fieldOfficers.length > 0
-                  ? hier.fieldOfficers
-                  : fieldOfficers,
-              managers: hier.managers,
-              source: "team-connect+owner-hierarchy",
-            };
-          }
+          hierarchy = await loadManagersFromOwnerHierarchy();
         } catch {
-          // keep FO-only
+          // Keep team-connect data when hierarchy enrichment is unavailable.
         }
-        return { fieldOfficers, managers: [], source: "team-connect" };
+        if (team.managers.length > 0 || hierarchy.managers.length > 0) {
+          return {
+            managers:
+              team.managers.length > 0 ? team.managers : hierarchy.managers,
+            fieldOfficers:
+              team.fieldOfficers.length > 0
+                ? team.fieldOfficers
+                : hierarchy.fieldOfficers.length > 0
+                  ? hierarchy.fieldOfficers
+                  : standaloneFieldOfficers,
+            source: "team-connect+owner-hierarchy",
+          };
+        }
+        if (team.fieldOfficers.length > 0) {
+          standaloneFieldOfficers = team.fieldOfficers;
+        }
       }
     } catch (err) {
       console.warn("loadOwnerFieldOfficers: team-connect failed", err);
@@ -628,6 +702,14 @@ export async function loadOwnerFieldOfficers(options?: {
     }
   } catch (err) {
     console.warn("loadOwnerFieldOfficers: owner-hierarchy failed", err);
+  }
+
+  if (standaloneFieldOfficers.length > 0) {
+    return {
+      fieldOfficers: standaloneFieldOfficers,
+      managers: [],
+      source: "field-officers-fallback",
+    };
   }
 
   return { fieldOfficers: [], managers: [], source: "none" };
@@ -1377,6 +1459,38 @@ export const getTeamConnect = (industryId?: number | string) => {
 export const getOwnerTeamConnect = (industryId: number | string) => {
   const id = encodeURIComponent(String(industryId));
   return api.get(`/users/owner-team-connect/?industry_id=${id}`, {
+    timeout: 60_000,
+  });
+};
+
+/** Grapes harvest planning: FO + farmers + filter options. */
+export type TeamConnectGrapesParams = {
+  region?: string;
+  representative_id?: number | string;
+  plot_area?: string;
+  variety?: string;
+};
+
+export const getTeamConnectGrapes = (params?: TeamConnectGrapesParams) => {
+  const query: Record<string, string> = {};
+  if (params?.region && params.region !== "All") {
+    query.region = params.region;
+  }
+  if (
+    params?.representative_id != null &&
+    String(params.representative_id).trim() !== "" &&
+    String(params.representative_id) !== "All"
+  ) {
+    query.representative_id = String(params.representative_id);
+  }
+  if (params?.plot_area && params.plot_area !== "All") {
+    query.plot_area = params.plot_area;
+  }
+  if (params?.variety && params.variety !== "All") {
+    query.variety = params.variety;
+  }
+  return api.get("/users/team-connect/grapes/", {
+    params: query,
     timeout: 60_000,
   });
 };

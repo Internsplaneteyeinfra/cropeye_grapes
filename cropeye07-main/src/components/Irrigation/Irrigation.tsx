@@ -51,18 +51,18 @@ const Irrigation: React.FC<IrrigationProps> = ({
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (activePlotName) {
-      selectedPlot = profile.plots.find((p: any) => 
+      selectedPlot = profile.plots.find((p: any) =>
         p.fastapi_plot_id === activePlotName ||
         `${p.gat_number}_${p.plot_number}` === activePlotName
       );
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profile.plots[0];
     }
 
     const coordinates = selectedPlot.coordinates?.location?.coordinates;
-    
+
     if (!coordinates || coordinates.length !== 2) {
       console.warn('🌤️ Irrigation: Invalid coordinates in farmer profile:', coordinates);
       setError("Invalid location data for weather");
@@ -72,7 +72,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
 
     const [longitude, latitude] = coordinates;
     const cacheKey = `weather_${latitude}_${longitude}`;
-    
+
     const cached = getCached(cacheKey);
     if (cached) {
       setAppState((prev: any) => ({ ...prev, weatherData: cached.data }));
@@ -80,7 +80,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
       setLoading(false);
       return;
     }
-    
+
     setLoading(true);
     fetchWeatherData(latitude, longitude);
     // eslint-disable-next-line
@@ -90,15 +90,15 @@ const Irrigation: React.FC<IrrigationProps> = ({
     try {
       setLoading(true);
       console.log('🌤️ Irrigation: Fetching weather for coordinates:', { lat, lon });
-      
+
       // Use the same weather service as Header component
       const data = await fetchCurrentWeather(lat, lon);
       console.log('🌤️ Irrigation: Weather data received:', data);
-      
+
       setAppState((prev: any) => ({ ...prev, weatherData: data }));
       setLastUpdated(new Date());
       setError(null);
-      
+
       // Save to context cache and localStorage with location-specific key
       const cacheKey = `weather_${lat}_${lon}`;
       const payload = { data, timestamp: Date.now() };
@@ -149,10 +149,10 @@ const Irrigation: React.FC<IrrigationProps> = ({
             >
               {profile.plots?.map(plot => {
                 let displayName = '';
-                
-                if (plot.gat_number && plot.plot_number && 
-                    plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
-                    !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
+
+                if (plot.gat_number && plot.plot_number &&
+                  plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
+                  !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
                   displayName = `${plot.gat_number}_${plot.plot_number}`;
                 } else if (plot.gat_number && plot.gat_number.trim() !== "" && !plot.gat_number.startsWith('GAT_')) {
                   displayName = plot.gat_number;
@@ -161,7 +161,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
                 } else {
                   const village = plot.address?.village;
                   const taluka = plot.address?.taluka;
-                  
+
                   if (village) {
                     displayName = `Plot in ${village}`;
                     if (taluka) displayName += `, ${taluka}`;
@@ -169,7 +169,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
                     displayName = 'Plot (No GAT/Plot Number)';
                   }
                 }
-                
+
                 return (
                   <option key={plot.fastapi_plot_id} value={plot.fastapi_plot_id}>
                     {displayName}
@@ -182,7 +182,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
       )}
 
       <div className="irrigation-header">
-        <h1>Irrigation Status</h1>
+        {/* <h1>Irrigation not given</h1> */}
         <span className="date">{formattedDate}</span>
       </div>
 
@@ -220,17 +220,17 @@ const Irrigation: React.FC<IrrigationProps> = ({
       </div>
 
       <div className="refresh-section">
-        <button 
+        <button
           onClick={() => {
             // Find selected plot or use first plot
             let selectedPlot = null;
             if (activePlotName) {
-              selectedPlot = profile?.plots?.find((p: any) => 
+              selectedPlot = profile?.plots?.find((p: any) =>
                 p.fastapi_plot_id === activePlotName ||
                 `${p.gat_number}_${p.plot_number}` === activePlotName
               );
             }
-            
+
             if (!selectedPlot && profile?.plots && profile.plots.length > 0) {
               selectedPlot = profile.plots[0];
             }
@@ -239,7 +239,7 @@ const Irrigation: React.FC<IrrigationProps> = ({
               const [longitude, latitude] = selectedPlot.coordinates.location.coordinates;
               fetchWeatherData(latitude, longitude);
             }
-          }} 
+          }}
           className="refresh-button"
         >
           Refresh Data

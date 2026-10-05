@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
-import { getCache, setCache } from "../utils/cache";
+import { getCache, removeCache, setCache } from "../utils/cache";
 import { getBackendApiBaseUrl, getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import { grapesPlotFormBody, ripeningMilestonesFromPayload } from "../utils/grapesEventsBundle";
 import {
@@ -56,6 +56,8 @@ import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import { getRecentFarmers } from "../api";
 import { getUserRole } from "../utils/auth";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
+import { fetchRiskAssessmentFromApi } from "./pestt/meter/riskAssessmentService";
+import type { RiskAssessmentResult } from "./pestt/meter/riskAssessmentService";
 
 // Constants (same as FarmerDashboard)
 const BASE_URL = getEventsBaseUrl();
@@ -251,6 +253,10 @@ const OfficerDashboard: React.FC = () => {
   const [loadingFarmers, setLoadingFarmers] = useState<boolean>(false);
   const [loadingData, setLoadingData] = useState<boolean>(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [pestDiseaseRisk, setPestDiseaseRisk] = useState<RiskAssessmentResult | null>(null);
+  const [pestDiseaseLoading, setPestDiseaseLoading] = useState(false);
+  const [pestDiseaseError, setPestDiseaseError] = useState<string | null>(null);
+  const [pestDiseaseRefreshVersion, setPestDiseaseRefreshVersion] = useState(0);
 
   const lineStyles: LineStyles = {
     growth: { color: "#22c55e", label: "Growth Index", icon: TrendingUp },
@@ -426,6 +432,51 @@ const OfficerDashboard: React.FC = () => {
       setPlotCoordinatesFromState(selectedPlotId);
     }
   }, [selectedPlotId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedPlotId) {
+      setPestDiseaseRisk(null);
+      setPestDiseaseLoading(false);
+      setPestDiseaseError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cacheKey = `farmCropStatusRiskAssessment_${selectedPlotId}_${new Date().toISOString().slice(0, 10)}`;
+    const cachedAssessment = getCache(cacheKey, 30 * 60 * 1000);
+
+    setPestDiseaseRisk(cachedAssessment);
+    setPestDiseaseError(null);
+    setPestDiseaseLoading(!cachedAssessment);
+
+    if (!cachedAssessment) {
+      void fetchRiskAssessmentFromApi(selectedPlotId)
+        .then((result) => {
+          if (cancelled) return;
+          if (!result) {
+            setPestDiseaseError("Risk data is currently unavailable for this plot.");
+            return;
+          }
+          setPestDiseaseRisk(result.assessment);
+          setCache(cacheKey, result.assessment);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          console.error("Failed to load pest and disease risk:", error);
+          setPestDiseaseError("Could not load pest and disease risk. Please try again.");
+        })
+        .finally(() => {
+          if (!cancelled) setPestDiseaseLoading(false);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlotId, pestDiseaseRefreshVersion]);
 
   // Ripening / Harvest milestones for selected plot
   useEffect(() => {
@@ -1852,6 +1903,86 @@ const OfficerDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <section className="bg-white rounded-xl shadow-lg p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Pest &amp; Disease Risk</h2>
+              <p className="text-sm text-gray-500">
+                Current risk assessment for {selectedPlotId || "the selected plot"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const assessmentDate = new Date().toISOString().slice(0, 10);
+                removeCache(`farmCropStatusRiskAssessment_${selectedPlotId}_${assessmentDate}`);
+                setPestDiseaseRefreshVersion((version) => version + 1);
+              }}
+              disabled={!selectedPlotId || pestDiseaseLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {pestDiseaseLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Refresh
+            </button>
+          </div>
+
+          {!selectedPlotId && (
+            <p className="text-sm text-gray-500">Select a plot to load its pest and disease status.</p>
+          )}
+          {pestDiseaseLoading && (
+            <div className="flex items-center gap-2 text-sm text-gray-600" role="status">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Fetching risk assessment…
+            </div>
+          )}
+          {pestDiseaseError && (
+            <p className="text-sm text-red-700" role="alert">{pestDiseaseError}</p>
+          )}
+          {pestDiseaseRisk && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {([
+                { title: "Pests", buckets: pestDiseaseRisk.pests },
+                { title: "Diseases", buckets: pestDiseaseRisk.diseases },
+              ] as const).map(({ title, buckets }) => (
+                <article key={title} className="rounded-lg border border-gray-200 p-4">
+                  <h3 className="font-semibold text-gray-800 mb-3">{title}</h3>
+                  <div className="space-y-3">
+                    {([
+                      { level: "High", color: "border-red-200 bg-red-50 text-red-800" },
+                      { level: "Moderate", color: "border-amber-200 bg-amber-50 text-amber-800" },
+                      { level: "Low", color: "border-green-200 bg-green-50 text-green-800" },
+                    ] as const).map(({ level, color }) => (
+                      <div key={level} className={`rounded-md border p-3 ${color}`}>
+                        <div className="flex items-center justify-between font-medium">
+                          <span>{level} risk</span>
+                          <span>{buckets[level].length}</span>
+                        </div>
+                        {buckets[level].length > 0 ? (
+                          <ul className="mt-2 list-disc pl-5 text-sm">
+                            {buckets[level].map((name, index) => (
+                              <li key={`${name}-${index}`} className="break-words">{name}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-sm">No {level.toLowerCase()} risk items returned.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {pestDiseaseRisk &&
+            pestDiseaseRisk.pests.High.length + pestDiseaseRisk.pests.Moderate.length +
+              pestDiseaseRisk.pests.Low.length + pestDiseaseRisk.diseases.High.length +
+              pestDiseaseRisk.diseases.Moderate.length + pestDiseaseRisk.diseases.Low.length === 0 && (
+              <p className="mt-4 text-sm text-gray-600">
+                The API returned no pest or disease risk items for this plot.
+              </p>
+            )}
+        </section>
 
         {/* Map and Status Section */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">

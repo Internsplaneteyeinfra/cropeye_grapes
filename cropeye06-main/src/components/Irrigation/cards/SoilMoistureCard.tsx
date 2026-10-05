@@ -26,6 +26,7 @@ import {
   fetchSoilMoistureForPlot,
   moistureBandForCrop,
 } from "../../../utils/soilMoistureApi";
+import { setCache } from "../../../utils/cache";
 import {
   fetchWaterRemainForPlot,
   filterDaysInRange,
@@ -66,15 +67,6 @@ type WaterRange = "day" | "week" | "month";
 const SURPLUS_COLOR = "#1565C0";
 const DEFICIT_COLOR = "#D32F2F";
 const SELECT_DOT = "#29B6F6";
-const HOUR_LINE_COLOR = "#2E7D32";
-
-function hourBarColor(kl: number, maxAbs: number): string {
-  if (kl < 0) return DEFICIT_COLOR;
-  const frac = maxAbs <= 0 ? 0 : Math.min(1, Math.max(0, kl / maxAbs));
-  if (frac < 0.3) return "#FFA000";
-  if (frac < 0.7) return HOUR_LINE_COLOR;
-  return SURPLUS_COLOR;
-}
 
 function parsePrecipMm(raw: unknown): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, raw);
@@ -416,6 +408,23 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                   ? "Low"
                   : "High",
           }));
+          // Share weekly stack with Soil Moisture Trend card
+          try {
+            const weekPoints = moistureParsed.stack.slice(-7).map((row) => ({
+              date: row.day,
+              value: row.soil_moisture,
+              rain: row.rainfall_mm_yesterday || 0,
+              day: new Date(`${row.day}T12:00:00`).toLocaleDateString("en-US", {
+                weekday: "short",
+              }),
+            }));
+            setCache(`soilMoistureStack_${plotName}`, {
+              soil_moisture_stack: moistureParsed.stack,
+            });
+            setCache(`soilMoistureTrend_${plotName}`, weekPoints);
+          } catch {
+            /* ignore cache share errors */
+          }
 
           // Prefer API coords when profile has none
           if (
@@ -603,17 +612,28 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
     );
   }, [visibleDays, waterRange]);
 
-  // Day tab only — Flutter LineChart: hourly waterVolumeAfterLiters / 1000 (kL).
+  // Day tab — stock-market style: continuous remain (kL) vs hours, Δ from open
   const hourlyBars = useMemo(() => {
     if (!selected?.hourlySteps?.length) return [];
+    const openKl = selected.hourlySteps[0].waterVolumeAfterLiters / 1000;
     return selected.hourlySteps.map((h, i) => {
-      const clock = `${String(i).padStart(2, "0")}:00`;
+      const kl = h.waterVolumeAfterLiters / 1000;
+      const prevKl =
+        i > 0
+          ? selected.hourlySteps![i - 1].waterVolumeAfterLiters / 1000
+          : openKl;
+      const change = kl - openKl;
+      const stepChange = kl - prevKl;
       return {
         hour: i,
         label: `H${i}`,
-        clock,
-        kl: Number((h.waterVolumeAfterLiters / 1000).toFixed(2)),
-        liters: h.waterVolumeAfterLiters,
+        clock: `${String(i).padStart(2, "0")}:00`,
+        kl: Number(kl.toFixed(2)),
+        openKl: Number(openKl.toFixed(2)),
+        change: Number(change.toFixed(2)),
+        stepChange: Number(stepChange.toFixed(2)),
+        upFromOpen: change >= 0,
+        upStep: stepChange >= 0,
       };
     });
   }, [selected]);
@@ -630,16 +650,20 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
     const vals = hourlyBars.map((h) => h.kl);
     const dataMin = Math.min(...vals);
     const dataMax = Math.max(...vals);
-    // All deficit (screenshot case): top ≈ 0/1, bottom below min
+    const pad = Math.max(0.15, (dataMax - dataMin) * 0.08);
+    // All deficit: top near 0, bottom below min
     if (dataMax <= 0) {
-      return [Math.floor(dataMin * 1.08), 1];
+      return [Math.floor((dataMin - pad) * 100) / 100, Math.max(0.2, pad)];
     }
-    // All surplus: from 0 up
+    // All surplus: from slightly below min up
     if (dataMin >= 0) {
-      return [0, Math.max(1, Math.ceil(dataMax * 1.08))];
+      return [
+        Math.max(0, Math.floor((dataMin - pad) * 100) / 100),
+        Math.ceil((dataMax + pad) * 100) / 100,
+      ];
     }
     // Mixed remain/deficit — Flutter: ±maxAbs
-    const m = hourlyMaxAbsKl;
+    const m = hourlyMaxAbsKl * 1.08;
     return [-m, m];
   }, [hourlyBars, hourlyMaxAbsKl]);
 
@@ -772,7 +796,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                 <p className="water-balance-chart-hint">
                   {waterRange === "day"
                     ? hourlyBars.length
-                      ? "Hover or tap a point to see the clock time and remain (kL)."
+                      ? ""
                       : "No hourly steps for this day"
                     : "Tap a day for detail"}
                 </p>
@@ -780,124 +804,123 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                 {waterRange === "day" ? (
                   hourlyBars.length > 0 ? (
                     <div
-                      className={`moisture-hourly-chart ${compact ? "moisture-hourly-chart--compact" : ""}`}
-                      style={{ height: chartH }}
-                      aria-label="Hourly water remain"
+                      className={`moisture-hourly-chart moisture-hourly-chart--day ${compact ? "moisture-hourly-chart--compact" : ""}`}
+                      style={{ height: chartH + 28 }}
+                      aria-label="Hourly water remaining chart"
                     >
+                      <div className="moisture-hourly-chart-date">
+                        {selected?.shortDate}
+                      </div>
                       <div className="moisture-hourly-chart-plot">
                         <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart
                             data={hourlyBars}
-                            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                            margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
                           >
+                            <defs>
+                              <linearGradient
+                                id="soilDayWaterFill"
+                                x1="0"
+                                y1="0"
+                                x2="0"
+                                y2="1"
+                              >
+                                <stop
+                                  offset="0%"
+                                  stopColor="#4ade80"
+                                  stopOpacity={0.24}
+                                />
+                                <stop
+                                  offset="100%"
+                                  stopColor="#4ade80"
+                                  stopOpacity={0.02}
+                                />
+                              </linearGradient>
+                            </defs>
                             <CartesianGrid
-                              strokeDasharray="3 3"
+                              strokeDasharray="2 6"
                               vertical={false}
-                              stroke="#e2e8f0"
+                              horizontal
+                              stroke="#d1fae5"
                             />
                             <XAxis
-                              dataKey="label"
-                              tick={{ fontSize: 13, fill: "#64748b" }}
+                              dataKey="clock"
+                              tick={{ fontSize: 10, fill: "#475569" }}
                               ticks={hourlyBars
                                 .filter(
                                   (h) =>
-                                    h.hour % 2 === 0 ||
+                                    h.hour % 3 === 0 ||
                                     h.hour === hourlyBars.length - 1,
                                 )
-                                .map((h) => h.label)}
+                                .map((h) => h.clock)}
                               tickLine={false}
                               axisLine={{ stroke: "#e2e8f0" }}
+                              interval="preserveStartEnd"
                             />
                             <YAxis
-                              tick={{ fontSize: 13, fill: "#64748b" }}
-                              tickFormatter={(v) => `${Number(v).toFixed(0)}`}
-                              width={42}
+                              tick={{ fontSize: 10, fill: "#475569" }}
+                              tickFormatter={(v) => `${Number(v).toFixed(1)} kL`}
+                              width={54}
                               tickLine={false}
                               axisLine={false}
                               domain={hourlyYDomain}
-                              label={{
-                                value: "kL",
-                                angle: -90,
-                                position: "insideLeft",
-                                style: { fontSize: 13, fill: "#64748b" },
-                              }}
                             />
                             <ReferenceLine
                               y={0}
-                              stroke="#94a3b8"
-                              strokeWidth={1.5}
+                              stroke="#86efac"
+                              strokeWidth={1}
                             />
                             <Tooltip
-                              formatter={(value: number) => [
-                                `${Number(value).toFixed(1)} kL`,
-                                "Remain",
-                              ]}
-                              labelFormatter={(_label, payload) => {
-                                const row = payload?.[0]?.payload as
-                                  | { clock?: string; hour?: number; label?: string }
-                                  | undefined;
-                                const clock =
-                                  row?.clock ??
-                                  (row?.hour != null
-                                    ? `${String(row.hour).padStart(2, "0")}:00`
-                                    : String(_label ?? ""));
-                                return `${clock} (${row?.label ?? _label})`;
+                              cursor={{
+                                stroke: "#16a34a",
+                                strokeWidth: 1,
+                                strokeDasharray: "3 3",
                               }}
-                              contentStyle={{
-                                fontSize: 13,
-                                borderRadius: 8,
-                                border: "1px solid #e2e8f0",
+                              content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null;
+                                const row = payload[0]?.payload as {
+                                  clock?: string;
+                                  kl?: number;
+                                };
+                                const remain = Number(row?.kl ?? 0);
+                                const need = Math.max(0, -remain);
+                                return (
+                                  <div className="moisture-hourly-tooltip">
+                                    <div className="moisture-hourly-tooltip-time">
+                                      {row?.clock ?? "—"}
+                                    </div>
+                                    <div className="moisture-hourly-tooltip-value">
+                                      {remain.toFixed(1)} kL remain
+                                    </div>
+                                    <div className="moisture-hourly-tooltip-need">
+                                      {need > 0
+                                        ? `Irrigation need: ${need.toFixed(1)} kL`
+                                        : "No irrigation needed"}
+                                    </div>
+                                  </div>
+                                );
                               }}
                             />
-                            {/* Flutter belowBarData fill under the remain line */}
                             <Area
                               type="monotone"
                               dataKey="kl"
                               stroke="none"
-                              fill={HOUR_LINE_COLOR}
-                              fillOpacity={0.12}
+                              fill="url(#soilDayWaterFill)"
                               baseValue={0}
                               isAnimationActive={false}
                             />
                             <Line
                               type="monotone"
                               dataKey="kl"
-                              stroke={HOUR_LINE_COLOR}
+                              stroke="#22c55e"
                               strokeWidth={2.5}
-                              strokeDasharray="6 4"
-                              dot={
-                                ((props: {
-                                  cx?: number;
-                                  cy?: number;
-                                  payload?: { hour?: number; kl?: number };
-                                }) => {
-                                  const { cx, cy, payload } = props;
-                                  if (cx == null || cy == null) {
-                                    return (
-                                      <circle
-                                        key={`dot-empty-${payload?.hour ?? 0}`}
-                                        r={0}
-                                      />
-                                    );
-                                  }
-                                  const color = hourBarColor(
-                                    Number(payload?.kl) || 0,
-                                    hourlyMaxAbsKl,
-                                  );
-                                  return (
-                                    <circle
-                                      key={`dot-${payload?.hour ?? 0}`}
-                                      cx={cx}
-                                      cy={cy}
-                                      r={3.5}
-                                      fill={color}
-                                      stroke="#fff"
-                                      strokeWidth={1}
-                                    />
-                                  );
-                                }) as any
-                              }
-                              activeDot={{ r: 5 }}
+                              dot={{ r: 3, fill: "#22c55e", stroke: "#ffffff", strokeWidth: 1.5 }}
+                              activeDot={{
+                                r: 5,
+                                stroke: "#fff",
+                                strokeWidth: 2,
+                                fill: "#16a34a",
+                              }}
                               isAnimationActive={false}
                             />
                           </ComposedChart>
@@ -1046,6 +1069,14 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                       >
                         {remainKl(selected.waterRemainLiters).toFixed(1)} kL
                         remain
+                      </span>
+                      <span
+                        className="water-balance-day-footer-need"
+                        style={{ color: irrigKl > 0 ? "#D32F2F" : "#059669" }}
+                      >
+                        {irrigKl > 0
+                          ? `Need ${irrigKl.toFixed(1)} kL`
+                          : "No irrigation needed"}
                       </span>
                       <span className="water-balance-day-footer-eto">
                         ETo {Number(selected.etoSumMm || 0).toFixed(1)} mm

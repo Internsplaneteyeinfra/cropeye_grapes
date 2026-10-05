@@ -42,6 +42,7 @@ const BlogCard = lazy(() => import("./components/BlogCard"));
 const AgricultureData = lazy(() => import("./components/AgricultureData"));
 const Map = lazy(() => import("./components/Map"));
 const FarmerDashboard = lazy(() => import("./components/FarmerDashboard"));
+const FarmerMyProfile = lazy(() => import("./components/FarmerMyProfile"));
 const OfficerDashboard = lazy(() => import("./components/FarmCropStatus"));
 const AgroDashboard = lazy(() => import("./components/AgroDash/AgroDashboard"));
 const ManagerFarmDash = lazy(() => import("./components/ManagerFarmDash"));
@@ -84,6 +85,7 @@ enum View {
   AgricultureData = "AgricultureData",
   Map = "Map",
   FarmerDashboard = "FarmerDashboard",
+  FarmerMyProfile = "FarmerMyProfile",
   FarmCropStatus = "FarmCropStatus",
 }
 
@@ -95,6 +97,7 @@ interface AppProps {
 const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>(View.Home);
+  const [profileEditMode, setProfileEditMode] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [expandedSidebarMenu, setExpandedSidebarMenu] = useState<string | null>(
     null
@@ -315,6 +318,11 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       case "FarmerDashboard":
         nextView = View.FarmerDashboard;
         break;
+      case "My Profile":
+      case "Update Profile":
+        nextView = userRole === "farmer" ? View.FarmerMyProfile : View.Home;
+        setProfileEditMode(menu === "Update Profile");
+        break;
       default:
         nextView = View.Home;
         break;
@@ -407,18 +415,15 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
         {/* Header - responsive margin on desktop only */}
         <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? "lg:ml-[280px]" : "lg:ml-0"}`}>
           <div className="app-container-header">
-            <Header toggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen} />
+            <Header
+              toggleSidebar={toggleSidebar}
+              isSidebarOpen={isSidebarOpen}
+              userRole={userRole}
+            />
           </div>
         </div>
 
-        {/* Farmer Information Bar - Only show for farmers */}
-        {userRole === 'farmer' && (
-          <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? "lg:ml-[280px]" : "lg:ml-0"}`}>
-            <div className="app-container-header">
-              <FarmerInfoBar />
-            </div>
-          </div>
-        )}
+
       </div>
 
       <div className="flex flex-1 relative">
@@ -597,6 +602,10 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
               )}
 
               {currentView === View.FarmerDashboard && <FarmerDashboard />}
+
+              {currentView === View.FarmerMyProfile && userRole === "farmer" && (
+                <FarmerMyProfile initialEditMode={profileEditMode} />
+              )}
 
               {currentView === View.FarmCropStatus && <OfficerDashboard />}
 

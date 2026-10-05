@@ -242,35 +242,63 @@ export const pestsData: Pest[] = [
     chemical: ["Malathion 50 EC @ 200 ml in 200 L water (evening spray)"]
   },
   {
-    name: "Fusarium wilt",
-    months: ["Oct - Feb"],
-    temperature: "25- 30",
-    humidity: "80-90",
-    image: "/Image/wilt.jpg",
-    stage: {
-      minDays: 90,
-      maxDays: 130,
-      description: "bud break to berry thinning - 20- 75 DAP"
-    },
-    category: "sucking",
-    symptoms: [
-      "Puncture marks on ripening berries",
-      "Juice oozing from damaged berries",
-      "Secondary fungal infections at wound sites"
-    ],
+    name: "Grapevine beetle",
+    months: ["June-September"],
+    temperature: "",
+    humidity: "",
+    image: "/Image/flea_beetle.jpg",
+    category: "chewing",
+    symptoms: ["Wilting of branches and vine"],
     identification: [
-      "Medium-sized moths with piercing mouthparts",
-      "Active at dusk and night"
+      "Adult: dark brown with three-bladed antennae and spines at the wing end",
+      "Grub: thick, fleshy, yellow-white, curved body",
     ],
-    where: "Ripening berries",
-    why: "Moths pierce berries to suck juice",
+    where: "Stems and branches",
+    why: "Warm, humid climate and freshly pruned vines",
     when: {
       high: "Present at the field",
       moderate: "In next 3–7 days",
-      low: "In next 10–14 days"
+      low: "In next 10–14 days",
     },
-    organic: ["Light traps", "Bagging of bunches"],
-    chemical: ["Lambda cyhalothrin", "Chlorpyriphos"]
+    organic: ["Remove loose bark", "Collect adults in kerosenated water"],
+    chemical: ["Phosalone 35 EC @ 80 ml/acre after pruning"],
+  },
+  {
+    name: "Mealybug (pink)",
+    months: ["November-March"],
+    temperature: "",
+    humidity: "",
+    image: "/Image/mealybug.jpg",
+    category: "sucking",
+    symptoms: ["Sap sucking", "Crinkled, yellow leaves", "Berry rot", "Sooty mold"],
+    identification: ["Nymph: pinkish", "Adult: pink and covered with white wax"],
+    where: "Leaves, shoots, and berries",
+    why: "Dry conditions, ants, and poor field hygiene",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Field sanitation", "Release Cryptolaemus @ 250–300 beetles/acre"],
+    chemical: ["Methyl demeton 25 EC @ 100 ml/acre", "Dichlorvos 76 WSC @ 40 ml/acre spray"],
+  },
+  {
+    name: "Berry plume moth",
+    months: ["October-January"],
+    temperature: "",
+    humidity: "",
+    image: "/Image/fruit%20sucking%20moth.webp",
+    symptoms: ["Webbing of flower buds", "Larvae bore into berries", "Tunneling inside fruit"],
+    identification: ["Larva: pale green or pink with a red line", "Adult: small plume moth"],
+    where: "Buds, flowers, and green berries",
+    why: "Warm, humid weather during flowering and berry set",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Collect and bury infested berries", "Pheromone traps (8–10/acre)"],
+    chemical: ["Buprofezin 25 SC @ 80 ml/acre", "Acetamiprid 20 SP @ 20 g/acre"],
   },
   {
     name: "Grub",

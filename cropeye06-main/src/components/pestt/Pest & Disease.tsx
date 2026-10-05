@@ -6,6 +6,7 @@ import { weedsData } from './meter/Weeds';
 import { DetectionCard } from './meter/PestCard';
 import {
   generateRiskAssessment,
+  fetchFruitPruningDate,
   fetchPlantationDate,
   fetchCurrentWeather,
   fetchPestDetectionData,
@@ -26,8 +27,9 @@ import { getCache, setCache } from '../utils/cache';
 import './PestDisease.css';
 
 export const PestDisease: React.FC = () => {
-  const { selectedPlotName, setSelectedPlotName } = useAppContext();
+  const { selectedPlotName, setSelectedPlotName, selectedAnalysisDate } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
+  const assessmentDate = selectedAnalysisDate || new Date().toISOString().split('T')[0];
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentResult | null>(null);
   const [pestDetectionData, setPestDetectionData] = useState<PestDetectionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,51 +40,60 @@ export const PestDisease: React.FC = () => {
   const [chemModal, setChemModal] = useState<{ open: boolean; title: string; chemicals: string[] }>({ open: false, title: '', chemicals: [] });
 
   useEffect(() => {
-    // Check cache immediately to avoid showing loading spinner if data is cached
-    if (selectedPlotName) {
-      const cacheKey = `riskAssessment_${selectedPlotName}`;
-      const pestDataCacheKey = `pestDetectionData_${selectedPlotName}`;
+    let cancelled = false;
+    const cacheKey = `riskAssessment_${selectedPlotName}_${assessmentDate}`;
+    const pestDataCacheKey = `pestDetectionData_${selectedPlotName}_${assessmentDate}_${assessmentDate}`;
+    const cachedAssessment = selectedPlotName
+      ? getCache(cacheKey, 30 * 60 * 1000)
+      : null;
+    const cachedPestData = selectedPlotName
+      ? getCache(pestDataCacheKey, 30 * 60 * 1000)
+      : null;
 
-      const cachedAssessment = getCache(cacheKey, 30 * 60 * 1000);
-      const cachedPestData = getCache(pestDataCacheKey, 30 * 60 * 1000);
-
-      if (cachedAssessment && cachedPestData) {
-        setRiskAssessment(cachedAssessment);
-        setPestDetectionData(cachedPestData);
-        setIsLoading(false);
-
-        const wh = cachedAssessment.weeds?.High?.length ?? 0;
-        if (
-          cachedAssessment.pests.High.length > 0 ||
-          cachedAssessment.diseases.High.length > 0 ||
-          wh > 0
-        ) {
-          if (cachedAssessment.pests.High.length > 0) {
-            setSelectedCategory('Pests');
-          } else if (cachedAssessment.diseases.High.length > 0) {
-            setSelectedCategory('Diseases');
-          } else {
-            setSelectedCategory('Weeds');
-          }
-          setSelectedRiskLevel('High');
-        }
-        return; // Don't fetch if cache exists
+    if (cachedAssessment && cachedPestData) {
+      setRiskAssessment(cachedAssessment);
+      setPestDetectionData(cachedPestData);
+      setIsLoading(false);
+      const hasHigh =
+        cachedAssessment.pests.High.length > 0 ||
+        cachedAssessment.diseases.High.length > 0 ||
+        (cachedAssessment.weeds?.High.length ?? 0) > 0;
+      if (hasHigh) {
+        setSelectedCategory(
+          cachedAssessment.pests.High.length > 0
+            ? 'Pests'
+            : cachedAssessment.diseases.High.length > 0
+              ? 'Diseases'
+              : 'Weeds',
+        );
+        setSelectedRiskLevel('High');
+      } else {
+        setSelectedCategory(null);
+        setSelectedRiskLevel(null);
       }
+      return () => { cancelled = true; };
     }
 
-    loadRiskAssessment();
-  }, [selectedPlotName]);
+    setRiskAssessment(null);
+    setPestDetectionData(null);
+    setSelectedCategory(null);
+    setSelectedRiskLevel(null);
+    void loadRiskAssessment(assessmentDate, () => cancelled);
+    return () => { cancelled = true; };
+  }, [selectedPlotName, selectedAnalysisDate]);
 
-  const loadRiskAssessment = async () => {
+  const loadRiskAssessment = async (
+    date: string,
+    isCancelled: () => boolean,
+  ) => {
     if (!selectedPlotName) {
       setIsLoading(false);
       return;
     }
 
     try {
-      // Check cache first
-      const cacheKey = `riskAssessment_${selectedPlotName}`;
-      const pestDataCacheKey = `pestDetectionData_${selectedPlotName}`;
+      const cacheKey = `riskAssessment_${selectedPlotName}_${date}`;
+      const pestDataCacheKey = `pestDetectionData_${selectedPlotName}_${date}_${date}`;
 
       const cachedAssessment = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
       const cachedPestData = getCache(pestDataCacheKey, 30 * 60 * 1000);
@@ -113,7 +124,11 @@ export const PestDisease: React.FC = () => {
 
       setIsLoading(true);
 
-      const apiResult = await fetchRiskAssessmentFromApi(selectedPlotName);
+      const isToday = date === new Date().toISOString().split('T')[0];
+      const apiResult = isToday
+        ? await fetchRiskAssessmentFromApi(selectedPlotName)
+        : null;
+      if (isCancelled()) return;
       if (apiResult) {
         setCache(cacheKey, apiResult.assessment);
         setCache(pestDataCacheKey, apiResult.pestDetectionData);
@@ -138,16 +153,25 @@ export const PestDisease: React.FC = () => {
         return;
       }
 
-      // Fallback: local calculators + pest-detection API
-      const plantationDate = await fetchPlantationDate(selectedPlotName || undefined);
+      // Historical risk buckets are calculated locally because risk-assessment has no date parameter.
+      const pruningDate = await fetchFruitPruningDate(selectedPlotName);
+      if (isCancelled()) return;
       const weatherData = await fetchCurrentWeather(selectedPlotName || undefined);
-      const pestData = await fetchPestDetectionData(selectedPlotName || undefined);
+      const pestData = await fetchPestDetectionData(
+        selectedPlotName,
+        date,
+        date,
+      );
+      if (isCancelled()) return;
 
       const assessment = await generateRiskAssessment(
-        plantationDate,
+        pruningDate || await fetchPlantationDate(selectedPlotName),
         weatherData,
-        selectedPlotName || undefined
+        selectedPlotName,
+        date,
+        pestData,
       );
+      if (isCancelled()) return;
 
       setCache(cacheKey, assessment);
       setCache(pestDataCacheKey, pestData);
@@ -162,9 +186,9 @@ export const PestDisease: React.FC = () => {
       }
 
     } catch (error) {
-      console.error('Failed to load risk assessment:', error);
+      if (!isCancelled()) console.error('Failed to load risk assessment:', error);
     } finally {
-      setIsLoading(false);
+      if (!isCancelled()) setIsLoading(false);
     }
   };
 
@@ -199,7 +223,16 @@ export const PestDisease: React.FC = () => {
   const getDiseaseRiskTags = () => {
     if (!riskAssessment) return { high: [], moderate: [], low: [] };
 
-    const fungalDiseaseNames = ['Downy mildew', 'Powdery mildew', 'Anthracnose', 'Fusarium wilt'];
+    const fungalDiseaseNames = [
+      'Downy mildew',
+      'Powdery mildew',
+      'Anthracnose',
+      'Fusarium wilt',
+      'Rust',
+      'Black rot',
+      'Botrytis (Grey mold)',
+      'Cercospora leaf spot',
+    ];
 
     const mapNames = (names: string[]) =>
       names.map((name) => {
@@ -338,6 +371,60 @@ export const PestDisease: React.FC = () => {
           <h2 className="text-xl xs:text-2xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 text-center mb-3 sm:mb-4 md:mb-6 px-2">
             Risk Assessment
           </h2>
+          <p className="text-center text-sm text-gray-600 mb-3">
+            Assessment date: <span className="font-semibold">{assessmentDate}</span>
+          </p>
+          <details className="mx-auto mb-4 max-w-4xl rounded-lg border border-blue-200 bg-blue-50 p-3 sm:p-4">
+            <summary className="cursor-pointer font-semibold text-blue-900">
+              How pest and disease risk is calculated
+            </summary>
+            <div className="mt-3 space-y-3 text-sm leading-relaxed text-gray-700">
+              <p>
+                <strong>For today:</strong> the page uses the risk categories returned by the
+                farm risk-assessment API. Those High, Moderate, and Low categories are displayed
+                as returned; this screen does not recalculate them.
+              </p>
+              <p>
+                <strong>For a past selected date:</strong> the page calculates risk locally.
+                It checks whether the pest or disease is active in that date&apos;s month,
+                whether the crop age on that date falls within its configured growth-stage
+                window, and whether the matching pest-group or fungal pixel percentage is
+                greater than zero.
+              </p>
+              <ul className="list-disc space-y-1 pl-5">
+                <li>
+                  <strong>High:</strong> the active month and configured crop stage match,
+                  and the relevant detection percentage is greater than zero.
+                </li>
+                <li>
+                  <strong>Moderate:</strong> the active month and configured crop stage match,
+                  but the relevant detection percentage is zero or unavailable.
+                </li>
+                <li>
+                  <strong>Low:</strong> the active month matches, but the configured crop-stage
+                  window does not.
+                </li>
+                <li>
+                  Items outside their configured active months are not included. If no stage
+                  window is configured for an item, its stage is treated as matching.
+                </li>
+              </ul>
+              <p>
+                Pest detection uses the matching chewing, sucking, or soil-borne pixel
+                percentage. The disease detection check uses the fungi pixel percentage for
+                configured fungal diseases. A value above zero raises the local category to
+                High only when the month and crop stage also match; it is not a severity
+                threshold.
+              </p>
+              <p>
+                <strong>Historical-data limitation:</strong> the local calculation uses the
+                selected date for month and crop age, and requests detection data for that
+                date. Weather shown in the conditions is current weather; historical
+                temperature and humidity are not currently used to calculate these local
+                categories.
+              </p>
+            </div>
+          </details>
 
           {/* Three Separate Risk Meters - One for each category */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 xs:gap-4 sm:gap-5 md:gap-6 mb-4 sm:mb-6 md:mb-8">

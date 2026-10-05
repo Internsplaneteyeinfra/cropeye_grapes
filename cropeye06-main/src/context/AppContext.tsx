@@ -24,6 +24,7 @@ interface ApiDataStore {
   etData?: { [plotName: string]: any };
   soilMoistureTrendData?: { [plotName: string]: any };
   brixTimeSeriesData?: { [plotName: string]: any };
+  fieldScoreData?: { [plotName: string]: any };
   isLoading?: { [endpoint: string]: boolean };
   isPreloading?: boolean;
   preloadComplete?: boolean;
@@ -82,6 +83,7 @@ const createEmptyApiData = (): ApiDataStore => ({
   etData: {},
   soilMoistureTrendData: {},
   brixTimeSeriesData: {},
+  fieldScoreData: {},
   isLoading: {},
   isPreloading: false,
   preloadComplete: false,
@@ -145,6 +147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         et: "etData",
         soilMoistureTrend: "soilMoistureTrendData",
         brixTimeSeries: "brixTimeSeriesData",
+        fieldScore: "fieldScoreData",
       };
 
       const dataKey = endpointMap[endpoint];
@@ -174,6 +177,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       et: "etData",
       soilMoistureTrend: "soilMoistureTrendData",
       brixTimeSeries: "brixTimeSeriesData",
+      fieldScore: "fieldScoreData",
     };
 
     const dataKey = endpointMap[endpoint];

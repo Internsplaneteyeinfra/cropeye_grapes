@@ -8,6 +8,7 @@ import { normalizeScheduleText } from "../utils/grapesSchedule";
 import budData from "./bud.json";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import "./Irrigation/Irrigation.css";
 
 interface FertilizerEntry {
   date: string;
@@ -232,6 +233,155 @@ function capitalizeLabel(v: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 }
 
+type PhaseKind = "foundation" | "fruit" | "general";
+
+function resolvePhaseKind(
+  scheduleType?: string | null,
+  stage?: string | null,
+): PhaseKind {
+  const blob = `${scheduleType || ""} ${stage || ""}`.toLowerCase();
+  if (
+    blob.includes("foundation") ||
+    blob.includes("vegetative") ||
+    (blob.includes("back") && blob.includes("prun"))
+  ) {
+    return "foundation";
+  }
+  if (
+    blob.includes("fruit") ||
+    blob.includes("forward") ||
+    blob.includes("bunch") ||
+    blob.includes("ripen")
+  ) {
+    return "fruit";
+  }
+  return "general";
+}
+
+function getPhaseRelatedInfo(
+  scheduleType?: string | null,
+  stage?: string | null,
+  issue?: string | null,
+): { title: string; summary: string; tips: string[] } {
+  const kind = resolvePhaseKind(scheduleType, stage);
+  const stageKey = `${scheduleType || ""} ${stage || ""} ${issue || ""}`.toLowerCase();
+
+  const base =
+    kind === "foundation"
+      ? {
+          title: "Foundation pruning phase",
+          summary:
+            "Focus on vine structure, cane selection, and building reserves after foundation pruning.",
+          tips: [
+            "Keep canopy open for light and airflow",
+            "Support root and shoot recovery with balanced N–P–K",
+            "Watch moisture — avoid water stress while buds push",
+          ],
+        }
+      : kind === "fruit"
+        ? {
+            title: "Fruit pruning phase",
+            summary:
+              "Priority is fruiting canes, bunch development, and quality after fruit pruning.",
+            tips: [
+              "Maintain consistent irrigation for berry sizing",
+              "Follow micronutrient cues (Ca, Mg, B) for quality",
+              "Thin / train as needed for light on bunches",
+            ],
+          }
+        : {
+            title: "Crop phase guidance",
+            summary:
+              "Follow the day’s nutrient and organic guidance for this growth window.",
+            tips: [
+              "Apply only what the schedule recommends for this day",
+              "Record field observations for the next spray / fert window",
+            ],
+          };
+
+  if (stageKey.includes("rest")) {
+    return {
+      title:
+        kind === "fruit"
+          ? "Fruit · Resting"
+          : kind === "foundation"
+            ? "Foundation · Resting"
+            : "Crop · Resting",
+      summary:
+        "Resting window — vines conserve energy. Limit aggressive feeding; keep soil moisture steady.",
+      tips: [
+        "Prefer light maintenance nutrients only if listed today",
+        "Do not over-irrigate during rest",
+        "Scout for pests while canopy is quieter",
+      ],
+    };
+  }
+  if (stageKey.includes("flower") || stageKey.includes("bloom")) {
+    return {
+      ...base,
+      title: `${base.title.split(" ")[0]} · Flowering`,
+      summary:
+        "Flowering is sensitive — stick to scheduled nutrients and avoid stress swings.",
+      tips: [
+        "Stable moisture is critical at bloom",
+        "Avoid heavy nitrogen spikes unless scheduled",
+        "Protect flowers from heat / disease pressure",
+      ],
+    };
+  }
+  if (
+    stageKey.includes("veraison") ||
+    stageKey.includes("ripen") ||
+    stageKey.includes("colour")
+  ) {
+    return {
+      ...base,
+      title: `${kind === "fruit" ? "Fruit" : "Crop"} · Ripening`,
+      summary:
+        "Ripening focus: quality over vegetative push. Match water and K guidance carefully.",
+      tips: [
+        "Ease nitrogen unless the schedule calls for it",
+        "Potassium and calcium support berry quality",
+        "Monitor Brix / acidity with field checks",
+      ],
+    };
+  }
+  if (
+    stageKey.includes("shoot") ||
+    stageKey.includes("growth") ||
+    stageKey.includes("veget")
+  ) {
+    return {
+      ...base,
+      title: `${kind === "foundation" ? "Foundation" : "Crop"} · Active growth`,
+      summary:
+        "Active shoot growth — support canopy with the listed nutrients and irrigation.",
+      tips: base.tips,
+    };
+  }
+
+  if (issue && String(issue).trim() && !stageKey.includes("rest")) {
+    return {
+      ...base,
+      summary: `${base.summary} Today’s focus: ${String(issue).trim()}.`,
+    };
+  }
+
+  return base;
+}
+
+function formatPruningChipDate(raw?: string): string {
+  if (!raw) return "";
+  const iso = raw.slice(0, 10);
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /** Map grapes-schedule API row → table columns (1:1 with API fields) */
 function mapGrapesScheduleApiRow(item: Record<string, unknown>): FertilizerEntry {
   const str = (v: unknown) => (v == null ? "" : String(v).trim());
@@ -333,10 +483,14 @@ function ScheduleDayTab({
   row,
   active,
   onSelect,
+  tabId,
+  panelId,
 }: {
   row: FertilizerEntry;
   active: boolean;
   onSelect: () => void;
+  tabId: string;
+  panelId: string;
 }) {
   const hasApplication = hasScheduleApplication(row);
 
@@ -344,16 +498,16 @@ function ScheduleDayTab({
     <button
       type="button"
       role="tab"
+      id={tabId}
       aria-selected={active}
-      disabled={active}
-      onClick={() => {
-        if (!active) onSelect();
-      }}
+      aria-controls={panelId}
+      tabIndex={active ? 0 : -1}
+      onClick={onSelect}
       className={`fertilizer-day-tab flex-1 min-w-0 py-2 px-1.5 rounded-lg border text-center ${
         active
-          ? "fertilizer-day-tab-active border-green-600 bg-green-600 text-white"
+          ? "fertilizer-day-tab-active border-green-600 bg-green-600 text-white shadow-md"
           : hasApplication
-            ? "border-green-200 bg-green-50 text-green-900 hover:border-green-400 hover:bg-green-100/80"
+            ? "border-green-300 bg-green-100 text-green-900 hover:border-green-400 hover:bg-green-100 hover:shadow-sm"
             : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
       }`}
     >
@@ -364,67 +518,115 @@ function ScheduleDayTab({
       >
         {scheduleCellText(row.date)}
       </span>
+      {row.scheduleType && (
+        <span
+          className={`mt-0.5 block text-[9px] font-semibold truncate opacity-90 ${
+            active ? "text-white/90" : "text-current opacity-70"
+          }`}
+        >
+          {row.scheduleType}
+        </span>
+      )}
     </button>
   );
 }
 
-function ScheduleDayDetailCard({ row }: { row: FertilizerEntry }) {
+function ScheduleDayDetailCard({
+  row,
+  panelId,
+  labelledBy,
+}: {
+  row: FertilizerEntry;
+  panelId: string;
+  labelledBy: string;
+}) {
   const hasApplication = hasScheduleApplication(row);
   const headerParts = [
     row.days ? `Day ${row.days}` : null,
     row.scheduleType || null,
   ].filter(Boolean);
+  const phaseInfo = getPhaseRelatedInfo(
+    row.scheduleType,
+    row.stage || row.issue,
+    row.issue,
+  );
 
   return (
-    <article className="fertilizer-day-detail rounded-xl border border-green-200 bg-white shadow-sm overflow-hidden mt-3">
-      <div className="flex items-stretch min-h-[120px]">
-        <div
-          className={`w-1 shrink-0 ${hasApplication ? "bg-green-500" : "bg-gray-300"}`}
-          aria-hidden
-        />
-        <div className="flex-1 min-w-0 p-3 sm:p-4">
-          {headerParts.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 mb-3 pb-2 border-b border-gray-100">
-              <p className="text-base font-semibold text-gray-800">{headerParts.join(" · ")}</p>
-              {row.stage && row.stage.toUpperCase() !== `DAY ${row.days}`.toUpperCase() && (
+    <article
+      id={panelId}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
+      className="fertilizer-day-detail fertilizer-day-detail--animate rounded-xl border border-green-200 shadow-sm overflow-hidden mt-3 bg-white"
+    >
+      <div className="flex-1 min-w-0 p-3 sm:p-4">
+        {headerParts.length > 0 && (
+          <div className="fertilizer-detail-section flex flex-wrap items-center gap-2 mb-2">
+            <p className="text-base font-semibold text-gray-800">
+              {headerParts.join(" · ")}
+            </p>
+            {row.stage &&
+              row.stage.toUpperCase() !== `DAY ${row.days}`.toUpperCase() && (
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-800">
                   {row.stage}
                 </span>
               )}
-            </div>
-          )}
+          </div>
+        )}
 
-          {!hasApplication ? (
-            <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-8 text-sm text-gray-500">
-              <Sprout className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
-              No fertilizer scheduled
+        {!hasApplication ? (
+          <div className="fertilizer-detail-section flex items-center justify-center gap-2 rounded-lg bg-gray-50 px-3 py-8 text-sm text-gray-500">
+            <Sprout className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+            No fertilizer scheduled
+          </div>
+        ) : (
+          <div className="fertilizer-detail-blocks space-y-2.5">
+            <ScheduleDetailBlock
+              icon={<AlertCircle className="h-4 w-4" />}
+              label="Issue"
+              value={row.issue}
+            />
+
+            <div className="fertilizer-phase-info fertilizer-detail-section rounded-lg border border-green-100 bg-green-50/80 px-3 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide mb-0.5 text-green-800">
+                {phaseInfo.title}
+              </p>
+              <p className="text-sm text-gray-700 leading-snug mb-1.5">
+                {phaseInfo.summary}
+              </p>
+              <ul className="fertilizer-phase-tips space-y-0.5">
+                {phaseInfo.tips.map((tip) => (
+                  <li
+                    key={tip}
+                    className="text-[11px] text-gray-600 leading-snug flex gap-1.5"
+                  >
+                    <span
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"
+                      aria-hidden
+                    />
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ) : (
-            <div className="space-y-2.5">
-              <ScheduleDetailBlock
-                icon={<AlertCircle className="h-4 w-4" />}
-                label="Issue"
-                value={row.issue}
-              />
-              <ScheduleDetailBlock
-                icon={<Beaker className="h-4 w-4" />}
-                label="Nutrient"
-                value={row.nutrient}
-              />
-              <ScheduleDetailBlock
-                icon={<Sprout className="h-4 w-4" />}
-                label="Recommendation"
-                value={row.recommendation}
-              />
-              <ScheduleDetailBlock
-                icon={<Leaf className="h-4 w-4" />}
-                label="Organic"
-                value={row.organicDetail}
-                tone="organic"
-              />
-            </div>
-          )}
-        </div>
+
+            <ScheduleDetailBlock
+              icon={<Beaker className="h-4 w-4" />}
+              label="Nutrient"
+              value={row.nutrient}
+            />
+            <ScheduleDetailBlock
+              icon={<Sprout className="h-4 w-4" />}
+              label="Recommendation"
+              value={row.recommendation}
+            />
+            <ScheduleDetailBlock
+              icon={<Leaf className="h-4 w-4" />}
+              label="Organic"
+              value={row.organicDetail}
+              tone="organic"
+            />
+          </div>
+        )}
       </div>
     </article>
   );
@@ -435,27 +637,82 @@ function ScheduleV2CardList({ data }: { data: FertilizerEntry[] }) {
     const withApp = data.findIndex((row) => hasScheduleApplication(row));
     return withApp >= 0 ? withApp : 0;
   });
+  const tabsRef = useRef<HTMLDivElement | null>(null);
 
-  const safeIdx = activeIdx >= 0 && activeIdx < data.length ? activeIdx : 0;
+  useEffect(() => {
+    if (!data.length) return;
+    setActiveIdx((prev) => {
+      if (prev >= 0 && prev < data.length) return prev;
+      const withApp = data.findIndex((row) => hasScheduleApplication(row));
+      return withApp >= 0 ? withApp : 0;
+    });
+  }, [data]);
+
+  const safeIdx = data.length
+    ? Math.min(Math.max(activeIdx, 0), data.length - 1)
+    : 0;
   const activeRow = data[safeIdx];
+  const panelId = "fertilizer-schedule-panel";
+  const tabId = (idx: number) => `fertilizer-day-tab-${idx}`;
+
+  const focusTabAt = (idx: number) => {
+    const next = ((idx % data.length) + data.length) % data.length;
+    setActiveIdx(next);
+    const btn = tabsRef.current?.querySelector<HTMLButtonElement>(
+      `#${tabId(next)}`,
+    );
+    btn?.focus();
+  };
+
+  const onTabsKeyDown = (e: React.KeyboardEvent) => {
+    if (!data.length) return;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      focusTabAt(safeIdx + 1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      focusTabAt(safeIdx - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focusTabAt(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focusTabAt(data.length - 1);
+    }
+  };
 
   return (
     <div className="fertilizer-schedule-panel w-full min-w-0">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
         Select a date
       </p>
-      <div className="fertilizer-day-tabs flex gap-1 w-full min-w-0" role="tablist">
+      <div
+        ref={tabsRef}
+        className="fertilizer-day-tabs flex gap-1 w-full min-w-0"
+        role="tablist"
+        aria-label="Fertilizer schedule days"
+        onKeyDown={onTabsKeyDown}
+      >
         {data.map((row, idx) => (
           <ScheduleDayTab
             key={`${row.date}-${idx}`}
             row={row}
             active={safeIdx === idx}
+            tabId={tabId(idx)}
+            panelId={panelId}
             onSelect={() => setActiveIdx(idx)}
           />
         ))}
       </div>
 
-      {activeRow && <ScheduleDayDetailCard row={activeRow} />}
+      {activeRow && (
+        <ScheduleDayDetailCard
+          key={`detail-${safeIdx}-${activeRow.date}`}
+          row={activeRow}
+          panelId={panelId}
+          labelledBy={tabId(safeIdx)}
+        />
+      )}
     </div>
   );
 }
@@ -946,15 +1203,13 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
       const skipCache = skipScheduleCacheRef.current;
       skipScheduleCacheRef.current = false;
       const cachedSchedule = skipCache ? null : getCached(scheduleCacheKey);
-      if (
+      const hasCachedSchedule = Boolean(
         cachedSchedule != null &&
         canApplyScheduleResponse(cachedSchedule) &&
         applyScheduleResponse(cachedSchedule)
-      ) {
-        if (!isStale()) {
-          setScheduleFetchLoading(false);
-        }
-        return;
+      );
+      if (hasCachedSchedule && !isStale()) {
+        setScheduleFetchLoading(false);
       }
 
       const base = getGrapesAdminBaseUrl().replace(/\/+$/, "");
@@ -1059,15 +1314,17 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
         if (isStale()) return;
       }
 
-      setLocalError(
-        `Unable to load fertilizer schedule for plot "${plotToUse}". The grapes-schedule API did not return data. Please ensure plantation date and planting method are set for this farm in the backend.`
-      );
-      setData([]);
-      setGrapesScheduleMeta(null);
-      setGrapesScheduleV2(false);
-      setPlantationType(null);
-      setMonthsCompleted(null);
-      setNoFertilizerRequired(false);
+      if (!hasCachedSchedule) {
+        setLocalError(
+          `Unable to load fertilizer schedule for plot "${plotToUse}". The grapes-schedule API did not return data. Please ensure plantation date and planting method are set for this farm in the backend.`
+        );
+        setData([]);
+        setGrapesScheduleMeta(null);
+        setGrapesScheduleV2(false);
+        setPlantationType(null);
+        setMonthsCompleted(null);
+        setNoFertilizerRequired(false);
+      }
       setScheduleFetchLoading(false);
     };
 
@@ -1173,27 +1430,27 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
           Fertilizer Schedule
         </h2>
         <button
-          onClick={handleDownloadPDF}
-          className={
-            embedded
-              ? "bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-md shrink-0"
-              : "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-          }
-          title="Download PDF"
+         // onClick={handleDownloadPDF}
+          // className={
+          //   embedded
+          //     ? "bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-md shrink-0"
+          //     : "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          // }
+        //  title="Download PDF"
         >
-          <svg
+          {/* <svg
             className="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-          >
+          > */}
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
               d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
             />
-          </svg>
+          {/* </svg> */}
         </button>
       </div>
 
@@ -1458,7 +1715,7 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
               {grapesScheduleMeta && (
                 <div className="fertilizer-meta-strip flex flex-wrap items-center gap-2 mb-3 shrink-0">
                   {grapesScheduleMeta.plot && (
-                    <span className="fertilizer-meta-pill">
+                    <span className="fertilizer-meta-pill fertilizer-meta-pill--plot">
                       <span className="fertilizer-meta-label">Plot</span>
                       {grapesScheduleMeta.plot}
                     </span>
@@ -1508,13 +1765,17 @@ const FertilizerTable: React.FC<{ embedded?: boolean }> = ({ embedded = false })
                       {grapesScheduleMeta.foundation_pruning_date && (
                         <span className="fertilizer-meta-pill">
                           <span className="fertilizer-meta-label">Foundation</span>
-                          {grapesScheduleMeta.foundation_pruning_date}
+                          {formatPruningChipDate(
+                            grapesScheduleMeta.foundation_pruning_date,
+                          )}
                         </span>
                       )}
                       {grapesScheduleMeta.fruit_pruning_date && (
                         <span className="fertilizer-meta-pill">
                           <span className="fertilizer-meta-label">Fruit</span>
-                          {grapesScheduleMeta.fruit_pruning_date}
+                          {formatPruningChipDate(
+                            grapesScheduleMeta.fruit_pruning_date,
+                          )}
                         </span>
                       )}
                       <button

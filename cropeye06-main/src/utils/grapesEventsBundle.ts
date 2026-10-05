@@ -250,6 +250,11 @@ export function getPlotAreaAcresFromProfile(profile: any, plotId: string): numbe
   );
   if (plotAcres != null) return plotAcres;
 
+  const plotHectares = parsePositiveNumber(
+    plot.area_size_numeric ?? plot.area_size
+  );
+  if (plotHectares != null) return plotHectares * HECTARES_PER_ACRE;
+
   const farm = plot.farms?.[0];
   if (!farm) return null;
 
@@ -716,28 +721,61 @@ export function extractAgroStatsPlotRow(
   profile: any
 ): any | null {
   if (!allPlotsData || !plotId) return null;
+  const plot = findPlotInFarmerProfile(profile, plotId);
+  const ids = new Set([plotId.trim()]);
+  if (plot?.gat_number && plot?.plot_number) {
+    ids.add(`${plot.gat_number}_${plot.plot_number}`);
+  }
+  if (plot?.plot_name) ids.add(String(plot.plot_name));
+  if (plot?.fastapi_plot_id) ids.add(String(plot.fastapi_plot_id));
+
+  const rowMatches = (row: any): boolean =>
+    row != null &&
+    [...ids].some((id) =>
+      [row.plot_id, row.fastapi_plot_id, row.plot_name, row.id].some(
+        (candidate) => candidate != null && String(candidate).trim() === id,
+      ),
+    );
 
   if (
     allPlotsData.type === "FeatureCollection" &&
     Array.isArray(allPlotsData.features)
   ) {
-    const feature = allPlotsData.features.find((f: any) => {
-      const name = f?.properties?.plot_name ?? f?.properties?.fastapi_plot_id;
-      return name === plotId;
-    });
+    const feature = allPlotsData.features.find((item: any) =>
+      rowMatches(item?.properties),
+    );
     if (feature?.properties) return feature.properties;
   }
 
-  if (typeof allPlotsData === "object" && !Array.isArray(allPlotsData)) {
-    const direct = allPlotsData[plotId] ?? allPlotsData[`"${plotId}"`];
-    if (direct && typeof direct === "object") return direct;
+  if (Array.isArray(allPlotsData)) {
+    return allPlotsData.find(rowMatches) ?? null;
   }
 
-  const plot = findPlotInFarmerProfile(profile, plotId);
-  if (plot?.gat_number && plot?.plot_number) {
-    const gatPlot = `${plot.gat_number}_${plot.plot_number}`;
-    const byGat = allPlotsData[gatPlot] ?? allPlotsData[`"${gatPlot}"`];
-    if (byGat && typeof byGat === "object") return byGat;
+  if (typeof allPlotsData !== "object") return null;
+
+  const normalizedIds = new Set(
+    [...ids].map((id) => id.replace(/\s/g, "").toLowerCase()),
+  );
+  for (const [key, value] of Object.entries(allPlotsData)) {
+    const normalizedKey = key.replace(/[\"\s]/g, "").toLowerCase();
+    if (
+      normalizedIds.has(normalizedKey) &&
+      value != null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      return value;
+    }
+  }
+
+  if (rowMatches(allPlotsData)) return allPlotsData;
+
+  for (const key of ["data", "plots", "results"]) {
+    const nested = allPlotsData[key];
+    if (nested && nested !== allPlotsData) {
+      const row = extractAgroStatsPlotRow(nested, plotId, profile);
+      if (row) return row;
+    }
   }
 
   return null;

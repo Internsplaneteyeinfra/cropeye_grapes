@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ChevronRight,
+  CalendarDays,
   Menu,
   X,
   Cloud,
@@ -8,6 +10,7 @@ import {
   Droplet,
   MapPin,
   Navigation,
+  UserRound,
 } from "lucide-react";
 import "./Header.css";
 import {
@@ -22,17 +25,36 @@ import {
 } from "../services/weatherService";
 import { useAppContext } from "../context/AppContext";
 import { getUserRole, getUserData } from "../utils/auth";
-import { useFarmerProfile } from "../hooks/useFarmerProfile";
+import { resolveFarmerPlotId, useFarmerProfile } from "../hooks/useFarmerProfile";
+import { calculateProfileCompletion } from "../utils/profileCompletion";
+import { getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import GoogleTranslateWidget from "./GoogleTranslateWidget";
 
 interface HeaderProps {
   toggleSidebar: () => void;
   isSidebarOpen: boolean;
+  userRole?: string | null;
+}
+
+function formatFruitPruningDate(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const isoDate = value.split("T", 1)[0].trim();
+  const date = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    isoDate,
+    label: date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+  };
 }
 
 export const Header: React.FC<HeaderProps> = ({
   toggleSidebar,
   isSidebarOpen,
+  userRole: appUserRole,
 }) => {
   const [weather, setWeather] = useState<WeatherServiceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,13 +68,121 @@ export const Header: React.FC<HeaderProps> = ({
   >("prompt");
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [userData, setUserData] = useState<any>(null);
-  const { getCached, setCached } = useAppContext();
+  const { getCached, setCached, selectedPlotName } = useAppContext();
 
   // Conditionally use farmer profile hook only for farmers
-  const userRole = getUserRole();
+  const userRole = String(appUserRole ?? getUserRole() ?? "")
+    .toLowerCase()
+    .trim();
   const farmerProfile = useFarmerProfile();
   const { profile: farmerProfileData, loading: farmerProfileLoading } =
     farmerProfile;
+  const selectedProfilePlot = useMemo(() => {
+    const plots = farmerProfileData?.plots ?? [];
+    const savedPlotName =
+      selectedPlotName ||
+      (typeof window !== "undefined" ? localStorage.getItem("selectedPlot") : null);
+    return (
+      plots.find((plot) => resolveFarmerPlotId(plot) === savedPlotName) ??
+      plots[0] ??
+      null
+    );
+  }, [farmerProfileData, selectedPlotName]);
+  const schedulePlotIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedPlotName?.trim()) ids.add(selectedPlotName.trim());
+    const plot = selectedProfilePlot as any;
+    if (plot) {
+      const resolvedId = resolveFarmerPlotId(plot);
+      if (resolvedId) ids.add(resolvedId);
+      if (plot.gat_number && plot.plot_number) {
+        ids.add(`${plot.gat_number}_${plot.plot_number}`);
+      }
+      if (typeof plot.plot_name === "string" && plot.plot_name.trim()) {
+        ids.add(plot.plot_name.trim());
+      }
+    }
+    return [...ids];
+  }, [selectedPlotName, selectedProfilePlot]);
+  const [fruitPruningDate, setFruitPruningDate] = useState<{
+    isoDate: string;
+    label: string;
+  } | null>(null);
+  const [fruitPruningLoading, setFruitPruningLoading] = useState(false);
+
+  useEffect(() => {
+    if (userRole !== "farmer" || schedulePlotIds.length === 0) {
+      setFruitPruningDate(null);
+      setFruitPruningLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setFruitPruningDate(null);
+    setFruitPruningLoading(true);
+
+    const loadFruitPruningDate = async () => {
+      const baseUrl = getGrapesAdminBaseUrl().replace(/\/+$/, "");
+      for (const plotId of schedulePlotIds) {
+        try {
+          const response = await fetch(
+            `${baseUrl}/grapes-schedule/${encodeURIComponent(plotId)}`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (!response.ok) continue;
+          const schedule = await response.json();
+          const date = formatFruitPruningDate(schedule?.fruit_pruning_date);
+          if (date) {
+            if (!cancelled) setFruitPruningDate(date);
+            return;
+          }
+        } catch {
+          // Try the remaining aliases for this plot.
+        }
+      }
+    };
+
+    void loadFruitPruningDate().finally(() => {
+      if (!cancelled) setFruitPruningLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole, schedulePlotIds]);
+  const [showProfilePopover, setShowProfilePopover] = useState(false);
+  const profilePopoverRef = useRef<HTMLDivElement>(null);
+  const profileCompletion = useMemo(
+    () => calculateProfileCompletion(farmerProfileData),
+    [farmerProfileData],
+  );
+
+  useEffect(() => {
+    if (!showProfilePopover) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (
+        event.target instanceof Node &&
+        !profilePopoverRef.current?.contains(event.target)
+      ) {
+        setShowProfilePopover(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowProfilePopover(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [showProfilePopover]);
+
+  const navigateToProfile = (menu: "My Profile" | "Update Profile") => {
+    window.dispatchEvent(
+      new CustomEvent("cropeye:navigate", { detail: { menu } }),
+    );
+    setShowProfilePopover(false);
+  };
 
   // Get user's current location using geolocation API
   const getUserCurrentLocation = (): Promise<{
@@ -218,9 +348,9 @@ export const Header: React.FC<HeaderProps> = ({
             location: cached.data.location,
           });
           if (isMounted) {
-          setWeather(cached.data);
-          setError(null);
-          setLoading(false);
+            setWeather(cached.data);
+            setError(null);
+            setLoading(false);
           }
           return;
         }
@@ -467,8 +597,91 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
+          {userRole === "farmer" && (
+            <div className="header-fruit-pruning-date" aria-label="Fruit pruning date">
+              <CalendarDays size={17} aria-hidden="true" />
+              <span className="header-fruit-pruning-copy">
+                <span className="header-fruit-pruning-label">Fruit Pruning</span>
+                <time dateTime={fruitPruningDate?.isoDate}>
+                  {(farmerProfileLoading || fruitPruningLoading) && !fruitPruningDate
+                    ? "Loading…"
+                    : fruitPruningDate?.label ?? "Date not set"}
+                </time>
+              </span>
+            </div>
+          )}
+
           {/* Right side - Fixed Logo */}
           <div className="logo-container">
+            {userRole === "farmer" && (
+              <div className="header-profile-control" ref={profilePopoverRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowProfilePopover((open) => !open)}
+                  aria-label="Open profile completion"
+                  aria-haspopup="dialog"
+                  aria-expanded={showProfilePopover}
+                  aria-controls="header-profile-popover"
+                  className="header-profile-toggle"
+                >
+                  <UserRound size={20} aria-hidden="true" />
+                </button>
+                {showProfilePopover && (
+                  <div
+                    className="header-profile-popover"
+                    id="header-profile-popover"
+                    role="dialog"
+                    aria-labelledby="header-profile-title"
+                  >
+                    <section className="header-profile-completion">
+                      <div className="header-profile-heading">
+                        <span id="header-profile-title">Profile Completion</span>
+                        <strong>{profileCompletion.percentage}%</strong>
+                      </div>
+                      <div
+                        className="header-profile-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={profileCompletion.percentage}
+                        aria-label="Profile completion percentage"
+                      >
+                        <span style={{ width: `${profileCompletion.percentage}%` }} />
+                      </div>
+                      {farmerProfileLoading && !farmerProfileData ? (
+                        <p className="header-profile-status">Loading profile…</p>
+                      ) : profileCompletion.missing.length > 0 ? (
+                        <div className="header-profile-incomplete">
+                          <div className="header-profile-incomplete-title">
+                            <UserRound size={16} aria-hidden="true" />
+                            <strong>Complete Your Profile</strong>
+                            <span className="header-profile-dot" aria-hidden="true" />
+                          </div>
+                          <p>Missing: {profileCompletion.missing.join(", ")}</p>
+                          <button
+                            type="button"
+                            className="header-profile-update"
+                            onClick={() => navigateToProfile("Update Profile")}
+                          >
+                            Update Profile <ChevronRight size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="header-profile-status">Your profile is complete.</p>
+                      )}
+                      <button
+                        type="button"
+                        className="header-profile-open"
+                        onClick={() => navigateToProfile("My Profile")}
+                      >
+                        <UserRound size={15} aria-hidden="true" />
+                        Go to My Profile
+                      </button>
+                    </section>
+                  </div>
+                )}
+              </div>
+            )}
             <GoogleTranslateWidget />
             <img src="/icons/Cropeye-new.png" alt="CropEye Logo" className="logo-image" />
           </div>

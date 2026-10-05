@@ -8,9 +8,10 @@ import { getCache, setCache } from '../components/utils/cache';
 import { getFarmerMyProfile } from '../api';
 import { fetchCurrentWeather } from './weatherService';
 import { buildForecastChartDays, fetchWeatherForecast } from './weatherForecastService';
-import { getGrapesMainBaseUrl, getEventsBaseUrl } from '../utils/serviceUrls';
+import { getGrapesMainBaseUrl, getEventsBaseUrl, getGrapesSefBaseUrl } from '../utils/serviceUrls';
 import { grapesPlotFormBody } from '../utils/grapesEventsBundle';
 import { normalizeNpkFromApi } from '../utils/npkNormalize';
+import { fieldScoreCacheKey } from '../utils/plotName';
 
 // Import context - will be passed as parameter to avoid circular dependencies
 interface AppContextType {
@@ -664,6 +665,65 @@ const fetchGrapesScheduleData = async (plotName: string): Promise<void> => {
   }
 };
 
+/** Preload Field Score (/analyze) so Map can show the card right after login. */
+const fetchFieldScoreData = async (
+  plotName: string,
+  context?: AppContextType
+): Promise<void> => {
+  try {
+    const cacheKey = fieldScoreCacheKey(plotName);
+    const cached = getCache(cacheKey);
+    if (cached) {
+      context?.setApiData('fieldScore', plotName, cached);
+      return;
+    }
+
+    const baseUrl = getGrapesSefBaseUrl().replace(/\/+$/, '');
+    const endDate = getCurrentEndDate();
+    const url = `${baseUrl}/analyze?plot_name=${encodeURIComponent(plotName)}&end_date=${encodeURIComponent(endDate)}&days_back=7`;
+    const response = await fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'default',
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      console.warn(`Field score preload failed for ${plotName}: ${response.status}`);
+      return;
+    }
+
+    const data = await response.json();
+    let fieldData: any = null;
+    if (Array.isArray(data)) {
+      const match = data.find((item: any) => {
+        const name = String(item?.plot_name || item?.plot || item?.name || '');
+        return name === plotName;
+      });
+      fieldData = match ?? data[0] ?? null;
+    } else if (data && typeof data === 'object') {
+      fieldData = data;
+    }
+
+    if (!fieldData) return;
+
+    const analysisData = {
+      plotName: fieldData.plot_name ?? plotName,
+      overallHealth: fieldData?.overall_health ?? fieldData?.health_score ?? 0,
+      healthStatus: fieldData?.health_status ?? fieldData?.status ?? 'Unknown',
+      statistics: {
+        mean: fieldData?.statistics?.mean ?? fieldData?.mean ?? 0,
+      },
+    };
+
+    cacheData(cacheKey, analysisData);
+    context?.setApiData('fieldScore', plotName, analysisData);
+  } catch (error) {
+    console.warn(`Failed to preload field score for ${plotName}:`, error);
+  }
+};
+
 const fetchRiskAssessmentData = async (plotName: string): Promise<void> => {
   try {
     const assessmentKey = `riskAssessment_${plotName}`;
@@ -774,8 +834,10 @@ const preloadPlotData = async (
   const endDate = getCurrentEndDate();
   console.log(`🔄 Preloading dashboard data for plot: ${plotName} (endDate: ${endDate})`);
 
-  // Dashboard-only preload — map layers load on demand when user opens Map
+  // Dashboard + Field Score preload — map tile layers still load on Map open,
+  // but Field Score is ready so the card can show immediately after login.
   const results = await Promise.allSettled([
+    fetchFieldScoreData(plotName, context),
     fetchBrixTimeSeriesData(plotName, context),
     fetchFarmerDashboardData(plotName, context),
     fetchFertilizerData(plotName, plantationDate || '2025-01-01', crop, context),

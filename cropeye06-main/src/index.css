@@ -91,6 +91,7 @@ html {
   margin-right: auto;
   padding-left: var(--app-gutter);
   padding-right: var(--app-gutter);
+  padding-top: 1rem;
   box-sizing: border-box;
 }
 

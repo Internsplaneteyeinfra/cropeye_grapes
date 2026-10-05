@@ -161,11 +161,27 @@ export async function fetchGrapesOwnerFarmersByFieldOfficer(
 }
 
 function normalizeFarmersResponse(data: any): GrapesOwnerFarmersResponse {
-  const payload = data || {};
+  const payload = data && typeof data === "object" ? data : {};
+  let nested: any = payload;
+  let farmers: any[] = [];
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (Array.isArray(nested)) {
+      farmers = nested;
+      break;
+    }
+    if (!nested || typeof nested !== "object") break;
+    const collection =
+      nested.farmers ?? nested.farmer_list ?? nested.items;
+    if (Array.isArray(collection)) {
+      farmers = collection;
+      break;
+    }
+    nested = nested.data ?? nested.results ?? nested;
+  }
   return {
-    field_officer: payload.field_officer,
-    summary: payload.summary,
-    farmers: Array.isArray(payload.farmers) ? payload.farmers : [],
+    field_officer: payload.field_officer ?? nested?.field_officer,
+    summary: payload.summary ?? nested?.summary,
+    farmers,
   };
 }
 

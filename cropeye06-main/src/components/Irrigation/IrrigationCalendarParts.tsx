@@ -98,16 +98,20 @@ export const IrrigationScheduleTable: React.FC<{
             </tr>
           </thead>
           <tbody>
-            {schedule.map((day, idx) => (
+            {schedule.map((day, idx) => {
+              const isLatestDate = day.isToday || idx === schedule.length - 1;
+              return (
               <tr
                 key={day.isoDate || idx}
-                className={`${idx % 2 ? "bg-white" : "bg-gray-50"} ${
-                  day.isToday ? "ring-2 ring-inset ring-blue-300" : ""
-                }`}
+                className={`${
+                  isLatestDate
+                    ? "bg-blue-50/90 ring-2 ring-inset ring-blue-300 font-semibold"
+                    : "opacity-40 select-none blur-[1px]"
+                } ${!isLatestDate ? (idx % 2 ? "bg-white" : "bg-gray-50") : ""}`}
               >
                 <td className="px-2 py-2 font-medium whitespace-nowrap">
                   <span>{day.date}</span>
-                  {day.isToday && (
+                  {isLatestDate && (
                     <span className="ml-1 bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-[10px]">
                       Today
                     </span>
@@ -141,7 +145,8 @@ export const IrrigationScheduleTable: React.FC<{
                 </td>
                 <td className="px-2 py-2 text-gray-800 font-medium whitespace-nowrap">{day.time}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

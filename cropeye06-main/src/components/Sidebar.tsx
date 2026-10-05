@@ -29,22 +29,22 @@ const CropImg = ({
 
 // ─── Image paths ──────────────────────────────────────────────────────────────
 const IMG = {
-  Home:         '/Image/crop images/Home.png',
-  Farmers:      '/Image/crop images/Farmers.png',
-  Tasks:        '/Image/crop images/Tasks.png',
-  Messages:     '/Image/crop images/Messages.png',
-  Weather:      '/Image/crop images/Weather.png',
-  Reports:      '/Image/crop images/Reports.png',
-  Settings:     '/Image/crop images/Settings.png',
-  CropStatus:   '/Image/crop images/Crop Status.png',
-  Irrigation:   '/Image/crop images/Irrigation.png',
-  Stress:       '/Image/crop images/Stress.png',
-  Biomass:      '/Image/crop images/Biomass.png',
-  OrgCarbon:    '/Image/crop images/Organic Carbon.png',
-  Yield:        '/Image/crop images/yield.png',
-  Events:       '/Image/crop images/Events.png',
-  Time:         '/Image/crop images/Time.png',
-  Location:     '/Image/crop images/location.png',
+  Home: '/Image/crop images/Home.png',
+  Farmers: '/Image/crop images/Farmers.png',
+  Tasks: '/Image/crop images/Tasks.png',
+  Messages: '/Image/crop images/Messages.png',
+  Weather: '/Image/crop images/Weather.png',
+  Reports: '/Image/crop images/Reports.png',
+  Settings: '/Image/crop images/Settings.png',
+  CropStatus: '/Image/crop images/Crop Status.png',
+  Irrigation: '/Image/crop images/Irrigation.png',
+  Stress: '/Image/crop images/Stress.png',
+  Biomass: '/Image/crop images/Biomass.png',
+  OrgCarbon: '/Image/crop images/Organic Carbon.png',
+  Yield: '/Image/crop images/yield.png',
+  Events: '/Image/crop images/Events.png',
+  Time: '/Image/crop images/Time.png',
+  Location: '/Image/crop images/location.png',
 };
 
 interface SidebarProps {
@@ -145,9 +145,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           setActiveItem(item.key);
           onMenuSelect(item.action);
         }}
-        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 text-left group mb-1 ${
-          isActive ? 'sidebar-item-active' : 'text-black hover:bg-green-50/50'
-        }`}
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-200 text-left group mb-1 ${isActive ? 'sidebar-item-active' : 'text-black hover:bg-green-50/50'
+          }`}
       >
         <div className="flex items-center space-x-3">
           {useMaterialIcon ? (
@@ -156,11 +155,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           ) : (
             <div
-              className={`sidebar-icon-container ${
-                isActive
+              className={`sidebar-icon-container ${isActive
                   ? 'bg-green-600 text-white'
                   : 'bg-transparent text-gray-500 group-hover:text-green-600'
-              }`}
+                }`}
             >
               <CropImg src={item.iconImg} alt={item.label} active={isActive} />
             </div>
@@ -171,9 +169,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center space-x-2">
           <ChevronRight
             size={14}
-            className={`transition-colors ${
-              isActive ? 'text-green-600' : 'text-gray-300 group-hover:text-gray-500'
-            }`}
+            className={`transition-colors ${isActive ? 'text-green-600' : 'text-gray-300 group-hover:text-gray-500'
+              }`}
           />
         </div>
       </button>
@@ -185,12 +182,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const iconMap: Record<string, string> = {
       // Farmer menu items (keep existing)
       'FarmerDashboard': 'agriculture',
+      'My Profile': 'account_circle',
       'MyTask': 'chat',
       'Irrigation': 'water_drop',
       'Pest & Disease': 'emergency_share',
       'Fertilizer': 'grass',
       'Contactuser': '3p',
-      
+
       // Admin/Owner/Manager menu items
       'Farm Crop Status': 'eco',
       'Harvesting Planning': 'agriculture',
@@ -199,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       'User Desk': 'person',
       'User List': 'people',
       'Add User': 'person_add',
-      
+
       // Resources Planning
       'Resources Planning': 'inventory',
       'Resoucres Planning': 'inventory',
@@ -209,13 +207,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       'order list': 'shopping_cart',
       'Add Stock': 'inventory_2',
       'stock list': 'inventory',
-      
+
       // Plan & Book
       'Plan&Book': 'event',
       'Plan & Book': 'event',
       'Add Booking': 'event_available',
       'Booking List': 'event_note',
-      
+
       // Tasks and Calendar
       'Calendar': 'calendar_today',
       'CalendarView': 'calendar_view_month',
@@ -224,23 +222,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       'Tasklist': 'task',
       'TaskCalendar': 'calendar_today',
     };
-    
+
     return iconMap[title] || null;
   };
 
   // ─── Generic submenu renderer (manager / owner / farmer / admin) ───────────
   const renderMenu = (title: string, iconImg: string, submenu?: string[]) => {
     const isOpen_ = openMenus.includes(title);
-    
+
     // Get Material Icon for this menu item
     const materialIcon = getMaterialIconForMenu(title);
     const useMaterialIcon = materialIcon !== null;
-    
+
     return (
       <div key={title} className="mb-1">
         <div
-          className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-xl transition-all duration-200 group ${
-            isOpen_ ? 'sidebar-item-active' : 'text-black hover:bg-green-50/50'
+          className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-xl transition-all duration-200 group ${isOpen_ ? 'sidebar-item-active' : 'text-black hover:bg-green-50/50'
             }`}
           onClick={() => (submenu ? toggleSubmenu(title) : onMenuSelect(title))}
         >
@@ -251,11 +248,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             ) : (
               <div
-                className={`sidebar-icon-container ${
-                  isOpen_
+                className={`sidebar-icon-container ${isOpen_
                     ? 'bg-green-600 text-white'
                     : 'bg-transparent text-gray-500 group-hover:text-green-600'
-                }`}
+                  }`}
               >
                 <CropImg src={iconImg} alt={title} active={isOpen_} />
               </div>
@@ -296,47 +292,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'farmer':
         return (
           <>
-            {renderMenu('FarmerDashboard',    IMG.CropStatus)}
-            {renderMenu('MyTask',             IMG.Tasks,      ['Calendar', 'ViewList'])}
-            {renderMenu('Irrigation',         IMG.Irrigation)}
-            {renderMenu('Pest & Disease',     IMG.Stress)}
-            {renderMenu('Fertilizer',         IMG.Biomass)}
-            {renderMenu('Contactuser',        IMG.Messages)}
+            {/* {renderMenu('My Profile',         IMG.Settings)} */}
+            {renderMenu('FarmerDashboard', IMG.CropStatus)}
+            {renderMenu('MyTask', IMG.Tasks, ['Calendar', 'ViewList'])}
+            {renderMenu('Irrigation', IMG.Irrigation)}
+            {renderMenu('Pest & Disease', IMG.Stress)}
+            {renderMenu('Fertilizer', IMG.Biomass)}
+            {renderMenu('Contactuser', IMG.Messages)}
           </>
         );
       case 'admin':
         return (
           <>
-            {renderMenu('Farm Crop Status',   IMG.CropStatus)}
-            {renderMenu('Harvesting Planning',IMG.Yield)}
-            {renderMenu('Agroclimatic',       IMG.Weather)}
-            {renderMenu('Team Connect',       IMG.Farmers)}
-            {renderMenu('User Desk',          IMG.Farmers,    ['Contactuser'])}
+            {renderMenu('Farm Crop Status', IMG.CropStatus)}
+            {renderMenu('Harvesting Planning', IMG.Yield)}
+            {renderMenu('Agroclimatic', IMG.Weather)}
+            {renderMenu('Team Connect', IMG.Farmers)}
+            {renderMenu('User Desk', IMG.Farmers, ['Contactuser'])}
           </>
         );
       case 'owner':
         return (
           <>
-            {renderMenu('Farm Crop Status',   IMG.CropStatus)}
-            {renderMenu('Harvesting Planning',IMG.Yield)}
-            {renderMenu('Agroclimatic',       IMG.Weather)}
-            {renderMenu('Team Connect',       IMG.Farmers)}
-            {renderMenu('Contactuser',        IMG.Messages)}
+            {renderMenu('Farm Crop Status', IMG.CropStatus)}
+            {renderMenu('Harvesting Planning', IMG.Yield)}
+            {renderMenu('Agroclimatic', IMG.Weather)}
+            {renderMenu('Team Connect', IMG.Farmers)}
+            {renderMenu('Contactuser', IMG.Messages)}
           </>
         );
       case 'manager':
         return (
           <>
-            {renderMenu('Farm Crop Status',   IMG.CropStatus)}
-            {renderMenu('Harvesting Planning',IMG.Yield)}
-            {renderMenu('Agroclimatic',       IMG.Weather)}
-            {renderMenu('UserDesk',           IMG.Farmers,   ['Add User', 'User List', 'Contactuser'])}
-            {renderMenu('MyTask',             IMG.Tasks,     ['CalendarView', 'MyList'])}
-            {renderMenu('Team Connect',       IMG.Farmers)}
-            {renderMenu('Resoucres Planning', IMG.Location,  [
+            {renderMenu('Farm Crop Status', IMG.CropStatus)}
+            {renderMenu('Harvesting Planning', IMG.Yield)}
+            {renderMenu('Agroclimatic', IMG.Weather)}
+            {renderMenu('UserDesk', IMG.Farmers, ['Add User', 'User List', 'Contactuser'])}
+            {renderMenu('MyTask', IMG.Tasks, ['CalendarView', 'MyList'])}
+            {renderMenu('Team Connect', IMG.Farmers)}
+            {renderMenu('Resoucres Planning', IMG.Location, [
               'Add Vendor', 'Vendor list', 'Add order', 'order list', 'Add Stock', 'stock list',
             ])}
-            {renderMenu('Plan&Book',          IMG.Events,    ['Add Booking', 'Booking List'])}
+            {renderMenu('Plan&Book', IMG.Events, ['Add Booking', 'Booking List'])}
           </>
         );
       default:
@@ -346,8 +343,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-full w-[280px] max-w-[85vw] flex flex-col transition-transform duration-300 z-50 sidebar-glass ${
-        isOpen ? 'translate-x-0' : '-translate-x-full'
+      className={`fixed top-0 left-0 h-full w-[280px] max-w-[85vw] flex flex-col transition-transform duration-300 z-50 sidebar-glass ${isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
     >
       {/* Stable Background Illustration Layer */}
@@ -364,16 +360,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center justify-between space-x-3">
             <div className="flex items-center space-x-3 flex-1">
-            <div
-              className="user-avatar"
-              style={{ background: '#15803d', color: '#ffffff' }}
-            >
-              {username.charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="user-username">{username}</div>
-              <div className="user-role">{displayRole}</div>
-            </div>
+              <div
+                className="user-avatar"
+                style={{ background: '#15803d', color: '#ffffff' }}
+              >
+                {username.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="user-username">{username}</div>
+                <div className="user-role">{displayRole}</div>
+              </div>
             </div>
             {/* Home icon button */}
             <button
@@ -384,13 +380,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="p-2 rounded-lg hover:bg-green-50/50 transition-colors duration-200 flex items-center justify-center"
               title="Home"
             >
-              <Home 
-                size={20} 
-                className={`transition-colors ${
-                  activeItem === 'home' 
-                    ? 'text-green-600' 
+              <Home
+                size={20}
+                className={`transition-colors ${activeItem === 'home'
+                    ? 'text-green-600'
                     : 'text-gray-600 hover:text-green-600'
-                }`}
+                  }`}
               />
             </button>
           </div>
@@ -421,11 +416,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           toggleSubmenu('Tasks');
                         }
                       }}
-                      className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-xl transition-all duration-200 group w-full ${
-                        tasksActive || tasksOpen
+                      className={`flex items-center justify-between px-3 py-2.5 cursor-pointer rounded-xl transition-all duration-200 group w-full ${tasksActive || tasksOpen
                           ? 'sidebar-item-active'
                           : 'text-black hover:bg-green-50/50'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center space-x-3">
                         <div className="icon-circle">

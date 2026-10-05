@@ -9,6 +9,8 @@ import { assessDiseaseRiskLevel } from './diseaseRiskCalculator';
 import { getFarmerMyProfile } from '../../../api';
 import { getCache, setCache } from '../../utils/cache';
 import { getAuthToken } from '../../../utils/auth';
+import { daysBetweenDates, monthNameForDate } from './riskDateUtils';
+import { getGrapesAdminBaseUrl } from '../../../utils/serviceUrls';
 
 export interface WeatherData {
   temperature: number;
@@ -48,8 +50,6 @@ export interface RiskAssessmentResult {
   };
 }
 
-const GRAPES_ADMIN_BASE = 'https://cropeye-grapes-admin-production.up.railway.app';
-
 export interface RiskAssessmentApiResponse {
   plot_name: string;
   risk: {
@@ -84,6 +84,13 @@ function mapPixelDataToPestDetection(pixel?: RiskAssessmentApiResponse['pixel_da
 
 function assessmentFromApiPayload(body: RiskAssessmentApiResponse): RiskAssessmentResult {
   const r = body.risk;
+  const riskNames = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((name): name is string => typeof name === 'string')
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : [];
+
   return {
     stage: 'API',
     current_conditions: {
@@ -92,19 +99,19 @@ function assessmentFromApiPayload(body: RiskAssessmentApiResponse): RiskAssessme
       humidity: '—',
     },
     pests: {
-      High: [...(r.pests?.High || [])],
-      Moderate: [...(r.pests?.Moderate || [])],
-      Low: [...(r.pests?.Low || [])],
+      High: riskNames(r.pests?.High),
+      Moderate: riskNames(r.pests?.Moderate),
+      Low: riskNames(r.pests?.Low),
     },
     diseases: {
-      High: [...(r.diseases?.High || [])],
-      Moderate: [...(r.diseases?.Moderate || [])],
-      Low: [...(r.diseases?.Low || [])],
+      High: riskNames(r.diseases?.High),
+      Moderate: riskNames(r.diseases?.Moderate),
+      Low: riskNames(r.diseases?.Low),
     },
     weeds: {
-      High: [...(r.weeds?.High || [])],
-      Moderate: [...(r.weeds?.Moderate || [])],
-      Low: [...(r.weeds?.Low || [])],
+      High: riskNames(r.weeds?.High),
+      Moderate: riskNames(r.weeds?.Moderate),
+      Low: riskNames(r.weeds?.Low),
     },
   };
 }
@@ -118,7 +125,8 @@ export async function fetchRiskAssessmentFromApi(
   if (!plotName?.trim()) return null;
 
   const token = getAuthToken();
-  const url = `${GRAPES_ADMIN_BASE}/risk-assessment?plot_name=${encodeURIComponent(plotName.trim())}`;
+  const baseUrl = getGrapesAdminBaseUrl().replace(/\/+$/, '');
+  const url = `${baseUrl}/risk-assessment?plot_name=${encodeURIComponent(plotName.trim())}`;
 
   try {
     const response = await fetch(url, {
@@ -319,11 +327,11 @@ export const SUGARCANE_STAGES: SugarcaneStage[] = [
 /**
  * Calculate grapes stage based on plantation date
  */
-export function calculateSugarcaneStage(plantationDate: string): string {
-  const today = new Date();
-  const plantation = new Date(plantationDate);
-  
-  const daysSincePlantation = Math.floor((today.getTime() - plantation.getTime()) / (1000 * 60 * 60 * 24));
+export function calculateSugarcaneStage(
+  plantationDate: string,
+  assessmentDate = new Date().toISOString().split('T')[0],
+): string {
+  const daysSincePlantation = calculateDaysSincePlantation(plantationDate, assessmentDate);
   
   for (const stage of SUGARCANE_STAGES) {
     if (daysSincePlantation >= stage.minDays && daysSincePlantation <= stage.maxDays) {
@@ -363,29 +371,25 @@ export function checkTemperatureHumidityMatch(
 /**
  * Calculate days since plantation
  */
-export function calculateDaysSincePlantation(plantationDate: string): number {
-  const today = new Date();
-  const plantation = new Date(plantationDate);
-  
-  if (isNaN(plantation.getTime())) {
-    // Try parsing different date formats
-    const parts = plantationDate.split("-");
-    if (parts.length === 3) {
-      plantation.setFullYear(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-    }
-  }
-  
-  const daysSincePlantation = Math.floor((today.getTime() - plantation.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(0, daysSincePlantation);
+export function calculateDaysSincePlantation(
+  plantationDate: string,
+  assessmentDate = new Date().toISOString().split('T')[0],
+): number {
+  return Math.max(0, daysBetweenDates(plantationDate, assessmentDate));
 }
 
 /**
  * Fetch pest detection data from API
  */
-export async function fetchPestDetectionData(plotId?: string): Promise<PestDetectionData> {
+export async function fetchPestDetectionData(
+  plotId?: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<PestDetectionData> {
   // Check cache first
   if (plotId) {
-    const cacheKey = `pestDetectionData_${plotId}`;
+    const dateSuffix = startDate || endDate ? `_${startDate || ''}_${endDate || ''}` : '';
+    const cacheKey = `pestDetectionData_${plotId}${dateSuffix}`;
     const cached = getCache(cacheKey, 30 * 60 * 1000); // 30 min cache
     if (cached) {
       console.log('✅ RiskAssessment: Using cached pest detection data for plot:', plotId);
@@ -437,8 +441,10 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
     
     // Use direct API URL - CORS is handled on the backend
     // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/pest_detection_by_crop_pest_detection_post
-    const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
-    const url = `${baseUrl}/pest-detection?plot_name=${plotName}`;
+    const params = new URLSearchParams({ plot_name: plotName });
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    const url = `${getGrapesAdminBaseUrl().replace(/\/+$/, '')}/pest-detection?${params}`;
     
     console.log(`🐛 Fetching Pest Detection data from: ${url}`);
     
@@ -474,7 +480,8 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
         
         // Cache the result
         if (plotId) {
-          const cacheKey = `pestDetectionData_${plotId}`;
+          const dateSuffix = startDate || endDate ? `_${startDate || ''}_${endDate || ''}` : '';
+          const cacheKey = `pestDetectionData_${plotId}${dateSuffix}`;
           setCache(cacheKey, result);
         }
         
@@ -525,17 +532,19 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
 export async function generateRiskAssessment(
   plantationDate: string,
   weatherData: WeatherData,
-  plotId?: string
+  plotId?: string,
+  assessmentDate = new Date().toISOString().split('T')[0],
+  suppliedPestDetectionData?: PestDetectionData,
 ): Promise<RiskAssessmentResult> {
   try {
     // Calculate days since plantation
-    const daysSincePlantation = calculateDaysSincePlantation(plantationDate);
+    const daysSincePlantation = calculateDaysSincePlantation(plantationDate, assessmentDate);
     
     // Calculate current grapes stage
-    const currentStage = calculateSugarcaneStage(plantationDate);
+    const currentStage = calculateSugarcaneStage(plantationDate, assessmentDate);
     
     // Extract current conditions
-    const currentMonth = weatherData.month;
+    const currentMonth = monthNameForDate(assessmentDate) || weatherData.month;
     const currentTemp = weatherData.temperature;
     const currentHumidity = weatherData.humidity;
     
@@ -550,9 +559,11 @@ export async function generateRiskAssessment(
     });
     
     // Fetch API pest detection data
-    let pestDetectionData: PestDetectionData | undefined;
+    let pestDetectionData: PestDetectionData | undefined = suppliedPestDetectionData;
     try {
-      pestDetectionData = await fetchPestDetectionData(plotId);
+      if (!pestDetectionData) {
+        pestDetectionData = await fetchPestDetectionData(plotId, assessmentDate, assessmentDate);
+      }
       console.log('📊 Pest detection API data:', pestDetectionData);
     } catch (error) {
       console.warn('⚠️ Error fetching pest detection data:', error);
@@ -729,6 +740,63 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     // Return today's date as fallback - don't throw error, just use fallback
     return new Date().toISOString().split('T')[0];
   }
+}
+
+/** Read the pruning date used as DAP zero, with plantation date as a fallback. */
+export async function fetchFruitPruningDate(plotId?: string): Promise<string> {
+  let selectedPlot: any = null;
+  try {
+    const response = await getFarmerMyProfile();
+    const plots = response.data?.plots ?? [];
+    selectedPlot = plots.find((plot: any) =>
+      plot.fastapi_plot_id === plotId ||
+      `${plot.gat_number}_${plot.plot_number}` === plotId ||
+      plot.plot_name === plotId,
+    ) ?? plots[0] ?? null;
+
+    const directDate =
+      selectedPlot?.farms?.[0]?.fruit_pruning_date ??
+      selectedPlot?.fruit_pruning_date;
+    if (typeof directDate === "string" && directDate.trim()) {
+      return directDate.split("T", 1)[0].trim();
+    }
+  } catch (error) {
+    console.warn("Could not read fruit pruning date from farmer profile:", error);
+  }
+
+  const schedulePlotIds = new Set<string>();
+  if (plotId?.trim()) schedulePlotIds.add(plotId.trim());
+  if (selectedPlot?.fastapi_plot_id) {
+    schedulePlotIds.add(String(selectedPlot.fastapi_plot_id));
+  }
+  if (selectedPlot?.gat_number && selectedPlot?.plot_number) {
+    schedulePlotIds.add(`${selectedPlot.gat_number}_${selectedPlot.plot_number}`);
+  }
+  if (selectedPlot?.plot_name) schedulePlotIds.add(String(selectedPlot.plot_name));
+
+  const baseUrl = getGrapesAdminBaseUrl().replace(/\/+$/, "");
+  for (const schedulePlotId of schedulePlotIds) {
+    try {
+      const response = await fetch(
+        `${baseUrl}/grapes-schedule/${encodeURIComponent(schedulePlotId)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) continue;
+      const schedule = await response.json();
+      const date = schedule?.fruit_pruning_date;
+      if (typeof date === "string" && date.trim()) {
+        return date.split("T", 1)[0].trim();
+      }
+    } catch {
+      // Try the next plot identifier before falling back to plantation date.
+    }
+  }
+
+  const plantationDate = selectedPlot?.farms?.[0]?.plantation_date;
+  if (typeof plantationDate === "string" && plantationDate.trim()) {
+    return plantationDate.split("T", 1)[0].trim();
+  }
+  return fetchPlantationDate(plotId);
 }
 
 /**

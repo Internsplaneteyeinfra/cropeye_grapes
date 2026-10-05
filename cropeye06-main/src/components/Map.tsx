@@ -8,7 +8,10 @@ import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile
 import { FaExpand } from 'react-icons/fa';
 import { ArrowLeft } from 'lucide-react';
 import SoilAnalysis from "./SoilAnalysis";
-import { FieldHealthAnalysis } from "./FieldHealthAnalysis";
+import {
+  FieldHealthAnalysis,
+  FIELD_SCORE_ANIMATION_COMPLETE_MS,
+} from "./FieldHealthAnalysis";
 import CropHealthAnalysis from "./CropHealthAnalysis";
 import IrrigationSchedule from "./IrrigationSchedule";
 import SoilMoistureCard from "./Irrigation/cards/SoilMoistureCard";
@@ -17,13 +20,14 @@ import FertilizerTable from "./FertilizerTable";
 import { useAppContext } from "../context/AppContext";
 import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
+import { fieldScoreCacheKey } from "../utils/plotName";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
+import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
 import {
   fetchAnalysisTimeline,
   sortedRebinDatesForLayer,
   type AnalysisTimelineResponse,
 } from "../services/analysisTimeline";
-import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
 
 // Add custom styles for the enhanced tooltip
 const tooltipStyles = `
@@ -320,6 +324,7 @@ const CustomTileLayer: React.FC<{
     />
   );
 };
+
 function isTodayDate(value: string): boolean {
   return value === new Date().toISOString().split("T")[0];
 }
@@ -333,7 +338,6 @@ function formatRibbonDate(isoDate: string): string {
     year: "numeric",
   });
 }
-
 
 const Map: React.FC<MapProps> = ({
   // onHealthDataChange,
@@ -385,6 +389,13 @@ const Map: React.FC<MapProps> = ({
       mean: number;
     };
   } | null>(null);
+  /** Gate map tile layers until Field Score card has finished loading. */
+  const [fieldScoreLoading, setFieldScoreLoading] = useState(false);
+  const [fieldScoreReady, setFieldScoreReady] = useState(false);
+  /** After Field Score is visible/animated, unlock map layers. */
+  const [mapLayersUnlocked, setMapLayersUnlocked] = useState(false);
+  const fieldScoreRequestPlotRef = useRef<string | null>(null);
+  const fieldScoreSectionRef = useRef<HTMLDivElement | null>(null);
 
   // const [hoveredPlotInfo, setHoveredPlotInfo] = useState<any>(null);
   // const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -395,22 +406,23 @@ const Map: React.FC<MapProps> = ({
   const [pixelTooltip, setPixelTooltip] = useState<{layers: Array<{layer: string, label: string, description: string, percentage: number}>, x: number, y: number} | null>(null);
   
   // Date navigation state (similar to Streamlit logic)
-    if (selectedAnalysisDate) return selectedAnalysisDate;
   const [currentEndDate, setCurrentEndDate] = useState<string>(() => {
+    if (selectedAnalysisDate) return selectedAnalysisDate;
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const day = String(today.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  });
   useEffect(() => {
     if (selectedAnalysisDate !== currentEndDate) {
       setSelectedAnalysisDate(currentEndDate);
     }
   }, [currentEndDate, selectedAnalysisDate, setSelectedAnalysisDate]);
-  });
   const [showDatePopup, setShowDatePopup] = useState(false);
   const [popupSide, setPopupSide] = useState<'left' | 'right' | null>(null);
   const DAYS_STEP = 15;
+
   const [timelinePayload, setTimelinePayload] = useState<AnalysisTimelineResponse | null>(null);
   const [datesLoading, setDatesLoading] = useState(false);
   const [datesError, setDatesError] = useState<string | null>(null);
@@ -420,7 +432,6 @@ const Map: React.FC<MapProps> = ({
     [timelinePayload, activeLayer],
   );
   const latestAvailableDate = availableDates[availableDates.length - 1] ?? null;
-
 
   const isHarvested = useMemo(() => {
     const s = (cropStatus || "").toString().toLowerCase();
@@ -527,6 +538,7 @@ const Map: React.FC<MapProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayer, selectedPlotName]);
+
   // Fetch the available analysis dates once per plot, then filter them for the active layer.
   useEffect(() => {
     const plotName = activePlotName.trim();
@@ -581,7 +593,6 @@ const Map: React.FC<MapProps> = ({
       behavior: "smooth",
     });
   }, [currentEndDate, availableDates.length]);
-
 
   // Fetch data when currentEndDate changes for Growth, Water Uptake, Soil Moisture, PEST, and Brix layers
   useEffect(() => {
@@ -842,13 +853,30 @@ const Map: React.FC<MapProps> = ({
         }
       }
       
-      // Fetch layer data (these can be slower, plot boundary is already shown)
-      console.log('🗺️ Map: Fetching layer data for plot:', defaultPlot);
-      fetchPestData(defaultPlot);
-      fetchPlotData(defaultPlot); // Still fetch for layer data, but boundary is already shown
-      fetchFieldAnalysis(defaultPlot);
+      // 1) Field Score first (spinner → score card), 2) then map layers.
+      console.log('🗺️ Map: Loading Field Score first for plot:', defaultPlot);
+      setFieldScoreLoading(true);
+      setFieldScoreReady(false);
+      setMapLayersUnlocked(false);
+      void (async () => {
+        await fetchFieldAnalysis(defaultPlot);
+        fetchPestData(defaultPlot);
+        fetchPlotData(defaultPlot);
+      })();
     }
   }, [profile, profileLoading]);
+
+  // After Field Score is ready, let the card animate, then unlock map layers.
+  useEffect(() => {
+    if (!fieldScoreReady) {
+      setMapLayersUnlocked(false);
+      return;
+    }
+    const unlockTimer = window.setTimeout(() => {
+      setMapLayersUnlocked(true);
+    }, FIELD_SCORE_ANIMATION_COMPLETE_MS);
+    return () => window.clearTimeout(unlockTimer);
+  }, [fieldScoreReady]);
 
   // Removed fetchAllLayerData - date-dependent layers are now fetched by useEffect
 
@@ -860,6 +888,7 @@ const Map: React.FC<MapProps> = ({
     date.setHours(0, 0, 0, 0);
     return date >= today;
   };
+
   const availableDateIndex = availableDates.indexOf(currentEndDate);
   const previousDateDisabled =
     datesLoading || (availableDates.length > 0 && availableDateIndex === 0);
@@ -868,7 +897,6 @@ const Map: React.FC<MapProps> = ({
     (availableDates.length > 0
       ? availableDateIndex >= 0 && availableDateIndex === availableDates.length - 1
       : isAtOrAfterCurrentDate(currentEndDate));
-
 
   const adjustDate = (days: number) => {
     const current = new Date(currentEndDate);
@@ -883,6 +911,7 @@ const Map: React.FC<MapProps> = ({
   };
 
   const onLeftArrowClick = () => {
+    setPopupSide('left');
     setShowDatePopup(true);
     if (availableDates.length > 0) {
       if (availableDateIndex > 0) {
@@ -892,10 +921,10 @@ const Map: React.FC<MapProps> = ({
       }
       return;
     }
-    setPopupSide('left');
     adjustDate(-DAYS_STEP);
   };
 
+  const onRightArrowClick = () => {
     if (availableDates.length > 0) {
       setPopupSide('right');
       setShowDatePopup(true);
@@ -906,7 +935,6 @@ const Map: React.FC<MapProps> = ({
       }
       return;
     }
-  const onRightArrowClick = () => {
     // Only allow forward navigation if we're not at or past the current date
     const today = getCurrentDate();
     const currentDate = new Date(currentEndDate);
@@ -1542,6 +1570,40 @@ const Map: React.FC<MapProps> = ({
   const fetchFieldAnalysis = async (plotName: string) => {
     if (!plotName) return;
 
+    fieldScoreRequestPlotRef.current = plotName;
+    const isCurrentRequest = () => fieldScoreRequestPlotRef.current === plotName;
+
+    const applyAnalysis = (analysisData: {
+      plotName: string;
+      overallHealth: number;
+      healthStatus: string;
+      statistics: { mean: number };
+    }) => {
+      if (!isCurrentRequest()) return;
+      setFieldAnalysisData(analysisData);
+      setApiData("fieldScore", plotName, analysisData);
+      setCache(fieldScoreCacheKey(plotName), analysisData);
+      if (onFieldAnalysisChange) {
+        onFieldAnalysisChange(analysisData);
+      }
+      setFieldScoreReady(true);
+      setFieldScoreLoading(false);
+    };
+
+    // Prefer login preload / cache so the Field Score card can show immediately.
+    const preloaded = getApiData("fieldScore", plotName);
+    const cached = getCache(fieldScoreCacheKey(plotName));
+    if (preloaded || cached) {
+      applyAnalysis(preloaded || cached);
+      return;
+    }
+
+    if (isCurrentRequest()) {
+      setFieldScoreLoading(true);
+      setFieldScoreReady(false);
+      setFieldAnalysisData(null);
+    }
+
     try {
       const currentDate = getCurrentDate();
       // Use direct API URL - CORS is handled on the backend
@@ -1591,27 +1653,32 @@ const Map: React.FC<MapProps> = ({
         fieldData = data;
       }
 
+      if (!isCurrentRequest()) return;
+
       if (fieldData) {
         const overallHealth = fieldData?.overall_health ?? fieldData?.health_score ?? 0;
         const healthStatus = fieldData?.health_status ?? fieldData?.status ?? "Unknown";
         const meanValue = fieldData?.statistics?.mean ?? fieldData?.mean ?? 0;
 
-        const analysisData = {
+        applyAnalysis({
           plotName: fieldData.plot_name ?? plotName,
           overallHealth,
           healthStatus,
           statistics: {
             mean: meanValue,
           },
-        };
-
-        setFieldAnalysisData(analysisData);
-        if (onFieldAnalysisChange) {
-          onFieldAnalysisChange(analysisData);
-        }
+        });
+      } else {
+        // No payload — still unlock map layers so the user is not blocked.
+        setFieldScoreReady(true);
+        setFieldScoreLoading(false);
       }
     } catch (err) {
       // console.error("Error in fetchFieldAnalysis:", err);
+      if (!isCurrentRequest()) return;
+      // Unlock layers even on failure so the map is usable.
+      setFieldScoreReady(true);
+      setFieldScoreLoading(false);
     }
   };
 
@@ -2821,6 +2888,7 @@ const Map: React.FC<MapProps> = ({
               key={layer}
               onClick={() => setActiveLayer(layer)}
               className={activeLayer === layer ? "active" : ""}
+              disabled={loading || fieldScoreLoading}
             >
               {LAYER_LABELS[layer]}
             </button>
@@ -2860,12 +2928,17 @@ const Map: React.FC<MapProps> = ({
                 }
                 
                 setFieldAnalysisData(null);
-                // Fetch layer data (these can be slower, plot boundary is already shown)
-                fetchPestData(newPlot);
-                fetchPlotData(newPlot); // Still fetch for layer data, but boundary is already shown
-                fetchFieldAnalysis(newPlot);
+                setFieldScoreReady(false);
+                setFieldScoreLoading(true);
+                setMapLayersUnlocked(false);
+                // Spinner → Field Score first, then map layers.
+                void (async () => {
+                  await fetchFieldAnalysis(newPlot);
+                  fetchPestData(newPlot);
+                  fetchPlotData(newPlot);
+                })();
               }}
-              disabled={loading}
+              disabled={loading || fieldScoreLoading}
             >
               {profile.plots?.map((plot) => {
                 const plotValue = resolveFarmerPlotId(plot);
@@ -2926,11 +2999,17 @@ const Map: React.FC<MapProps> = ({
             ) : null}
           </div>
         )}
-        {loading && <div className="loading-indicator">Loading plot data...</div>}
+        {(loading || fieldScoreLoading) && (
+          <div className="loading-indicator">
+            {fieldScoreLoading
+              ? "Loading field score..."
+              : "Loading map layers..."}
+          </div>
+        )}
         {error && <div className="error-message">{error}</div>}
       </div>
 
-      {/* Map and Soil Analysis Layout */}
+      {/* Map stays in original place — Field Score loads first, then layers unlock */}
       <div className="flex flex-col lg:flex-row gap-4" style={{ marginTop: '1rem', width: '100%' }}>
         {/* Map Section - Increased width by 20px */}
         <div className="map-section-expanded" style={{ paddingLeft: '0', overflow: 'hidden', maxWidth: '100%', minWidth: 0 }}>
@@ -2961,13 +3040,6 @@ const Map: React.FC<MapProps> = ({
           )}
 
           <div className="map-container" ref={mapWrapperRef} style={{ position: 'relative' }}>
-        {/* Loading Overlay - Shows when fetching layer data */}
-        {loading && (
-          <div className="map-loading-overlay">
-            <div className="map-loading-spinner"></div>
-          </div>
-        )}
-
         {/* Back Button */}
         <button
           className="back-btn"
@@ -3044,6 +3116,7 @@ const Map: React.FC<MapProps> = ({
                   </div>
                 </div>
               </div>
+            )}
 
             {/* Date Ribbon - available satellite image dates from stored-tiles */}
             {activePlotName && (
@@ -3075,7 +3148,6 @@ const Map: React.FC<MapProps> = ({
                 )}
               </div>
             )}
-            )}
           </>
         )}
 
@@ -3102,8 +3174,8 @@ const Map: React.FC<MapProps> = ({
             />
           )}
 
-          {/* Render active layer tile (Brix shows satellite base + grid only) */}
-          {activeUrl && activeLayer !== "Brix" && (
+          {/* Render active layer tile only after Field Score is shown */}
+          {mapLayersUnlocked && activeUrl && activeLayer !== "Brix" && (
             <CustomTileLayer
               key={`${activeLayer}-layer-${layerChangeKey}`}
               url={activeUrl}
@@ -3112,14 +3184,14 @@ const Map: React.FC<MapProps> = ({
             />
           )}
 
-          {selectedLegendClass && renderFilteredPixels()}
+          {mapLayersUnlocked && selectedLegendClass && renderFilteredPixels()}
           {renderPlotBorder()}
           {/* Render Brix grid on top of canopy vigour layer */}
-          {activeLayer === "Brix" && renderBrixGrid()}
+          {mapLayersUnlocked && activeLayer === "Brix" && renderBrixGrid()}
         </MapContainer>
 
-        {legendData.length > 0 && (
-          <div className="map-legend-bottom">
+        {mapLayersUnlocked && legendData.length > 0 && (
+          <div className={`map-legend-bottom ${datesLoading || availableDates.length > 0 ? "has-date-ribbon" : ""}`}>
             <div className="legend-items-bottom">
               {legendData.map((item: any, index: number) => (
                 <div
@@ -3171,10 +3243,20 @@ const Map: React.FC<MapProps> = ({
         </div>
       </div>
 
-      {/* Field Health Analysis, Crop Health Analysis, and Irrigation Schedule Section - Below the map */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch" style={{ marginLeft: '0', paddingLeft: '0' }}>
+      {/* Field Score / Crop Health / Irrigation — same place under the map */}
+      <div
+        ref={fieldScoreSectionRef}
+        className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch"
+        style={{ marginLeft: "0", paddingLeft: "0" }}
+      >
         <div className="min-w-0 h-full flex flex-col">
-          <FieldHealthAnalysis fieldAnalysisData={fieldAnalysisData} />
+          <FieldHealthAnalysis
+            fieldAnalysisData={fieldAnalysisData}
+            loading={
+              fieldScoreLoading ||
+              (!!selectedPlotName && !fieldScoreReady && !fieldAnalysisData)
+            }
+          />
         </div>
         <div className="min-w-0 h-full flex flex-col">
           <CropHealthAnalysis />
@@ -3189,7 +3271,10 @@ const Map: React.FC<MapProps> = ({
         <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
           <FertilizerTable embedded />
         </div>
-        <SoilMoistureCard className="dashboard-card-soil h-full" />
+        <SoilMoistureCard
+          className="dashboard-card-soil h-full"
+          optimalRange={[35, 58]}
+        />
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}

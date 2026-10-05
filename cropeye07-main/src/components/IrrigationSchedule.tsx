@@ -476,6 +476,11 @@ const IrrigationSchedule: React.FC = () => {
   };
 
   const scheduleData = generateScheduleData();
+  const totalWaterRequired = scheduleData.reduce(
+    (total, day) => total + day.waterRequired,
+    0,
+  );
+  const irrigationDays = scheduleData.filter((day) => day.waterRequired > 0).length;
 
   useEffect(() => {
     const scheduleData = generateScheduleData();
@@ -541,7 +546,10 @@ const IrrigationSchedule: React.FC = () => {
                   </span>
                 </td>
                 <td className="px-2 py-1 text-blue-600 font-semibold text-xs">
-                  {day.waterRequired.toLocaleString()}
+                  <div>{day.waterRequired.toLocaleString()}</div>
+                  <div className={`text-[10px] font-medium ${day.waterRequired > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                    {day.waterRequired > 0 ? 'Irrigation needed' : 'No irrigation needed'}
+                  </div>
                 </td>
                 <td className="px-2 py-1 text-gray-800 text-xs">
                   <strong>{day.time}</strong>
@@ -551,6 +559,19 @@ const IrrigationSchedule: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {scheduleData.length > 0 && (
+        <div className="shrink-0 mx-2 mb-2 rounded-md bg-blue-50 ring-1 ring-blue-200 px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-bold text-blue-800 whitespace-nowrap">
+              7-Day Total: {totalWaterRequired.toLocaleString()} L/acre
+            </div>
+            <p className="text-[9px] leading-snug font-medium text-right text-blue-700">
+              Irrigation needed on {irrigationDays} of {scheduleData.length} days
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error-message-small">{error}</div>}
     </div>

@@ -1,4 +1,4 @@
-import api from "../api";
+import api, { getTeamConnectGrapes } from "../api";
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
@@ -9,6 +9,7 @@ import {
   harvestInfoFromAgroStatsBatch,
 } from "../utils/harvestStatusService";
 import { extractAgroStatsPlotRow } from "../utils/grapesEventsBundle";
+import { normalizeTeamConnectGrapesOfficers } from "../utils/teamConnectGrapes";
 import {
   MapPin,
   ChevronDown,
@@ -57,9 +58,10 @@ type ChartType = (typeof CHART_TYPES)[keyof typeof CHART_TYPES];
 
 // Type definitions
 interface Filters {
+  manager: string;
   region: string;
   representative: string;
-  plotArea: string;
+  grapesType: string;
   variety: string;
 }
 
@@ -68,41 +70,17 @@ interface DateRange {
   end: string;
 }
 
-const PLOT_AREA_OPTIONS = [
-  "All",
-  "1-3 acre",
-  "4-5 acre",
-  "5-7 acre",
-  "8-10 acre",
-] as const;
-
 const HECTARES_TO_ACRES = 2.47105;
-
-/** Match plot area (acres) to Manager Harvest Planning filter buckets. */
-function matchesPlotAreaFilter(areaAcres: number, filter: string): boolean {
-  if (filter === "All") return true;
-  if (!Number.isFinite(areaAcres) || areaAcres <= 0) return false;
-  switch (filter) {
-    case "1-3 acre":
-      return areaAcres >= 1 && areaAcres <= 3;
-    case "4-5 acre":
-      return areaAcres >= 4 && areaAcres <= 5;
-    case "5-7 acre":
-      return areaAcres > 5 && areaAcres <= 7;
-    case "8-10 acre":
-      return areaAcres >= 8 && areaAcres <= 10;
-    default:
-      return true;
-  }
-}
 
 function resolveFarmAreaAcres(farm: any, plot?: any): number {
   const acres = parseFloat(
     String(
       farm?.area_acres ??
         farm?.area_in_acres ??
+        farm?.plot_area ??
         plot?.area_acres ??
         plot?.area_in_acres ??
+        plot?.plot_area ??
         ""
     )
   );
@@ -276,11 +254,12 @@ interface HarvestData {
   Region: string;
   "Grapes Type": string;
   Variety: string;
-  /** Area in acres — used by Plot Area filter */
+  /** Area in acres */
   areaAcres: number;
   representative?: string;
   representativeUrl?: string;
   boundaryCoordinates?: [number, number][];
+  managerName?: string;
 }
 
 interface BrixData {
@@ -644,9 +623,10 @@ const HarvestDashboard: React.FC = () => {
   const mapWrapperRef = useRef<HTMLDivElement>(null);
   const [activeChart, setActiveChart] = useState<ChartType>(CHART_TYPES.BRIX);
   const [filters, setFilters] = useState<Filters>({
+    manager: "All",
     region: "All",
     representative: "All",
-    plotArea: "All",
+    grapesType: "All",
     variety: "All",
   });
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -658,49 +638,107 @@ const HarvestDashboard: React.FC = () => {
   ]);
   const [loading, setLoading] = useState<boolean>(true);
   const [rawData, setRawData] = useState<HarvestData[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<string>("");
 
-  // Dynamic filter options
+  // Dynamic filter options — same as Owner harvest panel
+  const [managerOptions, setManagerOptions] = useState<string[]>(["All"]);
   const [regionOptions, setRegionOptions] = useState<string[]>(["All"]);
   const [representativeOptions, setRepresentativeOptions] = useState<string[]>([
     "All",
   ]);
-  const plotAreaOptions = [...PLOT_AREA_OPTIONS];
+  const [grapesTypeOptions, setGrapesTypeOptions] = useState<string[]>([
+    "All",
+  ]);
   const [varietyOptions, setVarietyOptions] = useState<string[]>(["All"]);
 
   // Debounce non-representative filters
   const debouncedRegion = useDebouncedValue(filters.region, 300);
-  const debouncedPlotArea = useDebouncedValue(filters.plotArea, 300);
+  const debouncedGrapesType = useDebouncedValue(filters.grapesType, 300);
   const debouncedVariety = useDebouncedValue(filters.variety, 300);
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setLoadError(null);
       try {
-        const response = await api.get(API_BASE_URL);
+        let fieldOfficers: any[] = [];
+        let source = "none";
 
-        const apiData = response.data ?? {};
-        const fieldOfficers = pickArray(
-          apiData.field_officers,
-          apiData.fieldOfficers,
-          apiData.results,
-          apiData.data?.field_officers,
-          Array.isArray(apiData) ? apiData : null,
-        );
+        // Primary: grapes harvest team-connect endpoint
+        try {
+          const grapesRes = await getTeamConnectGrapes();
+          const parsed = normalizeTeamConnectGrapesOfficers(grapesRes.data);
+          if (
+            parsed.fieldOfficers.length > 0 ||
+            parsed.counts.farmers > 0
+          ) {
+            fieldOfficers = parsed.fieldOfficers;
+            source = "team-connect/grapes";
+            if (parsed.filterOptions.regions.length > 0) {
+              setRegionOptions(["All", ...parsed.filterOptions.regions]);
+            }
+            if (parsed.filterOptions.representatives.length > 0) {
+              setRepresentativeOptions([
+                "All",
+                ...parsed.filterOptions.representatives.map((r) => r.label),
+              ]);
+            }
+            if (parsed.filterOptions.varieties.length > 0) {
+              setVarietyOptions([
+                "All",
+                ...parsed.filterOptions.varieties.map((v) => v.label || v.value),
+              ]);
+            }
+          }
+        } catch (err: any) {
+          const status = err?.response?.status;
+          console.warn(
+            `HarvestDashboard: team-connect/grapes failed (${status || "network"}), falling back to my-field-officers`,
+            err,
+          );
+        }
+
+        // Fallback: manager my-field-officers
+        if (fieldOfficers.length === 0) {
+          const response = await api.get(API_BASE_URL);
+          const apiData = response.data ?? {};
+          fieldOfficers = pickArray(
+            apiData.field_officers,
+            apiData.fieldOfficers,
+            apiData.results,
+            apiData.data?.field_officers,
+            Array.isArray(apiData) ? apiData : null,
+          );
+          if (fieldOfficers.length > 0) source = "my-field-officers";
+        }
+
+        setDataSource(source);
 
         if (fieldOfficers.length > 0) {
           let allData: HarvestData[] = [];
 
+          const managerSet = new Set<string>();
           const talukaSet = new Set<string>();
           const representativeSet = new Set<string>();
           const varietySet = new Set<string>();
+          const plantationTypeSet = new Set<string>();
 
           // Collect all plot IDs for harvest status API calls
           // Map: dataPointId -> plotId (fastapi_plot_id)
           const dataPointToPlotIdMap = new Map<string, string>();
 
           fieldOfficers.forEach((officer: any) => {
+            const managerName =
+              `${officer.manager?.first_name || ""} ${officer.manager?.last_name || ""}`.trim() ||
+              officer.manager_name ||
+              officer.manager?.username ||
+              "Owner scope";
+            managerSet.add(managerName);
+
             const representativeName =
               `${officer.first_name || ""} ${officer.last_name || ""}`.trim() ||
+              officer?.username ||
               "Field Officer";
             representativeSet.add(representativeName);
 
@@ -710,6 +748,10 @@ const HarvestDashboard: React.FC = () => {
                   talukaSet.add(plot.taluka);
                 } else if (plot.district) {
                   talukaSet.add(plot.district);
+                } else if (plot.region) {
+                  talukaSet.add(plot.region);
+                } else if (farmer.region) {
+                  talukaSet.add(farmer.region);
                 }
 
                 // Grapes often has no plot.farms[] — treat plot as the farm
@@ -720,6 +762,10 @@ const HarvestDashboard: React.FC = () => {
                       ? varietyFromFarm
                       : resolveVariety(plot);
                   if (variety !== "Unknown") varietySet.add(variety);
+
+                  const plantationType =
+                    farm.plantation_type || plot.plantation_type;
+                  if (plantationType) plantationTypeSet.add(plantationType);
 
                   const coordinates = plot.boundary?.coordinates?.[0] || [];
                   let centerLat = 0;
@@ -811,7 +857,12 @@ const HarvestDashboard: React.FC = () => {
                     "Recovery (Degree)": recovery,
                     "Distance (km)": distanceKm,
                     Stage: stage,
-                    Region: plot.taluka || plot.district || "Unknown",
+                    Region:
+                      farmer.region ||
+                      plot.region ||
+                      plot.district ||
+                      plot.taluka ||
+                      "Unknown",
                     "Grapes Type":
                       farm.plantation_type ||
                       plot.plantation_type ||
@@ -820,6 +871,7 @@ const HarvestDashboard: React.FC = () => {
                     representative: representativeName,
                     representativeUrl: "",
                     boundaryCoordinates: boundaryCoords,
+                    managerName,
                   };
 
                   allData.push(dataPoint);
@@ -827,6 +879,12 @@ const HarvestDashboard: React.FC = () => {
               });
             });
           });
+
+          setManagerOptions(["All", ...Array.from(managerSet).sort()]);
+          setGrapesTypeOptions([
+            "All",
+            ...Array.from(plantationTypeSet).sort(),
+          ]);
 
           // Get unique plot IDs
           const uniquePlotIds = Array.from(
@@ -1006,19 +1064,37 @@ const HarvestDashboard: React.FC = () => {
             }
           });
 
-          setRegionOptions(["All", ...Array.from(talukaSet).sort()]);
-          setRepresentativeOptions([
-            "All",
-            ...Array.from(representativeSet).sort(),
-          ]);
-          setVarietyOptions(["All", ...Array.from(varietySet).sort()]);
+          setRegionOptions((prev) =>
+            prev.length > 1
+              ? prev
+              : ["All", ...Array.from(talukaSet).sort()],
+          );
+          setRepresentativeOptions((prev) =>
+            prev.length > 1
+              ? prev
+              : ["All", ...Array.from(representativeSet).sort()],
+          );
+          setVarietyOptions((prev) =>
+            prev.length > 1
+              ? prev
+              : ["All", ...Array.from(varietySet).sort()],
+          );
 
           setRawData(allData);
+          if (allData.length === 0) {
+            setLoadError(
+              `Loaded via ${source}, but no farms/plots were found.`,
+            );
+          }
         } else {
           setRawData([]);
+          setLoadError(
+            "No field officers found. Tried team-connect/grapes and my-field-officers.",
+          );
         }
       } catch (err) {
         setRawData([]);
+        setLoadError("Failed to load harvest planning data.");
       } finally {
         setLoading(false);
       }
@@ -1030,24 +1106,32 @@ const HarvestDashboard: React.FC = () => {
   const filteredData = useMemo(
     () =>
       rawData.filter((item) => {
+        const managerMatch =
+          filters.manager === "All" || item.managerName === filters.manager;
         const regionMatch =
           debouncedRegion === "All" || item.Region === debouncedRegion;
         const repMatch =
           filters.representative === "All" ||
           item.representative === filters.representative;
-        const areaMatch = matchesPlotAreaFilter(
-          item.areaAcres,
-          debouncedPlotArea
-        );
+        const grapesTypeMatch =
+          debouncedGrapesType === "All" ||
+          item["Grapes Type"] === debouncedGrapesType;
         const varietyMatch =
           debouncedVariety === "All" || item.Variety === debouncedVariety;
-        return regionMatch && repMatch && areaMatch && varietyMatch;
+        return (
+          managerMatch &&
+          regionMatch &&
+          repMatch &&
+          grapesTypeMatch &&
+          varietyMatch
+        );
       }),
     [
       rawData,
+      filters.manager,
       debouncedRegion,
       filters.representative,
-      debouncedPlotArea,
+      debouncedGrapesType,
       debouncedVariety,
     ],
   );
@@ -1324,8 +1408,9 @@ const HarvestDashboard: React.FC = () => {
     return (
       <div className="min-h-screen dashboard-bg flex items-center justify-center px-4">
         <p className="text-sm text-gray-600 text-center">
-          No harvest planning data available. Check field officer / plot
-          hierarchy from the API, then refresh.
+          {loadError ||
+            "No harvest planning data available. Check field officer / plot hierarchy from the API, then refresh."}
+          {dataSource ? ` (source: ${dataSource})` : ""}
         </p>
       </div>
     );
@@ -1374,6 +1459,14 @@ const HarvestDashboard: React.FC = () => {
           <div className="lg:col-span-3 space-y-2">
             <div className="bg-white rounded-xl p-2 border-gray-100">
               <FilterDropdown
+                label="Manager"
+                value={filters.manager}
+                options={managerOptions}
+                onChange={(value) =>
+                  setFilters((prev) => ({ ...prev, manager: value }))
+                }
+              />
+              <FilterDropdown
                 label="Region"
                 value={filters.region}
                 options={regionOptions}
@@ -1390,11 +1483,11 @@ const HarvestDashboard: React.FC = () => {
                 }
               />
               <FilterDropdown
-                label="Plot Area"
-                value={filters.plotArea}
-                options={plotAreaOptions}
+                label="Grapes Type"
+                value={filters.grapesType}
+                options={grapesTypeOptions}
                 onChange={(value) =>
-                  setFilters((prev) => ({ ...prev, plotArea: value }))
+                  setFilters((prev) => ({ ...prev, grapesType: value }))
                 }
               />
               <FilterDropdown

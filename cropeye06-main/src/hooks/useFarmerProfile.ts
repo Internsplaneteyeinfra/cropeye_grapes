@@ -320,10 +320,28 @@ export function resetFarmerProfileStore() {
 async function loadFarmerMyProfile(
   getCached: (key: string, maxAge?: number) => any,
   setCached: (key: string, value: any) => void,
+  forceRefresh = false,
 ): Promise<void> {
   setSharedProfileState({ loading: true, error: null });
 
   try {
+    if (forceRefresh) {
+      const response = await getFarmerMyProfile();
+      const normalized = normalizeFarmerProfile(response.data);
+      if ((normalized?.plots?.length || 0) > 0) {
+        setCached(PROFILE_CACHE_KEY, normalized);
+      }
+      setSharedProfileState({
+        profile: normalized,
+        loading: false,
+        error:
+          (normalized?.plots?.length || 0) > 0
+            ? null
+            : 'Farmer profile loaded but no plots linked. Add a plot or check /farms/my-profile/.',
+      });
+      return;
+    }
+
     const cached = getCached(PROFILE_CACHE_KEY, PROFILE_CACHE_MAX_AGE_MS);
     if (cached) {
       const normalizedCached = normalizeFarmerProfile(cached);
@@ -464,9 +482,9 @@ export const useFarmerProfile = () => {
     }
   };
 
-  const fetchMyProfile = async () => {
+  const fetchMyProfile = async (forceRefresh = false) => {
     shared.started = true;
-    await loadFarmerMyProfile(getCached, setCached);
+    await loadFarmerMyProfile(getCached, setCached, forceRefresh);
   };
 
   useEffect(() => {

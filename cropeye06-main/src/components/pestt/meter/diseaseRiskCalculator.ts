@@ -1,4 +1,5 @@
 export type RiskLevel = 'high' | 'moderate' | 'low';
+import { isMonthInRanges } from './riskDateUtils';
 
 export interface DiseaseDetectionData {
   fungi_affected_pixel_percentage: number;
@@ -10,7 +11,16 @@ export interface DiseaseWithStage {
   stage?: { minDays: number; maxDays: number };
 }
 
-const FUNGAL_DISEASE_NAMES = ['Downy mildew', 'Powdery mildew', 'Anthracnose', 'Fusarium wilt'];
+const FUNGAL_DISEASE_NAMES = [
+  'Downy mildew',
+  'Powdery mildew',
+  'Anthracnose',
+  'Fusarium wilt',
+  'Rust',
+  'Black rot',
+  'Botrytis (Grey mold)',
+  'Cercospora leaf spot',
+];
 
 /**
  * Assess disease risk level based on:
@@ -24,9 +34,7 @@ export function assessDiseaseRiskLevel(
   currentMonth: string,
   pestDetectionData?: DiseaseDetectionData
 ): 'High' | 'Moderate' | 'Low' | null {
-  const currentMonthNormalized = currentMonth.trim().toLowerCase();
-  const diseaseMonthsNormalized = disease.months.map((m: string) => m.trim().toLowerCase());
-  const monthMatch = diseaseMonthsNormalized.includes(currentMonthNormalized);
+  const monthMatch = isMonthInRanges(disease.months, currentMonth);
 
   if (!monthMatch) {
     return null;

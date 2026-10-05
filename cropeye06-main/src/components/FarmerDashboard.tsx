@@ -72,6 +72,7 @@ import {
   formatMilestoneDate,
 } from "../utils/ripeningMilestones";
 import { HoverInfoTooltip } from "./HoverInfoTooltip";
+import IrrigationSchedule from "./IrrigationSchedule";
 
 // Register Chart.js components
 ChartJS.register(
@@ -586,9 +587,9 @@ function metricsFromLegacyAgroPlot(
     brixDays: (() => {
       const n = Number(
         currentPlotData?.Days ??
-          currentPlotData?.days ??
-          currentPlotData?.days_since_plantation ??
-          currentPlotData?.brix_sugar?.Days
+        currentPlotData?.days ??
+        currentPlotData?.days_since_plantation ??
+        currentPlotData?.brix_sugar?.Days
       );
       return Number.isFinite(n) && n > 0 ? n : null;
     })(),
@@ -645,35 +646,6 @@ const Overlay: React.FC<OverlayProps> = ({ message }) => (
   </div>
 );
 
-// Fallback data for when API fails or no data
-const fallbackLabels = ['Day 1', 'Day 2', 'Day 3'];
-const fallbackDatasets = [
-  {
-    label: 'pH',
-    data: [0, 0, 0],
-    borderColor: '#4CAF50',
-    backgroundColor: 'rgba(76,175,80,0.2)',
-    tension: 0.4,
-    fill: true,
-  },
-  {
-    label: 'Brix',
-    data: [0, 0, 0],
-    borderColor: '#FF9800',
-    backgroundColor: 'rgba(255,152,0,0.2)',
-    tension: 0.4,
-    fill: true,
-  },
-  {
-    label: 'TA',
-    data: [0, 0, 0],
-    borderColor: '#2196F3',
-    backgroundColor: 'rgba(33,150,243,0.2)',
-    tension: 0.4,
-    fill: true,
-  },
-];
-
 // Brix Time Series Chart Component
 interface BrixTimeSeriesChartProps {
   data: Array<{
@@ -710,11 +682,10 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
   }, [data]);
 
   const chartData = useMemo(() => {
-    // Use fallback data if no real data available
     if (!data || data.length === 0) {
       return {
-        labels: fallbackLabels,
-        datasets: fallbackDatasets,
+        labels: [],
+        datasets: [],
       };
     }
 
@@ -964,6 +935,34 @@ const FarmerDashboard: React.FC = () => {
     sugarYieldMax: null,
     sugarYieldMin: null,
   });
+
+  const totalProfileAreaAcres = useMemo(() => {
+    const plots = Array.isArray(profile?.plots) ? profile.plots : [];
+    let totalArea = 0;
+    let foundArea = false;
+
+    for (const plot of plots) {
+      const plotIds = [
+        plot.fastapi_plot_id,
+        plot.gat_number && plot.plot_number
+          ? `${plot.gat_number}_${plot.plot_number}`
+          : null,
+        plot.plot_name,
+        plot.plot_id,
+        plot.id,
+      ].filter((id) => id != null && String(id).trim() !== "");
+
+      for (const plotId of plotIds) {
+        const area = getPlotAreaAcresFromProfile(profile, String(plotId));
+        if (area == null) continue;
+        totalArea += area;
+        foundArea = true;
+        break;
+      }
+    }
+
+    return foundArea ? totalArea : null;
+  }, [profile]);
 
   // Mobile layout flag for charts
   const [isMobile, setIsMobile] = useState(false);
@@ -1291,11 +1290,12 @@ const FarmerDashboard: React.FC = () => {
         if (indicesToUse.length === 0) {
           dashboardLoadInFlightRef.current = currentPlotId;
           void fetchAllData()
-            .catch(() => {})
+            .catch(() => { })
             .finally(() => {
               if (dashboardLoadInFlightRef.current === currentPlotId) {
                 dashboardLoadInFlightRef.current = null;
               }
+              setBrixChartTick((tick) => tick + 1);
               setDashboardDataLoading(false);
             });
         }
@@ -1334,11 +1334,12 @@ const FarmerDashboard: React.FC = () => {
       if (indicesToUse.length === 0) {
         dashboardLoadInFlightRef.current = currentPlotId;
         void fetchAllData()
-          .catch(() => {})
+          .catch(() => { })
           .finally(() => {
             if (dashboardLoadInFlightRef.current === currentPlotId) {
               dashboardLoadInFlightRef.current = null;
             }
+            setBrixChartTick((tick) => tick + 1);
             setDashboardDataLoading(false);
           });
       }
@@ -1738,26 +1739,26 @@ const FarmerDashboard: React.FC = () => {
 
       const newMetrics: Metrics = grapesBundle
         ? mergeDashboardMetrics(
-            metricsFromGrapesBundle(
-              grapesBundle,
-              profileRef.current,
-              currentPlotId,
-              stressData,
-              irrigationData,
-              null,
-              null
-            ) as Metrics,
-            profilePartial
-          )
+          metricsFromGrapesBundle(
+            grapesBundle,
+            profileRef.current,
+            currentPlotId,
+            stressData,
+            irrigationData,
+            null,
+            null
+          ) as Metrics,
+          profilePartial
+        )
         : mergeDashboardMetrics(
-            {
-              ...emptyGrapesDashboardMetrics(),
-              stressCount: stressData?.total_events ?? 0,
-              stressTotalDays: stressTotalDaysFromPayload(stressData),
-              irrigationEvents: irrigationData?.total_events ?? null,
-            },
-            profilePartial
-          );
+          {
+            ...emptyGrapesDashboardMetrics(),
+            stressCount: stressData?.total_events ?? 0,
+            stressTotalDays: stressTotalDaysFromPayload(stressData),
+            irrigationEvents: irrigationData?.total_events ?? null,
+          },
+          profilePartial
+        );
 
       if (!grapesBundle && !rawIndices?.length) {
         setDashboardLoadError(
@@ -1765,7 +1766,7 @@ const FarmerDashboard: React.FC = () => {
         );
       } else if (!grapesBundle) {
         // setDashboardLoadError(
-          // "Some metrics are unavailable (grapes API timed out). Field indices chart may still load below."
+        // "Some metrics are unavailable (grapes API timed out). Field indices chart may still load below."
         // );
       }
 
@@ -2247,8 +2248,11 @@ const FarmerDashboard: React.FC = () => {
     setDashboardLoadError(null);
     setDashboardDataLoading(true);
     void fetchAllData()
-      .catch(() => {})
-      .finally(() => setDashboardDataLoading(false));
+      .catch(() => { })
+      .finally(() => {
+        setBrixChartTick((tick) => tick + 1);
+        setDashboardDataLoading(false);
+      });
   };
 
   const showLoadingDataBanner = profileLoading;
@@ -2461,7 +2465,7 @@ const FarmerDashboard: React.FC = () => {
         )}
 
         {/* Top Priority Metrics - 4 Key Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 items-stretch" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
           <div className="rounded-xl p-5 hover:shadow-md transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)', width: '100%', maxWidth: '100%', boxSizing: 'border-box', backgroundColor: '#eff2e7' }}>
             <img
               src="/Image/crop images/Fields.png"
@@ -2474,8 +2478,10 @@ const FarmerDashboard: React.FC = () => {
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {metricOrLoader(
-                    metrics.area != null ? metrics.area.toFixed(2) : null,
-                    metrics.area == null
+                    totalProfileAreaAcres != null
+                      ? totalProfileAreaAcres.toFixed(2)
+                      : null,
+                    totalProfileAreaAcres == null
                   )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
@@ -2483,7 +2489,25 @@ const FarmerDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Field Area</p>
+            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Total Area</p>
+          </div>
+
+          <div className="rounded-xl p-5 hover:shadow-md transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)', width: '100%', maxWidth: '100%', boxSizing: 'border-box', backgroundColor: '#eaf3e4' }}>
+            <TrendingUp className="absolute left-5 top-5 w-12 h-12 z-0 pointer-events-none" style={{ color: '#5a7c3a' }} aria-hidden />
+            <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
+              <div className="text-right">
+                <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
+                  {metrics.sugarYieldMean != null &&
+                    Number.isFinite(metrics.sugarYieldMean)
+                    ? metrics.sugarYieldMean.toFixed(2)
+                    : "-"}
+                </div>
+                <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                  T/ha
+                </div>
+              </div>
+            </div>
+            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Expected Yield</p>
           </div>
 
           <div className="rounded-xl p-4 hover:shadow-md transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)', width: '100%', maxWidth: '100%', boxSizing: 'border-box', backgroundColor: '#f5f1e1' }}>
@@ -2554,20 +2578,20 @@ const FarmerDashboard: React.FC = () => {
                   {(metrics.growthStage || "").toLowerCase().includes("harvested")
                     ? "0"
                     : metricOrLoader(
-                        metrics.brix !== null && metrics.brix !== undefined
-                          ? (metrics.brix === 0 ? "0" : metrics.brix)
-                          : null,
-                        metrics.brix === null || metrics.brix === undefined
-                      )}
+                      metrics.brix !== null && metrics.brix !== undefined
+                        ? (metrics.brix === 0 ? "0" : metrics.brix)
+                        : null,
+                      metrics.brix === null || metrics.brix === undefined
+                    )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
                   °Brix
                 </div>
                 {!(metrics.growthStage || "").toLowerCase().includes("harvested") && (
-                    <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
-                      {BRIX_CARD_DAYS} days
-                    </div>
-                  )}
+                  <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                    {BRIX_CARD_DAYS} days
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-200 relative z-10">
@@ -2936,81 +2960,29 @@ const FarmerDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Acidity & Sugar Analysis Chart */}
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-2 sm:p-4 mt-4 relative" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
-          {/* Latest values pinned to the top-center of this container */}
-          {latestAciditySugar && !brixTimeSeriesLoading && !brixTimeSeriesError && (
-            <div
-              style={{
-                position: "absolute",
-                top: 18,
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 10,
-                display: "flex",
-                flexWrap: "wrap",
-                justifyContent: "center",
-                gap: 8,
-                padding: "6px 10px",
-                borderRadius: 999,
-                background: "rgba(255,255,255,0.92)",
-                border: "1px solid rgba(15,23,42,0.10)",
-                boxShadow: "0 4px 16px rgba(15,23,42,0.10)",
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#0f172a",
-                alignItems: "center",
-                pointerEvents: "none",
-                whiteSpace: "nowrap",
-                maxWidth: "calc(100% - 24px)",
-              }}
-              aria-label="Latest pH, Brix and TA values"
-            >
-              {([
-                { k: "pH", c: "#4CAF50", v: latestAciditySugar.ph, dp: 2 },
-                { k: "Brix", c: "#FF9800", v: latestAciditySugar.brix, dp: 2 },
-                { k: "TA", c: "#2196F3", v: latestAciditySugar.ta, dp: 2 },
-              ] as const).map((m, idx) => (
-                <React.Fragment key={m.k}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 999,
-                        background: m.c,
-                        boxShadow: `0 0 0 3px ${m.c}22`,
-                      }}
-                    />
-                    <span style={{ fontWeight: 800 }}>{m.k}:</span>{" "}
-                    <span style={{ fontWeight: 800 }}>
-                      {m.v != null ? m.v.toFixed(m.dp) : "—"}
-                    </span>
-                  </span>
-                  {idx < 2 && (
-                    <span style={{ opacity: 0.25, fontWeight: 900 }} aria-hidden>
-                      •
-                    </span>
-                  )}
-                </React.Fragment>
-              ))}
+        {/* Grapes daily graph */}
+        <div className="mt-4 w-full">
+          <div className="irrigation-schedule-card min-w-0 bg-white rounded-lg overflow-hidden shadow flex flex-col">
+            <div className="bg-green-600 text-white px-2 py-1.5 flex flex-col items-center justify-center shrink-0 gap-0.5">
+              {/* <h3 className="text-xs font-semibold text-center leading-tight"> */}
+              {/* Grapes Daily Graph */}
+              {/* </h3> */}
+              {latestAciditySugar && !brixTimeSeriesLoading && !brixTimeSeriesError && (
+                <p className="text-[9px] text-green-100 leading-tight text-center">
+                  pH {latestAciditySugar.ph?.toFixed(2) ?? "—"} · Brix {latestAciditySugar.brix?.toFixed(2) ?? "—"} · TA {latestAciditySugar.ta?.toFixed(2) ?? "—"}
+                </p>
+              )}
             </div>
-          )}
 
-          <div className="flex items-center gap-2 mb-3 pt-8">
-            <Beaker className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-800">
-              Acidity & Sugar Analysis
-            </h3>
+            <div className="flex-1 min-h-[380px] p-2 sm:p-3">
+              <BrixTimeSeriesChart
+                data={brixTimeSeriesData}
+                isLoading={brixTimeSeriesLoading}
+                error={brixTimeSeriesError}
+                showLatestValuesInChart={false}
+              />
+            </div>
           </div>
-
-          {/* Chart always renders with fallback data and overlay messages */}
-          <BrixTimeSeriesChart
-            data={brixTimeSeriesData}
-            isLoading={brixTimeSeriesLoading}
-            error={brixTimeSeriesError}
-            showLatestValuesInChart={false}
-          />
         </div>
 
         {/* Secondary Metrics Grid — shared icon slot keeps illustrations aligned */}
@@ -3420,7 +3392,7 @@ const FarmerDashboard: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

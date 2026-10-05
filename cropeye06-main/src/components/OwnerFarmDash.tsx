@@ -165,6 +165,19 @@ function extractNestedFarmers(officer: any): any[] {
   });
 }
 
+function ownerPlotId(plot: any): string | null {
+  const id =
+    plot?.fastapi_plot_id ??
+    plot?.plot_id ??
+    plot?.id ??
+    plot?.plot_name ??
+    plot?.name ??
+    (plot?.gat_number && plot?.plot_number
+      ? `${plot.gat_number}_${plot.plot_number}`
+      : null);
+  return id == null || String(id).trim() === "" ? null : String(id);
+}
+
 function normalizeOfficer(fo: any, managerId: string | null): any {
   const createdById =
     fo?.created_by?.id ??
@@ -429,11 +442,13 @@ const OwnerFarmDash: React.FC = () => {
         try {
           const detail = await getFieldOfficersByManager(selectedManagerId);
           if (cancelled) return;
-          const fos = Array.isArray(detail?.data?.field_officers)
-            ? detail.data.field_officers
-            : Array.isArray(detail?.data)
-              ? detail.data
-              : [];
+          const fos = pickArray(
+            detail?.data?.field_officers,
+            detail?.data?.fieldOfficers,
+            detail?.data?.data,
+            detail?.data?.results,
+            detail?.data,
+          );
           if (fos.length > 0) {
             setFieldOfficers(fos);
             clearDownstream();
@@ -517,7 +532,7 @@ const OwnerFarmDash: React.FC = () => {
       farmer?.farms,
     ).find(
       (p: any) =>
-        String(p.fastapi_plot_id || p.plot_id || p.id || "") === String(plotId),
+        ownerPlotId(p) === String(plotId),
     );
 
     if (plot && plot.boundary?.coordinates) {
@@ -641,10 +656,7 @@ const OwnerFarmDash: React.FC = () => {
           selectedFarmer.farms,
         );
         const plotIds = farmerPlots
-          .map(
-            (plot: any) =>
-              plot.fastapi_plot_id || plot.plot_id || plot.id || null,
-          )
+          .map(ownerPlotId)
           .filter(Boolean)
           .map(String);
 
@@ -1970,7 +1982,7 @@ const OwnerFarmDash: React.FC = () => {
               <Gauge className="w-7 h-7 text-green-600" />
               <div className="text-right">
                 <div className="text-2xl font-bold" style={{ color: '#212121' }}>
-                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.fieldScore != null ? metrics.fieldScore.toFixed(1) : "-"}
+                  {metrics.fieldScore != null ? metrics.fieldScore.toFixed(1) : "-"}
                 </div>
                 <div className="text-sm font-semibold text-green-600">%</div>
               </div>

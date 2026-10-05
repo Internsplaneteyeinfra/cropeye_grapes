@@ -8,7 +8,7 @@ export interface Weed {
   why: string;
   image: string;
   chemical: string[];
-  Organic Control?: string[];
+  "Organic Control"?: string[];
   symptoms?: string[];
   identification?: string[];
 }

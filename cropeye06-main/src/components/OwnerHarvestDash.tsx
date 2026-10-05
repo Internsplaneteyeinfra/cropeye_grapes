@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { loadOwnerFieldOfficers } from "../api";
+import { getTeamConnectGrapes, loadOwnerFieldOfficers } from "../api";
 import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
@@ -45,6 +45,7 @@ import {
   fetchPlotHarvestInfo,
   harvestInfoFromAgroStatsBatch,
 } from "../utils/harvestStatusService";
+import { normalizeTeamConnectGrapesOfficers } from "../utils/teamConnectGrapes";
 
 // Chart Types
 const CHART_TYPES = {
@@ -192,15 +193,23 @@ function resolveFarmAreaAcres(farm: any, plot?: any): number {
     String(
       farm?.area_acres ??
         farm?.area_in_acres ??
+        farm?.plot_area ??
         plot?.area_acres ??
         plot?.area_in_acres ??
+        plot?.plot_area ??
         ""
     )
   );
   if (Number.isFinite(acres) && acres > 0) return acres;
 
   const size = parseFloat(
-    String(farm?.area_size ?? farm?.area_size_numeric ?? "0")
+    String(
+      farm?.area_size ??
+        farm?.area_size_numeric ??
+        plot?.area_size ??
+        plot?.area_size_numeric ??
+        "0"
+    )
   );
   if (!Number.isFinite(size) || size <= 0) return 0;
   return size * HECTARES_TO_ACRES;
@@ -400,7 +409,7 @@ function buildHarvestPoint(
     "Recovery (Degree)": recovery,
     "Distance (km)": distanceKm,
     Stage: stage,
-    Region: plot.taluka || plot.district || "Unknown",
+    Region: plot.region || plot.district || plot.taluka || "Unknown",
     "Grapes Type":
       farm.plantation_type || plot.plantation_type || "Unknown",
     Variety:
@@ -743,7 +752,10 @@ const HarvestDashboard: React.FC = () => {
   const [grapesTypeOptions, setGrapesTypeOptions] = useState<string[]>([
     "All",
   ]);
-  const [varietyOptions] = useState<string[]>(["All", "Phule 265"]);
+  const [varietyOptions, setVarietyOptions] = useState<string[]>([
+    "All",
+    "Phule 265",
+  ]);
 
   // Debounce non-representative filters
   const debouncedRegion = useDebouncedValue(filters.region, 300);
@@ -756,25 +768,69 @@ const HarvestDashboard: React.FC = () => {
       setLoadError(null);
       try {
         const industry = getStoredUserIndustry();
-        const { fieldOfficers, source } = await loadOwnerFieldOfficers({
-          industryId: industry.id,
-        });
+        let fieldOfficers: any[] = [];
+        let source = "none";
+
+        // Primary: grapes harvest team-connect endpoint
+        try {
+          const grapesRes = await getTeamConnectGrapes();
+          const parsed = normalizeTeamConnectGrapesOfficers(grapesRes.data);
+          if (
+            parsed.fieldOfficers.length > 0 ||
+            parsed.counts.farmers > 0
+          ) {
+            fieldOfficers = parsed.fieldOfficers;
+            source = "team-connect/grapes";
+            if (parsed.filterOptions.regions.length > 0) {
+              setRegionOptions(["All", ...parsed.filterOptions.regions]);
+            }
+            if (parsed.filterOptions.representatives.length > 0) {
+              setRepresentativeOptions([
+                "All",
+                ...parsed.filterOptions.representatives.map((r) => r.label),
+              ]);
+            }
+            if (parsed.filterOptions.varieties.length > 0) {
+              setVarietyOptions([
+                "All",
+                ...parsed.filterOptions.varieties.map((v) => v.label || v.value),
+              ]);
+            }
+          }
+        } catch (err) {
+          console.warn(
+            "OwnerHarvestDash: team-connect/grapes failed, falling back",
+            err,
+          );
+        }
+
+        // Fallback: existing owner FO loaders
+        if (fieldOfficers.length === 0) {
+          const loaded = await loadOwnerFieldOfficers({
+            industryId: industry.id,
+          });
+          fieldOfficers = loaded.fieldOfficers;
+          source = loaded.source;
+        }
 
         if (fieldOfficers.length === 0) {
           setRawData([]);
           setLoadError(
-            "No field officers found for your grapes industry. Tried my-field-officers, owner-team-connect, and owner-hierarchy — all returned empty.",
+            "No field officers found for your grapes industry. Tried team-connect/grapes, my-field-officers, owner-team-connect, and owner-hierarchy — all returned empty.",
           );
           return;
         }
 
-        console.info(`OwnerHarvestDash: loaded ${fieldOfficers.length} FOs via ${source}`);
+        console.info(
+          `OwnerHarvestDash: loaded ${fieldOfficers.length} FOs via ${source}`,
+        );
 
         let allData: HarvestData[] = [];
         const managerSet = new Set<string>();
         const talukaSet = new Set<string>();
         const representativeSet = new Set<string>();
         const plantationTypeSet = new Set<string>();
+        const varietySet = new Set<string>();
 
         fieldOfficers.forEach((officer: any) => {
           const managerName =
@@ -792,13 +848,24 @@ const HarvestDashboard: React.FC = () => {
 
           extractFarmers(officer).forEach((farmer: any) => {
             extractPlots(farmer).forEach((plot: any) => {
-              if (plot.taluka) talukaSet.add(plot.taluka);
-              else if (plot.district) talukaSet.add(plot.district);
+              const regionLabel =
+                plot.taluka ||
+                plot.district ||
+                plot.region ||
+                farmer.region ||
+                farmer.district;
+              if (regionLabel) talukaSet.add(String(regionLabel));
 
               extractFarms(plot).forEach((farm: any) => {
                 const plantationType =
                   farm.plantation_type || plot.plantation_type;
                 if (plantationType) plantationTypeSet.add(plantationType);
+                const variety =
+                  farm?.grafted_variety ||
+                  farm?.variety ||
+                  plot?.grafted_variety ||
+                  plot?.variety;
+                if (variety) varietySet.add(String(variety));
 
                 allData.push(
                   buildHarvestPoint(
@@ -814,15 +881,27 @@ const HarvestDashboard: React.FC = () => {
         });
 
         setManagerOptions(["All", ...Array.from(managerSet).sort()]);
-        setRegionOptions(["All", ...Array.from(talukaSet).sort()]);
-        setRepresentativeOptions([
-          "All",
-          ...Array.from(representativeSet).sort(),
-        ]);
+        setRegionOptions((prev) =>
+          prev.length > 1
+            ? prev
+            : ["All", ...Array.from(talukaSet).sort()],
+        );
+        setRepresentativeOptions((prev) =>
+          prev.length > 1
+            ? prev
+            : ["All", ...Array.from(representativeSet).sort()],
+        );
         setGrapesTypeOptions([
           "All",
           ...Array.from(plantationTypeSet).sort(),
         ]);
+        if (varietySet.size > 0) {
+          setVarietyOptions((prev) =>
+            prev.length > 1
+              ? prev
+              : ["All", ...Array.from(varietySet).sort()],
+          );
+        }
 
         // Enrich yield / brix / harvest status from events agroStats
         const today = new Date().toISOString().slice(0, 10);

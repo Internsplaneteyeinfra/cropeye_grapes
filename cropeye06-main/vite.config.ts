@@ -10,6 +10,12 @@ export default defineConfig(({ mode }) => {
       .replace(/\/+$/, "") || "https://cropeye-backendd.up.railway.app";
   console.info(`[vite] /api/backend proxy → ${backendTarget}`);
 
+  // Local events target override; defaults to the production Railway service.
+  const eventsTarget =
+    (env.VITE_DEV_EVENTS_TARGET || "").replace(/\/+$/, "") ||
+    "https://cropeye-grapes-events-production.up.railway.app";
+  console.info(`[vite] /api/events proxy → ${eventsTarget}`);
+
   return {
   plugins: [react()],
   assetsInclude: ["**/*.geojson"],
@@ -97,12 +103,12 @@ export default defineConfig(({ mode }) => {
       },
       // All cropeye-grapes-events-production routes (indices, stress, grapes/*, plots/*)
       '/api/events': {
-        target: 'https://cropeye-grapes-events-production.up.railway.app',
+        target: eventsTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/events/, ''),
         configure: (proxy, _options) => {
           proxy.on('proxyReq', (proxyReq, _req, _res) => {
-            proxyReq.setHeader('Origin', 'https://cropeye-grapes-events-production.up.railway.app');
+            proxyReq.setHeader('Origin', eventsTarget);
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
             proxyRes.headers['Access-Control-Allow-Origin'] = '*';

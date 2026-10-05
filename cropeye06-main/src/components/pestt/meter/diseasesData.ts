@@ -26,7 +26,7 @@ export interface Disease {
 export const diseasesData: Disease[] = [
   {
     name: "Downy mildew",
-    months: ["October", "November", "December", "January"],
+    months: ["September", "October", "November", "December", "January"],
     stage: {
       minDays: 20,
       maxDays: 80,
@@ -139,9 +139,69 @@ export const diseasesData: Disease[] = [
     conditions: [
       {
         temperatureRange: "25.00°C–30.00°C",
-        humidityRange: "60%–80%"
+        humidityRange: "80%–90%"
       }
     ],
     image: "/Image/fusarium_wilt.jpg"
+  },
+  {
+    name: "Rust",
+    months: ["August-October"],
+    symptoms: ["Yellow-orange pustules on leaf underside", "Premature leaf fall"],
+    where: "Leaves (underside)",
+    why: "Warm, humid weather and poor vineyard ventilation",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Cow urine 10% spray"],
+    chemical: ["Wettable sulphur 80 WP @ 600 g/acre", "Mancozeb 75 WP @ 400 g/acre"],
+    image: "/Image/rust.jpg",
+  },
+  {
+    name: "Black rot",
+    months: ["July-September"],
+    symptoms: ["Small brown leaf spots that turn black", "Berries shrivel into black mummies"],
+    where: "Leaves and berries",
+    why: "Warm, wet weather and poor sanitation",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Collect and destroy infected berries", "Garlic extract spray"],
+    chemical: ["Mancozeb 75 WP @ 400 g/acre", "Zineb 75 WP @ 400 g/acre"],
+    image: "/Image/wilt.png",
+  },
+  {
+    name: "Botrytis (Grey mold)",
+    months: ["December-February"],
+    symptoms: ["Grey mold on bunches", "Berries rot during storage or transport"],
+    where: "Flower clusters and berries",
+    why: "Cool, humid, cloudy weather",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Trichoderma foliar spray @ 1 kg/acre in 200 L water"],
+    chemical: ["Carbendazim 50 WP @ 200 g/acre", "Iprodione 50 WP @ 400 g/acre"],
+    image: "/Image/wilt.png",
+  },
+  {
+    name: "Cercospora leaf spot",
+    months: ["August-October"],
+    symptoms: ["Circular reddish-brown spots", "Leaf yellowing", "Premature defoliation"],
+    where: "Leaves",
+    why: "Warm, humid weather",
+    when: {
+      high: "Present at the field",
+      moderate: "In next 3–7 days",
+      low: "In next 10–14 days",
+    },
+    organic: ["Neem seed kernel extract 5% spray"],
+    chemical: ["Mancozeb 75 WP @ 400 g/acre"],
+    image: "/Image/wilt.png",
   }
 ];

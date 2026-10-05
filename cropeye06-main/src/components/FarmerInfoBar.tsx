@@ -6,7 +6,9 @@ import { getAuthToken } from '../utils/auth';
 import { getNotificationsBaseUrl, getEventsBaseUrl } from '../utils/serviceUrls';
 import { getCache, setCache } from './utils/cache';
 import { extractAgroStatsPlotRow } from '../utils/grapesEventsBundle';
+import { calculateProfileCompletion } from '../utils/profileCompletion';
 import axios from 'axios';
+import { ChevronRight, UserRound } from 'lucide-react';
 import {
   resolveWeedRecord,
   resolvePestRecord,
@@ -269,20 +271,15 @@ function resolvePlotAreaAcres(plot: any, farm: any): number {
   return size * 2.47105;
 }
 
-function readYieldTPerAcre(plotRow: any): number | null {
-  if (!plotRow || typeof plotRow !== 'object') return null;
-  const row =
-    plotRow.brix_sugar != null
-      ? plotRow
-      : plotRow.properties && typeof plotRow.properties === 'object'
-        ? plotRow.properties
-        : plotRow;
-  const bs = row.brix_sugar ?? row.brixSugar ?? {};
-  const sugarYield = bs.sugar_yield ?? bs.yield ?? bs.predicted_yield;
-  if (typeof sugarYield?.mean === 'number') return sugarYield.mean;
-  if (typeof sugarYield?.min === 'number') return sugarYield.min;
-  if (typeof sugarYield === 'number') return sugarYield;
-  return null;
+function positiveAmount(value: unknown): number | null {
+  if (value == null) return null;
+  const numeric = Number(String(value).replace(/,/g, "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function positiveValueText(value: unknown): string | null {
+  const text = value == null ? "" : String(value).trim();
+  return positiveAmount(text) != null ? text : null;
 }
 
 const GRAPES_PRICE_API =
@@ -327,6 +324,20 @@ const FarmerInfoBar: React.FC = () => {
     ? (getTotalPlots() || profile.plots?.length || 0)
     : 0;
 
+  const profileCompletion = useMemo(
+    () => calculateProfileCompletion(profile),
+    [profile],
+  );
+
+  const openMyProfile = (editProfile = false) => {
+    window.dispatchEvent(
+      new CustomEvent("cropeye:navigate", {
+        detail: { menu: editProfile ? "Update Profile" : "My Profile" },
+      }),
+    );
+    setOpen(false);
+  };
+
   const selectedPlotMeta = useMemo(() => {
     const plotId =
       (appState as any)?.selectedPlotName ||
@@ -350,6 +361,10 @@ const FarmerInfoBar: React.FC = () => {
     const filledWeight =
       farm?.harvest_weight ??
       farm?.weight ??
+      farm?.crop_type?.harvest_weight ??
+      farm?.crop_type?.weight ??
+      farm?.plantation?.harvest_weight ??
+      farm?.plantation?.weight ??
       (plot as any)?.harvest_weight ??
       (plot as any)?.weight ??
       null;
@@ -357,119 +372,65 @@ const FarmerInfoBar: React.FC = () => {
       farm?.price ??
       farm?.market_price ??
       farm?.selling_price ??
+      farm?.crop_type?.price ??
+      farm?.crop_type?.market_price ??
+      farm?.crop_type?.selling_price ??
+      farm?.plantation?.price ??
+      farm?.plantation?.market_price ??
+      farm?.plantation?.selling_price ??
       (plot as any)?.price ??
       (plot as any)?.market_price ??
       null;
     return {
       plotId: plot?.fastapi_plot_id || plotId,
       areaAcres: resolvePlotAreaAcres(plot, farm),
-      filledWeight:
-        filledWeight != null && String(filledWeight).trim() !== ''
-          ? String(filledWeight)
-          : null,
-      filledPrice:
-        filledPrice != null && String(filledPrice).trim() !== ''
-          ? String(filledPrice)
-          : null,
+      filledWeight: positiveValueText(filledWeight),
+      filledPrice: positiveAmount(filledPrice),
     };
   }, [appState, profile?.plots]);
 
-  // Weight: plot-filled value first, else agroStats / dashboard cache for selected plot
+  // Weight comes from the saved harvest fields; predicted yield is not harvest weight.
   useEffect(() => {
-    if (selectedPlotMeta.filledWeight) {
-      setHeaderWeight(selectedPlotMeta.filledWeight);
-      return;
-    }
-    const plotId = selectedPlotMeta.plotId;
-    if (!plotId) {
-      setHeaderWeight(null);
-      return;
-    }
+    setHeaderWeight(selectedPlotMeta.filledWeight);
+  }, [selectedPlotMeta.filledWeight]);
 
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const dash = getApiData('farmerDashboardData', String(plotId));
-        const fromDash =
-          dash?.sugarYieldMean ??
-          dash?.actualYield ??
-          dash?.metrics?.sugarYieldMean ??
-          null;
-        if (typeof fromDash === 'number' && Number.isFinite(fromDash)) {
-          if (!cancelled) {
-            setHeaderWeight(`${fromDash.toFixed(2)} T/acre`);
-          }
-          return;
-        }
-
-        const today = new Date().toISOString().slice(0, 10);
-        const cacheKey = `agroStats_${today}`;
-        let agro = getCache(cacheKey);
-        if (!agro) {
-          const eventsBase = getEventsBaseUrl().replace(/\/+$/, '');
-          const res = await axios.get(`${eventsBase}/plots/agroStats`, {
-            params: { end_date: today },
-            timeout: 45_000,
-            headers: { Accept: 'application/json' },
-          });
-          agro = res.data;
-          setCache(cacheKey, agro);
-        }
-        const row = extractAgroStatsPlotRow(agro, String(plotId), profile);
-        const yieldT = readYieldTPerAcre(row);
-        if (!cancelled) {
-          if (yieldT != null) {
-            setHeaderWeight(`${Number(yieldT).toFixed(2)} T/acre`);
-          } else {
-            setHeaderWeight(null);
-          }
-        }
-      } catch {
-        if (!cancelled) setHeaderWeight(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    selectedPlotMeta.filledWeight,
-    selectedPlotMeta.plotId,
-    getApiData,
-    profile,
-  ]);
-
-  // Price: plot-filled value first, else grapes market modal price
+  // Price: saved farm value first, otherwise the latest available grapes market price.
   useEffect(() => {
-    if (selectedPlotMeta.filledPrice) {
-      const raw = selectedPlotMeta.filledPrice;
-      setHeaderPrice(raw.includes('₹') ? raw : `₹${raw}`);
+    if (selectedPlotMeta.filledPrice != null) {
+      setHeaderPrice(`₹${selectedPlotMeta.filledPrice.toLocaleString('en-IN')}`);
       return;
     }
 
     let cancelled = false;
     (async () => {
       try {
-        const cacheKey = 'grapes_market_modal_price_v1';
+        const cacheKey = 'grapes_market_modal_price_v2';
         const cached = getCache(cacheKey);
         if (cached && typeof cached === 'string') {
-          if (!cancelled) setHeaderPrice(cached);
-          return;
+          const cachedAmount = positiveAmount(cached);
+          if (cachedAmount != null) {
+            if (!cancelled) {
+              setHeaderPrice(`₹${cachedAmount.toLocaleString('en-IN')}`);
+            }
+            return;
+          }
         }
         const res = await fetch(GRAPES_PRICE_API);
+        if (!res.ok) throw new Error(`Grapes price request failed (${res.status})`);
         const data = await res.json();
         const records = Array.isArray(data?.records) ? data.records : [];
         const today = new Date().toISOString().slice(0, 10);
         const todayRec =
           records.find((r: any) => String(r.arrival_date) === today) ||
           records[0];
-        const modal = todayRec?.modal_price || todayRec?.max_price || todayRec?.min_price;
+        const modal = [todayRec?.modal_price, todayRec?.max_price, todayRec?.min_price]
+          .map(positiveAmount)
+          .find((amount): amount is number => amount != null);
         if (!cancelled) {
-          if (modal != null && String(modal).trim() !== '') {
-            const label = `₹${modal}`;
+          if (modal != null) {
+            const label = `₹${modal.toLocaleString('en-IN')}`;
             setHeaderPrice(label);
-            setCache(cacheKey, label);
+            setCache(cacheKey, String(modal));
           } else {
             setHeaderPrice(null);
           }
@@ -482,7 +443,7 @@ const FarmerInfoBar: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedPlotMeta.filledPrice]);
+  }, [selectedPlotMeta.filledPrice, selectedPlotMeta.plotId]);
 
   const displayItems = useMemo(() => {
     const fieldOfficerOnly = items.filter(isFromFieldOfficer);
@@ -1145,40 +1106,88 @@ const FarmerInfoBar: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="notif-list">
-                  {loading ? (
-                    <div className="notif-empty">Loading…</div>
-                  ) : displayItems.length === 0 ? (
-                    <div className="notif-empty">No notifications</div>
-                  ) : (
-                    displayItems.map((n) => {
-                      const shouldNavigate =
-                        isTaskLikeNotification(n) || isTaskFromFieldOfficer(n);
-                      return (
-                        <button
-                          key={n.id}
-                          type="button"
-                          className="notif-item notif-item-click"
-                          onClick={() => {
-                            if (!shouldNavigate) return;
-                            window.dispatchEvent(
-                              new CustomEvent("cropeye:navigate", {
-                                detail: { menu: "ViewList" },
-                              })
-                            );
-                            setOpen(false);
-                          }}
-                          title={shouldNavigate ? "Open My Task Checklist" : undefined}
-                        >
-                          <div className="notif-item-msg">{n.message}</div>
-                          <div className="notif-item-meta">
-                            {new Date(n.created_at).toLocaleString()}
+                {!showAlerts && (
+                  <>
+                    <section className="notif-profile-completion" aria-label="Profile completion">
+                      <div className="notif-profile-completion-heading">
+                        <span>Profile Completion</span>
+                        <strong>{profileCompletion.percentage}%</strong>
+                      </div>
+                      <div
+                        className="notif-profile-progress"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={profileCompletion.percentage}
+                        aria-label="Profile completion percentage"
+                      >
+                        <span style={{ width: `${profileCompletion.percentage}%` }} />
+                      </div>
+                      {profileCompletion.missing.length > 0 ? (
+                        <div className="notif-profile-incomplete">
+                          <div className="notif-profile-incomplete-title">
+                            <UserRound size={16} aria-hidden="true" />
+                            <strong>Complete Your Profile</strong>
+                            <span className="notif-profile-dot" aria-hidden="true" />
                           </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                          <p>Missing: {profileCompletion.missing.join(", ")}</p>
+                          <button
+                            type="button"
+                            className="notif-profile-update"
+                            onClick={() => openMyProfile(true)}
+                          >
+                            Update Profile <ChevronRight size={14} aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="notif-profile-complete">Your profile is complete.</p>
+                      )}
+                      <button
+                        type="button"
+                        className="notif-profile-open"
+                        onClick={openMyProfile}
+                      >
+                        <UserRound size={15} aria-hidden="true" />
+                        Go to My Profile
+                      </button>
+                    </section>
+
+                    <div className="notif-list">
+                      {loading ? (
+                        <div className="notif-empty">Loading…</div>
+                      ) : displayItems.length === 0 ? (
+                        <div className="notif-empty">No notifications</div>
+                      ) : (
+                        displayItems.map((n) => {
+                          const shouldNavigate =
+                            isTaskLikeNotification(n) || isTaskFromFieldOfficer(n);
+                          return (
+                            <button
+                              key={n.id}
+                              type="button"
+                              className="notif-item notif-item-click"
+                              onClick={() => {
+                                if (!shouldNavigate) return;
+                                window.dispatchEvent(
+                                  new CustomEvent("cropeye:navigate", {
+                                    detail: { menu: "ViewList" },
+                                  })
+                                );
+                                setOpen(false);
+                              }}
+                              title={shouldNavigate ? "Open My Task Checklist" : undefined}
+                            >
+                              <div className="notif-item-msg">{n.message}</div>
+                              <div className="notif-item-meta">
+                                {new Date(n.created_at).toLocaleString()}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ) : null}
           </div>

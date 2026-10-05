@@ -1,4 +1,5 @@
 import { Pest, WeatherData, PestRisk, RiskLevel } from '../meter/pest';
+import { isMonthInRanges } from './riskDateUtils';
 
 export interface PestDetectionData {
   chewing_affected_pixel_percentage: number;
@@ -25,9 +26,7 @@ export function assessPestRiskLevel(
   currentMonth: string,
   pestDetectionData?: PestDetectionData
 ): 'High' | 'Moderate' | 'Low' | null {
-  const currentMonthNormalized = currentMonth.trim().toLowerCase();
-  const pestMonthsNormalized = pest.months.map((m: string) => m.trim().toLowerCase());
-  const monthMatch = pestMonthsNormalized.includes(currentMonthNormalized);
+  const monthMatch = isMonthInRanges(pest.months, currentMonth);
 
   if (!monthMatch) {
     return null;

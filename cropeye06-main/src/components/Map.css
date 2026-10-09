@@ -17,15 +17,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 18px;
+  padding: 10px;
   flex-wrap: wrap;
-  background: rgba(255, 255, 255, 0.85) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-  color: #0f172a;
+  background: #f9f9f9;
+  border-bottom: 1px solid #ccc;
+  border-radius: 8px;
   gap: 15px;
   width: 100%;
   max-width: 100%;
@@ -39,33 +35,18 @@
 
 .plot-selector label {
   margin-right: 8px;
-  font-weight: 600;
-  color: #475569 !important;
-  letter-spacing: 0.3px;
-  font-size: 13px;
+  font-weight: bold;
 }
 
 .plot-selector select {
-  padding: 7px 14px;
+  padding: 6px 12px;
   font-size: 14px;
-  font-weight: 600;
-  border-radius: 8px;
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid #cbd5e1 !important;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.plot-selector select:focus {
-  border-color: #16a34a !important;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15) !important;
+  border-radius: 4px;
+  border: 1px solid #ddd;
 }
 
 .plot-selector select:disabled {
-  background-color: #f1f5f9 !important;
-  color: #94a3b8 !important;
+  background-color: #f5f5f5;
   cursor: not-allowed;
 }
 
@@ -85,14 +66,11 @@
 
 .layer-buttons button {
   padding: 8px 16px;
-  border: 1px solid #e2e8f0 !important;
-  background: #ffffff !important;
-  color: #334155 !important;
+  border: none;
+  background: #eee;
   cursor: pointer;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: 0.2px;
+  border-radius: 6px;
+  font-weight: 500;
   transition: all 0.2s ease;
   position: relative !important;
   z-index: 40 !important;
@@ -100,7 +78,6 @@
   pointer-events: auto !important;
   visibility: visible !important;
   display: inline-block !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 @media (max-width: 768px) {
@@ -112,26 +89,18 @@
 }
 
 .layer-buttons button:hover:not(:disabled) {
-  background: #f8fafc !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  background: #ddd;
 }
 
 .layer-buttons button:disabled {
-  background: #f1f5f9 !important;
-  color: #94a3b8 !important;
-  border-color: #e2e8f0 !important;
+  background: #f5f5f5;
   cursor: not-allowed;
   opacity: 0.6;
 }
 
 .layer-buttons button.active {
-  background: #16a34a !important;
-  color: #ffffff !important;
-  border-color: #15803d !important;
-  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.2) !important;
+  background: #007bff;
+  color: white;
 }
 
 .map-wrapper {
@@ -208,65 +177,6 @@
   height: 100% !important;
   overflow: hidden !important;
   box-sizing: border-box !important;
-}
-
-/* Use the actual content width; the main app shell loses space to the sidebar. */
-.map-content-container {
-  container: map-dashboard / inline-size;
-  width: 100%;
-  min-width: 0;
-}
-
-.map-primary-row {
-  min-width: 0;
-}
-
-.map-primary-row > .map-section-expanded,
-.map-primary-row > .soil-section-adjusted {
-  min-width: 0;
-}
-
-.map-dashboard-cards-row {
-  min-width: 0;
-}
-
-.map-dashboard-cards-row > * {
-  min-width: 0;
-}
-
-@container map-dashboard (max-width: 1050px) {
-  .map-primary-row {
-    flex-direction: column !important;
-  }
-
-  .map-primary-row > .map-section-expanded,
-  .map-primary-row > .soil-section-adjusted {
-    flex: 1 1 auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-  }
-}
-
-@container map-dashboard (max-width: 720px) {
-  .map-dashboard-cards-row {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .map-content-container {
-    padding-left: 0.5rem !important;
-    padding-right: 0.5rem !important;
-  }
-}
-
-@container map-dashboard (max-width: 420px) {
-  .map-primary-row {
-    gap: 0.75rem !important;
-  }
-
-  .map-dashboard-cards-row {
-    gap: 0.75rem !important;
-  }
 }
 
 .back-btn {
@@ -2503,1199 +2413,266 @@
   }
 }
 
-/* ==========================================================================
-   AGRICULTURE AI - DARK EMERALD GLASSMORPHISM THEME OVERRIDES
-   ========================================================================== */
-
-/* Dark Glassmorphism container for Soil Analysis & Right Panel cards */
-.soil-analysis-container,
-.soil-analysis-card,
-.map-card-panel,
-.dashboard-card-dark,
-[class*="SoilAnalysis"],
-[class*="soil-report"],
-[class*="soilAnalysis"] {
-  background: rgba(16, 37, 24, 0.88) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  border: 1px solid rgba(34, 197, 94, 0.25) !important;
-  border-radius: 16px !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
-  color: #f8fafc !important;
-}
-
-/* Ensure white background cards in SoilAnalysis / Map become dark glass */
-div[style*="background: white"],
-div[style*="background-color: white"],
-div[style*="background: rgb(255, 255, 255)"],
-div[style*="background-color: rgb(255, 255, 255)"] {
-  background: rgba(15, 34, 22, 0.88) !important;
-  color: #f1f5f9 !important;
-  border-color: rgba(34, 197, 94, 0.2) !important;
-}
-
-/* Card titles, headers, and text */
-h1, h2, h3, h4, h5, h6 {
-  color: #ffffff !important;
-}
-
-.text-gray-900,
-.text-gray-800,
-.text-gray-700,
-.text-gray-600 {
-  color: #e2e8f0 !important;
-}
-
-.text-gray-500,
-.text-gray-400 {
-  color: #94a3b8 !important;
-}
-
-/* Emerald green accent highlights */
-.text-emerald-600,
-.text-green-600,
-.text-emerald-500,
-.text-green-500 {
-  color: #4ade80 !important;
-}
-
-.bg-emerald-50,
-.bg-green-50,
-.bg-green-100 {
-  background: rgba(34, 197, 94, 0.15) !important;
-  color: #4ade80 !important;
-}
-
-/* Table and grid borders */
-table, th, td, hr {
-  border-color: rgba(34, 197, 94, 0.2) !important;
-}
-
-th {
-  background: rgba(10, 24, 15, 0.8) !important;
-  color: #4ade80 !important;
-}
-
-/* Fullscreen and action buttons */
-.fullscreen-btn {
-  background: rgba(15, 35, 23, 0.9) !important;
-  color: #4ade80 !important;
-  border: 1px solid rgba(34, 197, 94, 0.3) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-  border-radius: 8px !important;
-}
-
-.fullscreen-btn:hover {
-  background: rgba(34, 197, 94, 0.25) !important;
-  color: #ffffff !important;
-}
-
-/* Farmer dashboard layout inspired by the compact farm overview reference. */
+/* Keep the current dashboard sections on the original light production theme. */
 .map-wrapper {
-  container: map-dashboard / inline-size;
+  container: farmer-dashboard / inline-size;
+  min-height: 0 !important;
+  align-items: flex-start;
 }
 
 .map-content-container {
-  container: none;
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(17rem, 0.92fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(18rem, 1fr);
   grid-template-areas:
     "heading heading"
+    "stats stats"
     "toolbar toolbar"
-    "farm-stats farm-stats"
-    "primary weather"
+    "map map"
     "health health"
-    "supporting supporting"
+    "support support"
     "forecast forecast";
   align-content: start;
-  gap: clamp(0.75rem, 1.5vw, 1.25rem);
-  width: 100% !important;
-  max-width: 1920px !important;
-  min-width: 0;
-  padding: clamp(0.5rem, 1.4vw, 1.25rem) !important;
-  background:
-    radial-gradient(ellipse at 48% 0%, rgba(71, 116, 177, 0.18), transparent 43%),
-    linear-gradient(145deg, #111b2c, #17253a 54%, #121f32);
-  border: 1px solid rgba(172, 194, 225, 0.14);
-  border-radius: clamp(1rem, 2vw, 1.75rem);
-  box-shadow: 0 18px 46px rgba(5, 11, 20, 0.28);
+  gap: 1rem;
+  padding: 1rem !important;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
-.map-content-container h1,
-.map-content-container h2,
-.map-content-container h3,
-.map-content-container h4,
-.map-content-container h5,
-.map-content-container h6 {
-  color: #edf4ff !important;
-}
-
-.map-content-container .text-gray-900,
-.map-content-container .text-gray-800,
-.map-content-container .text-gray-700,
-.map-content-container .text-gray-600 {
-  color: #d3deed !important;
-}
-
-.map-content-container .text-gray-500,
-.map-content-container .text-gray-400 {
-  color: #9bacc3 !important;
-}
-
-.map-content-container .bg-white,
-.map-content-container div[style*="background: white"],
-.map-content-container div[style*="background-color: white"],
-.map-content-container div[style*="background: rgb(255, 255, 255)"],
-.map-content-container div[style*="background-color: rgb(255, 255, 255)"] {
-  background: #1c2a40 !important;
-  color: #dbe6f5 !important;
-}
-
-.map-content-container .soil-analysis-container,
-.map-content-container .soil-analysis-card,
-.map-content-container .map-card-panel,
-.map-content-container .dashboard-card-dark {
-  border-color: rgba(172, 194, 225, 0.16) !important;
-  border-radius: 1rem !important;
-  background: linear-gradient(145deg, #1d2c43, #19263a) !important;
-  box-shadow: 0 10px 26px rgba(3, 9, 18, 0.2) !important;
-  color: #dbe6f5 !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-}
-
-.map-dashboard-heading {
+.map-content-container > .map-dashboard-heading {
   grid-area: heading;
   display: flex;
-  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: clamp(0.75rem, 1.7vw, 1.25rem) clamp(0.75rem, 1.7vw, 1.5rem);
-  color: #edf4ff;
-  border: 1px solid rgba(172, 194, 225, 0.16);
-  border-radius: 1rem;
-  background: linear-gradient(110deg, #1e304a, #1a293f);
-  box-shadow: 0 8px 22px rgba(3, 9, 18, 0.18);
+  padding: 1rem 1.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .map-dashboard-heading h1 {
-  margin: 0.15rem 0 0;
-  color: #f2f7ff;
-  font-size: clamp(1.1rem, 2vw, 1.55rem);
+  margin: 0;
+  color: #1f2937;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
   font-weight: 700;
-  line-height: 1.2;
 }
 
 .map-dashboard-eyebrow {
-  margin: 0;
-  color: #92b8eb;
-  font-size: 0.65rem;
+  margin: 0 0 0.25rem;
+  color: #15803d;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
 }
 
 .map-dashboard-subtitle {
-  margin: 0.3rem 0 0;
-  color: #a6b5ca;
-  font-size: 0.78rem;
+  margin: 0.25rem 0 0;
+  color: #6b7280;
+  font-size: 0.9rem;
 }
 
 .map-dashboard-date {
   flex: 0 0 auto;
   padding: 0.5rem 0.75rem;
-  border: 1px solid rgba(164, 190, 228, 0.2);
-  border-radius: 999px;
-  background: rgba(71, 116, 177, 0.18);
-  color: #d3e4ff;
-  font-size: 0.75rem;
-  white-space: nowrap;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 0.85rem;
 }
 
 .dashboard-farm-stats {
-  grid-area: farm-stats;
+  grid-area: stats;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(0.6rem, 1vw, 0.9rem);
-  min-width: 0;
+  gap: 0.75rem;
 }
 
 .dashboard-farm-stat {
-  position: relative;
   display: flex;
   min-width: 0;
-  min-height: 7.5rem;
+  min-height: 6.25rem;
   align-items: center;
-  gap: 0.9rem;
-  overflow: hidden;
-  padding: clamp(0.85rem, 1.4vw, 1.15rem);
-  border: 1px solid rgba(172, 194, 225, 0.16);
-  border-radius: 1rem;
-  background: linear-gradient(145deg, #21334d, #1a2a41);
-  box-shadow: 0 9px 22px rgba(3, 9, 18, 0.2);
-  animation: farm-dashboard-enter 520ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
-  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
-}
-
-.dashboard-farm-stat:nth-child(2) { animation-delay: 60ms; }
-.dashboard-farm-stat:nth-child(3) { animation-delay: 120ms; }
-.dashboard-farm-stat:nth-child(4) { animation-delay: 180ms; }
-
-.dashboard-farm-stat:hover {
-  transform: translateY(-3px);
-  border-color: rgba(143, 181, 235, 0.48);
-  box-shadow: 0 14px 26px rgba(3, 9, 18, 0.32);
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .dashboard-farm-stat-icon {
   display: grid;
-  flex: 0 0 2.5rem;
   width: 2.5rem;
   height: 2.5rem;
+  flex: 0 0 2.5rem;
   place-items: center;
-  border: 1px solid rgba(145, 180, 228, 0.22);
-  border-radius: 0.8rem;
-  background: rgba(66, 115, 184, 0.2);
-  color: #a9ccff;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #15803d;
 }
 
 .dashboard-farm-stat-copy {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 0.18rem;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .dashboard-farm-stat-copy p,
 .dashboard-farm-stat-copy span {
   margin: 0;
-  color: #a8b8ce;
-  font-size: 0.72rem;
-  line-height: 1.3;
+  color: #6b7280;
+  font-size: 0.75rem;
 }
 
 .dashboard-farm-stat-copy strong {
-  color: #f0f6ff;
-  font-size: clamp(1.2rem, 1.8vw, 1.55rem);
-  font-weight: 700;
+  color: #1f2937;
+  font-size: 1.25rem;
   line-height: 1.2;
-  font-variant-numeric: tabular-nums;
 }
 
 .map-content-container > .layer-controls {
   grid-area: toolbar;
   min-width: 0;
   margin: 0 !important;
-  padding: 0.65rem 0.75rem !important;
-  border: 1px solid rgba(172, 194, 225, 0.16) !important;
-  border-radius: 0.9rem !important;
-  background: #1a293f !important;
-  box-shadow: 0 8px 22px rgba(3, 9, 18, 0.18) !important;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
-.map-content-container > .layer-controls .layer-buttons {
+.map-primary-row {
+  grid-area: map;
   min-width: 0;
-  width: auto;
-  flex: 1 1 32rem;
+  margin-top: 0 !important;
 }
 
-.map-content-container > .layer-controls .layer-buttons button {
-  border-color: rgba(178, 198, 225, 0.17) !important;
-  border-radius: 0.65rem;
-  background: #22344e !important;
-  color: #d4e0f0 !important;
-  box-shadow: none !important;
-}
-
-.map-content-container > .layer-controls .layer-buttons button.active {
-  border-color: #5d93df !important;
-  background: #3977c6 !important;
-  color: #fff !important;
-}
-
-.map-content-container > .layer-controls .plot-selector {
-  margin: 0;
-  padding: 0;
-}
-
-.map-content-container > .layer-controls .plot-selector label {
-  color: #c2d0e2 !important;
-}
-
-.map-content-container > .layer-controls .plot-selector select {
-  min-width: 12rem;
+.map-primary-row > .map-section-expanded {
+  width: 100%;
   max-width: 100%;
-  border-color: rgba(178, 198, 225, 0.25) !important;
-  background-color: #22334c !important;
-  color: #eff5ff !important;
-  border-radius: 0.65rem;
-}
-
-.map-content-container > .layer-controls .plot-selector select:focus {
-  border-color: #73a8f0 !important;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
-}
-
-.map-weather-sections,
-.map-weather-sections > .w-full,
-.map-weather-sections .weather-forecast-container {
-  display: contents;
-}
-
-.map-content-container .weather-forecast-metric-cards {
-  grid-area: weather;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  align-content: start;
-  gap: clamp(0.5rem, 1vw, 0.85rem) !important;
   min-width: 0;
-  margin: 0 !important;
+  height: clamp(22rem, 48vw, 36rem);
+  flex: 1 1 auto;
 }
 
-.map-content-container .weather-forecast-state {
-  grid-area: weather;
+.map-primary-row .map-container {
+  height: 100% !important;
+  min-height: 22rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.map-health-row,
+.map-dashboard-cards-row {
   min-width: 0;
-  min-height: 9rem;
-  border: 1px solid rgba(172, 194, 225, 0.16);
-  border-radius: 1rem;
-  background: #1b2a40;
-  color: #dbe6f5;
+  margin-top: 0 !important;
 }
 
-.map-content-container .weather-wind-direction {
-  min-width: 0;
-  align-self: start;
-  margin: 0 !important;
-  padding: 0.75rem 0.9rem !important;
-  border: 1px solid rgba(172, 194, 225, 0.13);
-  border-radius: 0.85rem;
-  background: #1d2d44;
-  color: #cad7e8 !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > * {
-  display: flex;
-  min-width: 0;
-  min-height: 7rem !important;
-  align-items: center;
-  padding: clamp(0.65rem, 1vw, 1rem) !important;
-  border: 1px solid rgba(172, 194, 225, 0.15);
-  border-radius: 0.95rem !important;
-  background: linear-gradient(145deg, #20324c, #1a293f) !important;
-  color: #dbe6f5 !important;
-  box-shadow: 0 9px 22px rgba(3, 9, 18, 0.2) !important;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.map-content-container .weather-forecast-metric-cards > *:hover {
-  transform: translateY(-2px);
-  border-color: rgba(143, 181, 235, 0.45);
-  box-shadow: 0 14px 26px rgba(3, 9, 18, 0.32) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > * > div {
-  min-width: 0;
-  color: inherit !important;
-}
-
-.map-content-container .weather-forecast-metric-cards .font-bold {
-  overflow-wrap: anywhere;
-  color: #f0f6ff !important;
-  font-size: clamp(1rem, 1.6vw, 1.35rem) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards .text-sm {
-  color: #a8b8ce !important;
-}
-
-.map-content-container .weather-temp-card.bg-amber-600 {
-  border-color: rgba(234, 179, 8, 0.45);
-  background: #25334a !important;
-  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.2), 0 10px 24px rgba(3, 9, 18, 0.25) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > div.bg-blue-700 {
-  border-color: rgba(96, 165, 250, 0.52);
-  background: #213653 !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22), 0 10px 24px rgba(3, 9, 18, 0.25) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > div.bg-green-700 {
-  border-color: rgba(143, 181, 235, 0.38);
-  background: #20324c !important;
-  box-shadow: 0 0 0 2px rgba(71, 113, 177, 0.2), 0 10px 24px rgba(3, 9, 18, 0.25) !important;
-}
-
-.map-content-container .weather-humidity-card.bg-purple-800 {
-  border-color: rgba(167, 139, 250, 0.4);
-  background: #292d49 !important;
-  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2), 0 10px 24px rgba(3, 9, 18, 0.25) !important;
-}
-
-.map-content-container .map-primary-row {
-  grid-area: primary;
-  display: block !important;
-  width: 100%;
-  min-width: 0;
-  margin: 0 !important;
-}
-
-.map-content-container .map-primary-row > .map-section-expanded {
-  flex: initial !important;
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0 !important;
-  min-height: 28rem;
-  padding: 0 !important;
-}
-
-.map-content-container .map-primary-row > .map-section-expanded .map-container {
-  width: 100% !important;
-  height: 28rem !important;
-  min-height: 28rem !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border: 1px solid rgba(172, 194, 225, 0.2);
-  border-radius: 1rem;
-  background: #172439;
-  box-shadow: 0 10px 28px rgba(3, 9, 18, 0.3);
-}
-
-.map-content-container .dashboard-soil-summary {
-  display: block !important;
-  flex: initial !important;
-  min-width: 0;
-  width: 100% !important;
-  max-width: none !important;
-  margin: 0 !important;
-}
-
-.map-content-container .dashboard-soil-summary > .bg-white {
-  display: block;
-  height: 100%;
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  background: #1b2a40 !important;
-  color: #dbe6f5 !important;
-  border: 1px solid rgba(172, 194, 225, 0.16);
-  border-radius: 1rem;
-  box-shadow: 0 10px 26px rgba(3, 9, 18, 0.24) !important;
-}
-
-.map-content-container .dashboard-soil-summary > .bg-white > .p-4 {
-  min-width: 0;
-  width: 100%;
-  padding: clamp(0.75rem, 1.2vw, 1.1rem);
-}
-
-.map-content-container .dashboard-soil-summary .flex.items-end.justify-between.gap-2.h-40 {
-  height: 6.5rem !important;
-  min-width: 0;
-}
-
-.map-content-container .dashboard-soil-summary .flex.items-end.justify-between.gap-2.h-40 > * {
-  flex: 1 1 0;
-  width: auto !important;
-  min-width: 0;
-}
-
-.map-content-container .dashboard-soil-summary .grid.grid-cols-1.sm\:grid-cols-2.md\:grid-cols-3.lg\:grid-cols-3 {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 0.55rem !important;
-  margin-top: 0.85rem !important;
-}
-
-.map-content-container .dashboard-soil-summary .grid.grid-cols-1.sm\:grid-cols-2.md\:grid-cols-3.lg\:grid-cols-3 > * {
-  min-width: 0;
-  padding: 0.6rem !important;
-}
-
-.map-content-container .dashboard-soil-summary .grid.grid-cols-1.sm\:grid-cols-2.md\:grid-cols-3.lg\:grid-cols-3 h3 {
-  font-size: 0.75rem !important;
-}
-
-.map-content-container .dashboard-soil-summary .grid.grid-cols-1.sm\:grid-cols-2.md\:grid-cols-3.lg\:grid-cols-3 .text-lg {
-  font-size: 1rem !important;
-}
-
-.map-content-container .dashboard-soil-summary .grid.grid-cols-1.sm\:grid-cols-2.md\:grid-cols-3.lg\:grid-cols-3 .text-\[10px\] {
-  font-size: 0.58rem !important;
-}
-
-.map-content-container .map-health-row {
+.map-health-row {
   grid-area: health;
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: stretch;
-  gap: clamp(0.75rem, 1.25vw, 1.1rem) !important;
-  margin: 0 !important;
 }
 
-.map-content-container .map-health-row > * {
+.map-dashboard-cards-row {
+  grid-area: support;
+}
+
+.map-health-row > *,
+.map-dashboard-cards-row > * {
   min-width: 0;
 }
 
-.map-content-container .map-dashboard-cards-row {
-  grid-area: supporting;
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  align-items: stretch;
-  gap: clamp(0.75rem, 1.25vw, 1.1rem) !important;
-  min-width: 0;
-  margin: 0 !important;
+.map-health-row > * > *,
+.map-dashboard-cards-row > * {
+  border-color: #e5e7eb;
+  border-radius: 8px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.map-content-container .map-dashboard-cards-row > * {
-  min-width: 0;
+.map-content-container .dashboard-soil-summary .bg-white {
+  height: 100%;
 }
 
-.map-content-container .weather-forecast-chart-panel {
+.map-weather-sections {
   grid-area: forecast;
   min-width: 0;
   margin: 0 !important;
-  border: 1px solid rgba(172, 194, 225, 0.15) !important;
-  border-radius: 1rem !important;
-  box-shadow: 0 10px 26px rgba(3, 9, 18, 0.22) !important;
 }
 
-.map-content-container .map-health-row > * > *,
-.map-content-container .map-dashboard-cards-row > * {
-  border-color: rgba(172, 194, 225, 0.15);
-  border-radius: 1rem;
-  box-shadow: 0 10px 26px rgba(3, 9, 18, 0.22);
+.map-weather-sections .weather-forecast-chart-panel {
+  border-color: #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.map-content-container .map-health-row .bg-white,
-.map-content-container .map-dashboard-cards-row .bg-white,
-.map-content-container .map-dashboard-cards-row .irrigation-card {
-  border: 1px solid rgba(172, 194, 225, 0.15) !important;
-  background: linear-gradient(145deg, #1d2c43, #19263a) !important;
-  color: #dbe6f5 !important;
+.map-content-container .layer-buttons button.active {
+  background: #007bff;
+  color: #ffffff;
 }
 
-.map-content-container .weather-forecast-chart-panel {
-  background: #1b2a40 !important;
-  color: #dbe6f5 !important;
-}
-
-.map-content-container table,
-.map-content-container th,
-.map-content-container td,
-.map-content-container hr {
-  border-color: rgba(172, 194, 225, 0.13) !important;
-}
-
-.map-content-container th {
-  background: #172439 !important;
-  color: #c5d4e8 !important;
-}
-
-.map-content-container .fullscreen-btn {
-  border-color: #cbd8e8 !important;
-  background: rgba(28, 42, 64, 0.96) !important;
-  color: #9dc4ff !important;
-}
-
-.map-content-container [class*="text-green-"],
-.map-content-container [class*="text-emerald-"] {
-  color: #9dc4ff !important;
-}
-
-.map-content-container [class*="bg-green-"],
-.map-content-container [class*="bg-emerald-"] {
-  background-color: #253752 !important;
-}
-
-.map-content-container [class*="border-green-"],
-.map-content-container [class*="border-emerald-"] {
-  border-color: rgba(172, 194, 225, 0.18) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards svg {
-  color: #4779bb !important;
-}
-
-.map-content-container .weather-wind-direction svg {
-  color: #4779bb !important;
-}
-
-@container map-dashboard (max-width: 1050px) {
-  .map-content-container {
-    gap: 0.9rem;
-  }
-
-  .map-content-container .map-health-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@container map-dashboard (max-width: 850px) {
+@container farmer-dashboard (max-width: 1000px) {
   .map-content-container {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "heading"
+      "stats"
       "toolbar"
-      "farm-stats"
-      "primary"
-      "weather"
+      "map"
       "health"
-      "supporting"
+      "support"
       "forecast";
   }
 
-  .map-content-container .map-primary-row > .map-section-expanded .map-container {
-    height: 26rem !important;
-    min-height: 26rem !important;
-  }
-}
-
-@container map-dashboard (max-width: 720px) {
-  .dashboard-farm-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .map-content-container .weather-forecast-metric-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
-  .map-content-container .map-health-row,
-  .map-content-container .map-dashboard-cards-row {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .map-content-container .map-primary-row > .map-section-expanded .map-container {
-    height: 22rem !important;
-    min-height: 22rem !important;
-  }
-}
-
-@container map-dashboard (max-width: 440px) {
-  .map-dashboard-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .map-dashboard-date {
-    padding: 0.35rem 0.6rem;
-  }
-
-  .dashboard-farm-stat {
-    min-height: 6.25rem;
-    gap: 0.55rem;
-    padding: 0.75rem;
-  }
-
-  .dashboard-farm-stat-icon {
-    flex-basis: 2.1rem;
-    width: 2.1rem;
-    height: 2.1rem;
-  }
-
-  .dashboard-farm-stat-copy p,
-  .dashboard-farm-stat-copy span {
-    font-size: 0.65rem;
-  }
-
-  .map-content-container .weather-forecast-metric-cards > * {
-    min-height: 4.5rem !important;
-  }
-
-  .map-content-container .map-primary-row > .map-section-expanded .map-container {
-    height: 18rem !important;
-    min-height: 18rem !important;
-  }
-}
-
-.map-content-container > .map-primary-row,
-.map-content-container > .map-health-row,
-.map-content-container > .map-dashboard-cards-row,
-.map-content-container .weather-forecast-chart-panel {
-  animation: farm-dashboard-enter 560ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
-}
-
-.map-content-container > .map-primary-row { animation-delay: 100ms; }
-.map-content-container > .map-health-row { animation-delay: 160ms; }
-.map-content-container > .map-dashboard-cards-row { animation-delay: 220ms; }
-.map-content-container .weather-forecast-chart-panel { animation-delay: 280ms; }
-
-@keyframes farm-dashboard-enter {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dashboard-farm-stat,
-  .map-content-container > .map-primary-row,
-  .map-content-container > .map-health-row,
-  .map-content-container > .map-dashboard-cards-row,
-  .map-content-container .weather-forecast-chart-panel {
-    animation: none !important;
-    transition: none !important;
-    transform: none !important;
-  }
-}
-
-/* Let the map dashboard use the main-content width instead of the generic app cap. */
-.app-container:has(.map-content-container) {
-  width: 100% !important;
-  max-width: none !important;
-  padding: 0.75rem 1rem 1.5rem !important;
-}
-
-.map-wrapper {
-  width: 100%;
-  min-width: 0;
-  min-height: auto !important;
-}
-
-.map-content-container {
-  width: 100% !important;
-  max-width: none !important;
-  gap: clamp(0.75rem, 1.15vw, 1.1rem);
-}
-
-.map-content-container .dashboard-farm-stat {
-  min-height: 6.75rem;
-}
-
-@media (max-width: 768px) {
-  .app-container:has(.map-content-container) {
-    padding: 0.5rem 0.65rem 1rem !important;
-  }
-}
-
-/* Warm, high-contrast field journal theme for everyday farmer use. */
-.map-content-container {
-  background:
-    radial-gradient(ellipse at 90% 0%, rgba(217, 119, 64, 0.08), transparent 34%),
-    #f4f1ea !important;
-  border: 1px solid #e5ded2 !important;
-  box-shadow: 0 16px 42px rgba(52, 46, 37, 0.1) !important;
-}
-
-.map-content-container h1,
-.map-content-container h2,
-.map-content-container h3,
-.map-content-container h4,
-.map-content-container h5,
-.map-content-container h6 {
-  color: #292f38 !important;
-}
-
-.map-content-container .text-gray-900,
-.map-content-container .text-gray-800,
-.map-content-container .text-gray-700,
-.map-content-container .text-gray-600 {
-  color: #46505d !important;
-}
-
-.map-content-container .text-gray-500,
-.map-content-container .text-gray-400 {
-  color: #7c8490 !important;
-}
-
-.map-content-container .bg-white,
-.map-content-container div[style*="background: white"],
-.map-content-container div[style*="background-color: white"],
-.map-content-container div[style*="background: rgb(255, 255, 255)"],
-.map-content-container div[style*="background-color: rgb(255, 255, 255)"] {
-  background: #fffdf9 !important;
-  color: #46505d !important;
-}
-
-.map-content-container .map-dashboard-heading {
-  border-color: #e7dfd2 !important;
-  background: linear-gradient(110deg, #fffdf9, #f8f3eb) !important;
-  box-shadow: 0 7px 20px rgba(61, 51, 38, 0.06) !important;
-}
-
-.map-content-container .map-dashboard-heading h1 {
-  color: #292f38 !important;
-}
-
-.map-content-container .map-dashboard-eyebrow,
-.map-content-container [class*="text-green-"],
-.map-content-container [class*="text-emerald-"] {
-  color: #b65f37 !important;
-}
-
-.map-content-container .map-dashboard-subtitle,
-.map-content-container .map-dashboard-date {
-  color: #6d7178 !important;
-}
-
-.map-content-container .map-dashboard-date {
-  border-color: #ead9ca !important;
-  background: #f7e9dd !important;
-}
-
-.map-content-container .dashboard-farm-stat {
-  border-color: #e6ded2 !important;
-  background: #fffdf9 !important;
-  box-shadow: 0 7px 18px rgba(61, 51, 38, 0.06) !important;
-}
-
-.map-content-container .dashboard-farm-stat:hover {
-  border-color: #d69a78 !important;
-  box-shadow: 0 12px 24px rgba(95, 61, 41, 0.12) !important;
-}
-
-.map-content-container .dashboard-farm-stat-icon {
-  border-color: #efd5c5 !important;
-  background: #fae9dd !important;
-  color: #b65f37 !important;
-}
-
-.map-content-container .dashboard-farm-stat-copy p,
-.map-content-container .dashboard-farm-stat-copy span {
-  color: #777b80 !important;
-}
-
-.map-content-container .dashboard-farm-stat-copy strong {
-  color: #292f38 !important;
-}
-
-@container map-dashboard (max-width: 1050px) {
   .dashboard-farm-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@container map-dashboard (max-width: 720px) {
+@container farmer-dashboard (max-width: 680px) {
+  .map-content-container {
+    gap: 0.75rem;
+    padding: 0.5rem !important;
+  }
+
+  .map-content-container > .map-dashboard-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 0.85rem;
+  }
+
   .dashboard-farm-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .map-content-container .map-health-row,
-  .map-content-container .map-dashboard-cards-row {
+  .map-health-row,
+  .map-dashboard-cards-row {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .map-primary-row > .map-section-expanded {
+    height: 22rem;
   }
 }
 
-@container map-dashboard (max-width: 440px) {
+@container farmer-dashboard (max-width: 380px) {
   .dashboard-farm-stat {
     min-height: 5.5rem;
-    gap: 0.55rem;
-    padding: 0.7rem;
+    gap: 0.5rem;
+    padding: 0.65rem;
   }
 
   .dashboard-farm-stat-icon {
-    flex-basis: 2rem;
     width: 2rem;
     height: 2rem;
-  }
-}
-
-.map-content-container > .layer-controls,
-.map-content-container .dashboard-soil-summary > .bg-white,
-.map-content-container .map-health-row .bg-white,
-.map-content-container .map-dashboard-cards-row .bg-white,
-.map-content-container .map-dashboard-cards-row .irrigation-card,
-.map-content-container .weather-forecast-chart-panel,
-.map-content-container .weather-forecast-metric-cards > * {
-  border-color: #e6ded2 !important;
-  background: #fffdf9 !important;
-  color: #46505d !important;
-  box-shadow: 0 7px 20px rgba(61, 51, 38, 0.07) !important;
-}
-
-.map-content-container .dashboard-soil-summary > .bg-white,
-.map-content-container .map-health-row .bg-white,
-.map-content-container .map-dashboard-cards-row .bg-white,
-.map-content-container .map-dashboard-cards-row .irrigation-card {
-  background: #fffdf9 !important;
-}
-
-.map-content-container > .layer-controls .layer-buttons button {
-  border-color: #e6ded2 !important;
-  background: #f7f4ee !important;
-  color: #515965 !important;
-}
-
-.map-content-container > .layer-controls .layer-buttons button.active {
-  border-color: #bd6b44 !important;
-  background: #bd6b44 !important;
-  color: #ffffff !important;
-}
-
-.map-content-container > .layer-controls .plot-selector label {
-  color: #515965 !important;
-}
-
-.map-content-container > .layer-controls .plot-selector select {
-  border-color: #ddd3c5 !important;
-  background: #fffdf9 !important;
-  color: #343b45 !important;
-}
-
-.map-content-container .weather-forecast-metric-cards .font-bold {
-  color: #292f38 !important;
-}
-
-.map-content-container .weather-forecast-metric-cards .text-sm {
-  color: #7c8490 !important;
-}
-
-.map-content-container .weather-forecast-metric-cards svg,
-.map-content-container .weather-wind-direction svg {
-  color: #b65f37 !important;
-}
-
-.map-content-container .weather-temp-card.bg-amber-600,
-.map-content-container .weather-forecast-metric-cards > div.bg-blue-700,
-.map-content-container .weather-forecast-metric-cards > div.bg-green-700,
-.map-content-container .weather-humidity-card.bg-purple-800 {
-  border-color: #e6ded2 !important;
-  background: #fff8ee !important;
-  box-shadow: inset 0 0 0 1px #ead4c2 !important;
-}
-
-.map-content-container .weather-wind-direction {
-  border-color: #e6ded2 !important;
-  background: #f7f4ee !important;
-  color: #515965 !important;
-}
-
-.map-content-container .weather-forecast-chart-panel {
-  background: #fffdf9 !important;
-}
-
-.map-content-container table,
-.map-content-container th,
-.map-content-container td,
-.map-content-container hr {
-  border-color: #e7e0d6 !important;
-}
-
-.map-content-container th {
-  background: #f7f3ec !important;
-  color: #515965 !important;
-}
-
-.map-content-container [class*="bg-green-"],
-.map-content-container [class*="bg-emerald-"] {
-  background-color: #f4e5d9 !important;
-}
-
-.map-content-container [class*="border-green-"],
-.map-content-container [class*="border-emerald-"] {
-  border-color: #e4c9b7 !important;
-}
-
-.map-content-container .map-primary-row > .map-section-expanded .map-container {
-  border-color: #cfc6b8 !important;
-  background: #e7e0d6 !important;
-  box-shadow: 0 10px 26px rgba(42, 39, 34, 0.16) !important;
-}
-
-.map-content-container .fullscreen-btn {
-  border-color: #e2d6c7 !important;
-  background: rgba(255, 253, 249, 0.97) !important;
-  color: #a95632 !important;
-}
-
-.map-content-container .weather-forecast-state {
-  border-color: #e6ded2 !important;
-  background: #fffdf9 !important;
-  color: #46505d !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .map-content-container .weather-forecast-metric-cards > * {
-    transition: none !important;
-    transform: none !important;
-  }
-}
-
-/* Keep the farmer overview balanced on large displays and comfortable to scan. */
-.map-content-container {
-  max-width: 1640px !important;
-  margin-inline: auto;
-  grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.9fr);
-  gap: clamp(0.7rem, 1vw, 1rem);
-}
-
-.map-content-container .map-primary-row > .map-section-expanded {
-  min-height: 22rem;
-}
-
-.map-content-container .map-primary-row > .map-section-expanded .map-container {
-  height: 22rem !important;
-  min-height: 22rem !important;
-  border-radius: 1rem;
-  box-shadow: 0 14px 30px rgba(42, 39, 34, 0.18), 0 3px 8px rgba(42, 39, 34, 0.08) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards {
-  align-content: center;
-  gap: clamp(0.55rem, 0.8vw, 0.8rem) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > * {
-  min-height: 6.25rem !important;
-  border-radius: 0.9rem !important;
-  box-shadow: 0 8px 18px rgba(61, 51, 38, 0.08), 0 2px 5px rgba(61, 51, 38, 0.04) !important;
-}
-
-.map-content-container .weather-forecast-metric-cards > *:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(95, 61, 41, 0.14), 0 3px 8px rgba(61, 51, 38, 0.06) !important;
-}
-
-.map-content-container .dashboard-farm-stat {
-  min-height: 6rem;
-  border-radius: 0.9rem;
-  box-shadow: 0 7px 16px rgba(61, 51, 38, 0.07), 0 2px 5px rgba(61, 51, 38, 0.04) !important;
-}
-
-.map-content-container .dashboard-farm-stat:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 22px rgba(95, 61, 41, 0.13), 0 3px 7px rgba(61, 51, 38, 0.05) !important;
-}
-
-@container map-dashboard (max-width: 1050px) {
-  .map-content-container {
-    grid-template-columns: minmax(0, 1fr) !important;
+    flex-basis: 2rem;
   }
 
-  .map-content-container .map-primary-row > .map-section-expanded {
-    min-height: 20rem;
-  }
-
-  .map-content-container .map-primary-row > .map-section-expanded .map-container {
-    height: 20rem !important;
-    min-height: 20rem !important;
-  }
-}
-
-@container map-dashboard (max-width: 440px) {
-  .map-content-container .map-primary-row > .map-section-expanded {
-    min-height: 17rem;
-  }
-
-  .map-content-container .map-primary-row > .map-section-expanded .map-container {
-    height: 17rem !important;
-    min-height: 17rem !important;
-  }
-
-  .map-content-container .weather-forecast-metric-cards > * {
-    min-height: 5rem !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .map-content-container .dashboard-farm-stat,
-  .map-content-container .weather-forecast-metric-cards > * {
-    transition: none !important;
-    transform: none !important;
-  }
-}
-
-.map-content-container .dashboard-weather-panel {
-  grid-area: weather;
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1rem;
-  align-self: stretch;
-  padding: clamp(1rem, 1.5vw, 1.4rem);
-  border: 1px solid #e6ded2;
-  border-radius: 1rem;
-  background:
-    radial-gradient(ellipse at 100% 0%, rgba(189, 107, 68, 0.09), transparent 48%),
-    linear-gradient(145deg, #fffdf9, #f9f5ee);
-  box-shadow: 0 10px 24px rgba(61, 51, 38, 0.08), 0 2px 6px rgba(61, 51, 38, 0.04);
-}
-
-.dashboard-weather-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.dashboard-weather-heading p {
-  margin: 0;
-  color: #b65f37;
-  font-size: 0.62rem;
-  font-weight: 750;
-  letter-spacing: 0.12em;
-}
-
-.dashboard-weather-heading h2 {
-  margin: 0.2rem 0 0;
-  color: #292f38;
-  font-size: 1.05rem;
-  font-weight: 700;
-  line-height: 1.25;
-}
-
-.dashboard-weather-heading > span {
-  flex: 0 0 auto;
-  padding: 0.35rem 0.6rem;
-  border: 1px solid #ead9ca;
-  border-radius: 999px;
-  background: #f7e9dd;
-  color: #8c563b;
-  font-size: 0.68rem;
-  font-weight: 600;
-}
-
-.map-content-container .dashboard-weather-panel .weather-forecast-metric-cards {
-  grid-area: auto;
-  align-content: stretch;
-  gap: 0.7rem !important;
-  margin: 0 !important;
-}
-
-.map-content-container .dashboard-weather-panel .weather-forecast-metric-cards > * {
-  min-height: 5.75rem !important;
-  padding: 0.85rem !important;
-  border-radius: 0.8rem !important;
-}
-
-.map-content-container .dashboard-weather-panel .weather-forecast-metric-cards > * > div {
-  text-align: left;
-}
-
-.map-content-container .dashboard-weather-panel .weather-forecast-metric-cards svg {
-  flex: 0 0 auto;
-}
-
-.map-content-container .weather-forecast-state {
-  grid-area: weather;
-  min-height: 22rem;
-}
-
-@container map-dashboard (max-width: 1050px) {
-  .map-content-container .dashboard-weather-panel .weather-forecast-metric-cards {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  }
-
-  .map-content-container .weather-forecast-state {
-    min-height: 12rem;
-  }
-}
-
-@container map-dashboard (max-width: 720px) {
-  .map-content-container .dashboard-weather-panel {
-    gap: 0.75rem;
-    padding: 0.9rem;
-  }
-
-  .map-content-container .dashboard-weather-panel .weather-forecast-metric-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
-  .map-content-container .weather-forecast-state {
-    min-height: 10rem;
+  .dashboard-farm-stat-copy p,
+  .dashboard-farm-stat-copy span {
+    font-size: 0.68rem;
   }
 }

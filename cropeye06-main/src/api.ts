@@ -9,7 +9,7 @@ import {
 } from "./utils/auth";
 import { checkAndRefreshToken, isTokenExpired, decodeToken } from "./utils/tokenManager";
 import { navigateToLogin } from "./utils/navigation";
-import { getBackendApiBaseUrl } from "./utils/serviceUrls";
+import { getBackendApiBaseUrl, getEventsBaseUrl } from "./utils/serviceUrls";
 import { USE_MOCK_AUTH } from "./config/authConfig";
 import { filterRowsByIndustry, getStoredUserIndustry } from "./utils/userIndustry";
 import { isFrontendRolePreview } from "./utils/frontendRolePreview";
@@ -1490,9 +1490,22 @@ export const getTeamConnectGrapes = (params?: TeamConnectGrapesParams) => {
     query.variety = params.variety;
   }
   return api.get("/users/team-connect/grapes/", {
+    // In dev, expose the exact backend route in Network and proxy it directly.
+    baseURL: import.meta.env.DEV ? "/api" : API_BASE_URL,
     params: query,
     timeout: 60_000,
   });
+};
+
+/** Fetch agro stats for the selected farmer plot. */
+export const getSinglePlotAgroStats = async (
+  plotId: string | number,
+): Promise<unknown> => {
+  const url = `${getEventsBaseUrl()}/plots/analyzeSinglePlot?plot_id=${encodeURIComponent(
+    String(plotId),
+  )}`;
+  const response = await axios.get(url, { timeout: 60_000 });
+  return response.data;
 };
 
 // Messaging API functions

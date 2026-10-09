@@ -37,6 +37,7 @@ import {
   type WaterHourStep,
   type WaterRemainDay,
 } from "../../../utils/waterRemainApi";
+import { findPlotRef } from "../../../utils/plotName";
 
 interface SoilMoistureCardProps {
   optimalRange?: [number, number];
@@ -230,18 +231,12 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
     let coords: { lat: number; lon: number } | null = null;
     let crop = "grapes";
 
-    let selectedPlot: any = null;
-    if (selectedPlotName) {
-      selectedPlot = profile.plots?.find(
-        (plot: any) =>
-          plot.fastapi_plot_id === selectedPlotName ||
-          `${plot.gat_number}_${plot.plot_number}` === selectedPlotName ||
-          `${plot.gat_number}/${plot.plot_number}` === selectedPlotName,
-      );
-    }
-    if (!selectedPlot && profile.plots?.length) {
-      selectedPlot = profile.plots[0];
-    }
+    const selectedPlot =
+      (selectedPlotName
+        ? findPlotRef(profile.plots, selectedPlotName)
+        : null) ??
+      (!selectedPlotName ? profile.plots?.[0] : null) ??
+      null;
 
     if (selectedPlot) {
       plotToUse =
@@ -283,9 +278,22 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
         profile?.agricultural_summary?.crop_types?.[0] ??
         "grapes";
       if (cropRaw) crop = String(cropRaw);
+    } else {
+      setPlotName("");
+      setPlotCoords(null);
+      setCropName("grapes");
+      setTubeDays([]);
+      setError(
+        selectedPlotName
+          ? `Selected plot "${selectedPlotName}" was not found in your profile.`
+          : null,
+      );
+      setLoading(false);
+      return;
     }
 
     if (plotToUse && plotToUse !== plotName) setPlotName(plotToUse);
+    setError(null);
     setPlotCoords(coords);
     setCropName(crop);
   }, [profile, profileLoading, selectedPlotName, plotName]);

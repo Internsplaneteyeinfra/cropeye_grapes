@@ -298,7 +298,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
   if (loadingForecast && !chartData.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="weather-forecast-state bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading weather data...</p>
@@ -309,7 +309,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
   if (!chartData.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="weather-forecast-state bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center px-4">
           <p className="text-gray-700 mb-2">Could not load weather forecast.</p>
           {forecastError ? (
@@ -347,10 +347,18 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
   }
 
   return (
-    <div className="min-h-screen p-0">
+    <div className="w-full min-w-0 p-0">
       <div className="weather-forecast-container" style={{ width: '100%', maxWidth: '1920px', margin: '0 auto', padding: '0 1rem', boxSizing: 'border-box' }}>
-        {/* Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 sm:mb-6">
+        <section className="dashboard-weather-panel" aria-label="Local weather">
+          <div className="dashboard-weather-heading">
+            <div>
+              <p>WEATHER AT YOUR PLOT</p>
+              <h2>Local conditions</h2>
+            </div>
+            <span>Selected plot</span>
+          </div>
+          {/* Metric Cards */}
+          <div className="weather-forecast-metric-cards grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 sm:mb-6">
           <div
             className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg weather-temp-card
               ${
@@ -457,10 +465,11 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </section>
 
         {/* Interactive Chart */}
-        <div className="bg-white rounded-2xl shadow-xl p-2 sm:p-6 border border-gray-100 -mt-3 sm:mt-0 overflow-visible">
+        <div className="weather-forecast-chart-panel bg-white rounded-2xl shadow-xl p-2 sm:p-6 border border-gray-100 -mt-3 sm:mt-0 overflow-visible">
           <div className="flex items-center justify-between mb-1 sm:mb-6">
             <h3 className="text-lg sm:text-xl font-bold text-gray-800">7-Day Forecast</h3>
             <div className="text-xs sm:text-sm text-gray-500 hidden sm:block">
@@ -566,7 +575,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
           </div>
 
           {arrowDay && windDeg != null ? (
-            <div className="flex flex-wrap items-center justify-center gap-2 border-t border-gray-100 pt-2 mt-1 text-xs text-gray-600">
+            <div className="weather-wind-direction flex flex-wrap items-center justify-center gap-2 border-t border-gray-100 pt-2 mt-1 text-xs text-gray-600">
               <span
                 className="inline-flex h-5 w-5 items-center justify-center text-green-600"
                 style={{ transform: `rotate(${windDeg}deg)` }}

@@ -65,9 +65,52 @@ export function normalizeTeamConnectGrapesOfficers(data: unknown): {
       area_acres: farmer?.plot_area,
       plot_area: farmer?.plot_area,
       plot_area_bucket: farmer?.plot_area_bucket,
-      harvest_status: farmer?.harvest_status,
-      growth_stage: farmer?.growth_stage || farmer?.stage,
-      stage: farmer?.stage || farmer?.growth_stage,
+      distance_km: farmer?.distance_km ?? plot?.distance_km,
+      distance: farmer?.distance ?? plot?.distance,
+      distance_motor_to_plot_m:
+        farmer?.distance_motor_to_plot_m ?? plot?.distance_motor_to_plot_m,
+      distance_From_Motor:
+        farmer?.distance_From_Motor ?? plot?.distance_From_Motor,
+      "Distance (km)": farmer?.["Distance (km)"] ?? plot?.["Distance (km)"],
+      Distance: farmer?.Distance ?? plot?.Distance,
+      irrigation_details:
+        farmer?.irrigation_details ?? plot?.irrigation_details,
+      irrigation: farmer?.irrigation ?? plot?.irrigation,
+      irrigations: farmer?.irrigations ?? plot?.irrigations,
+      farms: asArray(farmer?.farms ?? plot?.farms),
+      harvest_status:
+        farmer?.harvest_status ??
+        farmer?.harvestStatus ??
+        plot?.harvest_status ??
+        plot?.harvestStatus,
+      harvestStatus:
+        farmer?.harvestStatus ??
+        farmer?.harvest_status ??
+        plot?.harvestStatus ??
+        plot?.harvest_status,
+      crop_status:
+        farmer?.crop_status ??
+        farmer?.cropStatus ??
+        plot?.crop_status ??
+        plot?.cropStatus,
+      cropStatus:
+        farmer?.cropStatus ??
+        farmer?.crop_status ??
+        plot?.cropStatus ??
+        plot?.crop_status,
+      status: farmer?.status ?? plot?.status,
+      growth_stage:
+        farmer?.growth_stage ||
+        farmer?.stage ||
+        plot?.growth_stage ||
+        plot?.stage,
+      stage:
+        farmer?.stage ||
+        farmer?.growth_stage ||
+        plot?.stage ||
+        plot?.growth_stage,
+      Sugarcane_Status:
+        farmer?.Sugarcane_Status ?? plot?.Sugarcane_Status,
       fastapi_plot_id:
         plot?.fastapi_plot_id || farmer?.fastapi_plot_id || plot?.id,
     };

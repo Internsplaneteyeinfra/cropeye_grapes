@@ -53,3 +53,29 @@
     gap: 8px;
   }
 }
+
+/* The dashboard's sidebar can narrow this section before the viewport does. */
+.weather-forecast-container {
+  container: weather-forecast / inline-size;
+  min-width: 0;
+}
+
+.weather-forecast-container .weather-forecast-metric-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.weather-forecast-container .weather-forecast-metric-cards > * {
+  min-width: 0;
+}
+
+@container weather-forecast (max-width: 850px) {
+  .weather-forecast-container .weather-forecast-metric-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container weather-forecast (max-width: 440px) {
+  .weather-forecast-container .weather-forecast-metric-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

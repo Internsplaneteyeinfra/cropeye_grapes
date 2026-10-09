@@ -9,6 +9,7 @@ import {
 } from "../services/weatherForecastService";
 import { useAppContext } from "../context/AppContext";
 import { getGrapesSefBaseUrl } from "../utils/serviceUrls";
+import { findPlotRef } from "../utils/plotName";
 import { useFarmerProfile } from "./useFarmerProfile";
 
 export type ETRange = "Low" | "Medium" | "High";
@@ -233,20 +234,24 @@ export function useIrrigationSchedule(syncToAppState = false) {
   useEffect(() => {
     if (!profile || profileLoading) return;
 
-    let selectedPlot = null;
-    if (selectedPlotName) {
-      selectedPlot = profile.plots?.find(
-        (p: any) =>
-          p.fastapi_plot_id === selectedPlotName ||
-          `${p.gat_number}_${p.plot_number}` === selectedPlotName
-      );
-    }
-    if (!selectedPlot && profile.plots?.length) selectedPlot = profile.plots[0];
+    const selectedPlot =
+      (selectedPlotName
+        ? findPlotRef(profile.plots, selectedPlotName)
+        : null) ??
+      (!selectedPlotName ? profile.plots?.[0] : null) ??
+      null;
     if (!selectedPlot) {
       setPlotName("");
+      setError(
+        selectedPlotName
+          ? `Selected plot "${selectedPlotName}" was not found in your profile.`
+          : null,
+      );
+      setWeatherLoading(false);
       setEtLoading(false);
       return;
     }
+    setError(null);
 
     const plotId =
       selectedPlot.fastapi_plot_id ||
@@ -338,15 +343,13 @@ export function useIrrigationSchedule(syncToAppState = false) {
     const chartDays = appState?.weatherChartData;
     if (!Array.isArray(chartDays) || chartDays.length === 0 || !profile?.plots?.length) return;
 
-    let selectedPlot: any = null;
-    if (selectedPlotName) {
-      selectedPlot = profile.plots.find(
-        (p: any) =>
-          p.fastapi_plot_id === selectedPlotName ||
-          `${p.gat_number}_${p.plot_number}` === selectedPlotName
-      );
-    }
-    if (!selectedPlot) selectedPlot = profile.plots[0];
+    const selectedPlot =
+      (selectedPlotName
+        ? findPlotRef(profile.plots, selectedPlotName)
+        : null) ??
+      (!selectedPlotName ? profile.plots[0] : null) ??
+      null;
+    if (!selectedPlot) return;
 
     const { lat, lon } = resolveForecastLatLon(selectedPlot);
     const todayRain = getCached(weatherTodayRainCacheKey(lat, lon));

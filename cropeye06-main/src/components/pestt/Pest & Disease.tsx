@@ -371,60 +371,6 @@ export const PestDisease: React.FC = () => {
           <h2 className="text-xl xs:text-2xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 text-center mb-3 sm:mb-4 md:mb-6 px-2">
             Risk Assessment
           </h2>
-          <p className="text-center text-sm text-gray-600 mb-3">
-            Assessment date: <span className="font-semibold">{assessmentDate}</span>
-          </p>
-          <details className="mx-auto mb-4 max-w-4xl rounded-lg border border-blue-200 bg-blue-50 p-3 sm:p-4">
-            <summary className="cursor-pointer font-semibold text-blue-900">
-              How pest and disease risk is calculated
-            </summary>
-            <div className="mt-3 space-y-3 text-sm leading-relaxed text-gray-700">
-              <p>
-                <strong>For today:</strong> the page uses the risk categories returned by the
-                farm risk-assessment API. Those High, Moderate, and Low categories are displayed
-                as returned; this screen does not recalculate them.
-              </p>
-              <p>
-                <strong>For a past selected date:</strong> the page calculates risk locally.
-                It checks whether the pest or disease is active in that date&apos;s month,
-                whether the crop age on that date falls within its configured growth-stage
-                window, and whether the matching pest-group or fungal pixel percentage is
-                greater than zero.
-              </p>
-              <ul className="list-disc space-y-1 pl-5">
-                <li>
-                  <strong>High:</strong> the active month and configured crop stage match,
-                  and the relevant detection percentage is greater than zero.
-                </li>
-                <li>
-                  <strong>Moderate:</strong> the active month and configured crop stage match,
-                  but the relevant detection percentage is zero or unavailable.
-                </li>
-                <li>
-                  <strong>Low:</strong> the active month matches, but the configured crop-stage
-                  window does not.
-                </li>
-                <li>
-                  Items outside their configured active months are not included. If no stage
-                  window is configured for an item, its stage is treated as matching.
-                </li>
-              </ul>
-              <p>
-                Pest detection uses the matching chewing, sucking, or soil-borne pixel
-                percentage. The disease detection check uses the fungi pixel percentage for
-                configured fungal diseases. A value above zero raises the local category to
-                High only when the month and crop stage also match; it is not a severity
-                threshold.
-              </p>
-              <p>
-                <strong>Historical-data limitation:</strong> the local calculation uses the
-                selected date for month and crop age, and requests detection data for that
-                date. Weather shown in the conditions is current weather; historical
-                temperature and humidity are not currently used to calculate these local
-                categories.
-              </p>
-            </div>
-          </details>
 
           {/* Three Separate Risk Meters - One for each category */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 xs:gap-4 sm:gap-5 md:gap-6 mb-4 sm:mb-6 md:mb-8">

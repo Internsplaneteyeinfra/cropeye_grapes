@@ -10,7 +10,7 @@ import {
   subMonths,
 } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { getContactDetails } from '../api';
+import { addTask, getContactDetails, getTasks } from '../api';
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -52,14 +52,33 @@ const CalendarView: React.FC = () => {
   });
 
   useEffect(() => {
-    // Fetch tasks from backend API
-    fetch('http://localhost:5000/fieldofficertasks')
-      .then((res) => res.json())
-      .then((data) => {
-        // Only show tasks not assigned by the manager (or filter as needed)
-        setTasks(data.filter((t: any) => t.assignedBy !== 'manger@124'));
+    getTasks()
+      .then(({ data }) => {
+        const records = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
+        setTasks(
+          records.map((record: any) => ({
+            id: String(record.id),
+            itemName: record.title || record.task_name || '',
+            description: record.description || '',
+            fieldOfficer:
+              record.assigned_to?.username ||
+              record.assigned_to_username ||
+              '',
+            team: '',
+            selectedDate: record.due_date || '',
+            message: record.message || '',
+            assignedTime: record.created_at,
+          })),
+        );
       })
-      .catch(() => setTasks([]));
+      .catch((error) => {
+        console.error('Failed to load Railway tasks:', error);
+        setTasks([]);
+      });
   }, []);
 
   // Fetch field officers for the dropdown
@@ -85,17 +104,8 @@ const CalendarView: React.FC = () => {
         
         setFieldOfficers(fieldOfficersData);
       } catch (error) {
-        // Fallback to sample data if API fails
-        const sampleFieldOfficers: FieldOfficer[] = [
-          {
-            id: 1,
-            name: 'John Doe',
-            username: 'filed@crops',
-            email: 'john.doe@example.com',
-            phone: '+1234567890'
-          }
-        ];
-        setFieldOfficers(sampleFieldOfficers);
+        console.error('Failed to load Railway field officers:', error);
+        setFieldOfficers([]);
       } finally {
         setLoadingFieldOfficers(false);
       }
@@ -144,38 +154,53 @@ const CalendarView: React.FC = () => {
 
 
   
-  const handleAssignTask = () => {
+  const handleAssignTask = async () => {
+    const selectedOfficer = fieldOfficers.find(
+      (officer) => officer.username === task.fieldOfficer,
+    );
+    if (!selectedOfficer || !selectedDate) {
+      alert('Select a field officer and task date before assigning.');
+      return;
+    }
+
     setIsSubmitting(true);
-    const now = new Date().toISOString();
-    const newTask: Task = {
-      id: Date.now().toString(),
-      ...task,
-      assignedTime: (task as any).assignedTime || now,
-    };
-    fetch('http://localhost:5000/fieldofficertasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newTask),
-    })
-      .then((res) => res.json())
-      .then((createdTask) => {
-        setTasks((prev) => [...prev, createdTask]);
-        alert('Task Assigned!');
-        setShowForm(false);
-        setSelectedDate(null);
-        setTask({
-          itemName: '',
-          description: '',
-          fieldOfficer: '',
-          team: '',
-          selectedDate: '',
-          message: '',
-        });
-      })
-      .catch(() => {
-        alert('Error assigning task!');
-      })
-      .finally(() => setIsSubmitting(false));
+    try {
+      const response = await addTask({
+        title: task.itemName,
+        description: task.description,
+        status: 'pending',
+        priority: 'medium',
+        assigned_to_id: selectedOfficer.id,
+        due_date: format(selectedDate, 'yyyy-MM-dd'),
+      });
+      const createdTask = response.data;
+      if (createdTask) {
+        setTasks((prev) => [
+          ...prev,
+          {
+            id: String(createdTask.id),
+            ...task,
+            selectedDate: format(selectedDate, 'yyyy-MM-dd'),
+          },
+        ]);
+      }
+      alert('Task Assigned!');
+      setShowForm(false);
+      setSelectedDate(null);
+      setTask({
+        itemName: '',
+        description: '',
+        fieldOfficer: '',
+        team: '',
+        selectedDate: '',
+        message: '',
+      });
+    } catch (error) {
+      console.error('Failed to assign Railway task:', error);
+      alert('Error assigning task. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -360,4 +385,3 @@ const CalendarView: React.FC = () => {
 };
 
 export default CalendarView;
-

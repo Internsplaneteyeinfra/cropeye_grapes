@@ -33,8 +33,18 @@ export function harvestInfoFromPayload(data: unknown): PlotHarvestInfo {
     root;
 
   const harvestStatus =
-    readString(nested, "harvest_status", "Sugarcane_Status", "growth_stage", "crop_status", "status") ??
-    readString(root, "harvest_status", "crop_status");
+    readString(
+      nested,
+      "harvest_status",
+      "harvestStatus",
+      "Sugarcane_Status",
+      "growth_stage",
+      "growthStage",
+      "crop_status",
+      "cropStatus",
+      "status",
+    ) ??
+    readString(root, "harvest_status", "harvestStatus", "crop_status", "cropStatus");
 
   const harvestDate =
     readString(nested, "harvest_date") ?? readString(root, "harvest_date");
@@ -94,7 +104,7 @@ export function harvestInfoFromAgroStatsBatch(
   for (const plotId of plotIds) {
     const row = extractAgroStatsPlotRow(allPlotsData, plotId, profile);
     const info = harvestInfoFromPayload(row);
-    if (info.harvestStatus) map.set(plotId, info);
+    if (info.harvestStatus || info.isHarvested) map.set(plotId, info);
   }
   return map;
 }

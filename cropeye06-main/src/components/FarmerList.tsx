@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Search, CheckCircle, Clock, Eye } from 'lucide-react';
+import { getTasks, updateTaskStatus } from '../api';
 
 const ITEMS_PER_PAGE = 5;
 
@@ -22,47 +23,41 @@ export const FarmerList: React.FC = () => {
 
   // Fetch all farmer tasks from API
   useEffect(() => {
-    fetch('http://localhost:5000/fieldofficertasks')
-      .then((res) => res.json())
-      .then((data) => {
-        const mappedTasks = data.map((task: any) => ({
-          id: Number(task.id) || Date.now(),
-          farmerName: task.farmerName || 'Unknown',
-          assignedTask: task.itemName || task.taskName,
-          date: task.selectedDate || task.date,
-          status: task.status || 'Pending',
+    getTasks()
+      .then(({ data }) => {
+        const records = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
+        setTasks(records.map((task: any) => ({
+          id: Number(task.id),
+          farmerName:
+            task.assigned_to?.first_name ||
+            task.assigned_to?.username ||
+            task.farmer?.first_name ||
+            task.farmer?.username ||
+            'Unknown',
+          assignedTask: task.title || task.task_name || 'Task',
+          date: task.due_date || '',
+          status: String(task.status).toLowerCase() === 'completed'
+            ? 'Completed'
+            : 'Pending',
           description: task.description || '',
-          fieldOfficer: task.fieldOfficer || 'Current Officer'
-        }));
-        setTasks(mappedTasks);
+          fieldOfficer:
+            task.assigned_to?.username ||
+            task.assigned_to_username ||
+            'Current Officer'
+        })));
       })
       .catch((err) => {
-        console.error('Failed to fetch farmer tasks:', err);
-        // Fallback data for testing
-        setTasks([
-          {
-            id: 1,
-            farmerName: 'AjayDhale',
-            assignedTask: 'Irrigation Check',
-            date: '2025-04-14',
-            status: 'Pending',
-            description: 'Check irrigation system for plot 294724',
-            fieldOfficer: 'Current Officer'
-          },
-          {
-            id: 2,
-            farmerName: 'AjayDhale',
-            assignedTask: 'Fertilizer Application',
-            date: '2025-04-15',
-            status: 'Completed',
-            description: 'Apply nitrogen fertilizer to plot 2',
-            fieldOfficer: 'Current Officer'
-          }
-        ]);
+        console.error('Failed to fetch Railway tasks:', err);
+        setTasks([]);
       });
   }, []);
 
-  const handleStatusChange = (taskId: number, newStatus: 'Pending' | 'Completed') => {
+  const handleStatusChange = async (taskId: number, newStatus: 'Pending' | 'Completed') => {
+    const previousTasks = tasks;
     setTasks(prev => 
       prev.map(task => 
         task.id === taskId 
@@ -71,14 +66,12 @@ export const FarmerList: React.FC = () => {
       )
     );
 
-    // Update status in API
-    fetch(`http://localhost:5000/fieldofficertasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    }).catch(err => {
-      console.error('Failed to update task status:', err);
-    });
+    try {
+      await updateTaskStatus(taskId, newStatus.toLowerCase());
+    } catch (err) {
+      console.error('Failed to update Railway task status:', err);
+      setTasks(previousTasks);
+    }
   };
 
   const handleViewFarmerTasks = (farmerName: string) => {

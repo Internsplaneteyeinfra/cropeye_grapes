@@ -3,8 +3,8 @@
  *   query: plot_name, start_date, end_date, crop_name?, lat?, lon?
  * Grapes SEF base from serviceUrls (not sugarcane sef-cropeye).
  */
-import { getPlotNameCandidates, type PlotRef } from "./plotName";
-import { getCache, setCache } from "./cache";
+import { getPlotNameCandidates, normalizePlotKey, type PlotRef } from "./plotName";
+import { getCache, removeCache, setCache } from "./cache";
 import { getGrapesSefBaseUrl } from "./serviceUrls";
 
 /** Flutter uses 60s; SEF month ranges are slow. */
@@ -138,6 +138,18 @@ function waterRemainCacheKey(
       ? extras.lon.toFixed(5)
       : "";
   return `waterRemain_${plotName}_${start_date}_${end_date}_${crop}_${lat}_${lon}`;
+}
+
+function assertWaterRemainPlot(data: any, requestedPlot: string): void {
+  const returnedPlot = String(data?.plot_name ?? "").trim();
+  if (
+    returnedPlot &&
+    normalizePlotKey(returnedPlot) !== normalizePlotKey(requestedPlot)
+  ) {
+    throw new Error(
+      `Water remain returned plot "${returnedPlot}" for requested plot "${requestedPlot}"`,
+    );
+  }
 }
 
 function normalizeHourStep(item: any): WaterHourStep | null {
@@ -333,7 +345,16 @@ async function getWaterRemainOnce(
 ): Promise<any> {
   const cacheKey = waterRemainCacheKey(plotName, start_date, end_date, extras);
   const cached = getCache(cacheKey, WATER_REMAIN_CACHE_MS);
-  if (cached) return cached;
+  if (cached) {
+    const cachedPlot = String(cached?.plot_name ?? "").trim();
+    if (
+      !cachedPlot ||
+      normalizePlotKey(cachedPlot) === normalizePlotKey(plotName)
+    ) {
+      return cached;
+    }
+    removeCache(cacheKey);
+  }
 
   const qs = new URLSearchParams({
     plot_name: plotName,
@@ -370,6 +391,7 @@ async function getWaterRemainOnce(
         continue;
       }
       const data = await resp.json();
+      assertWaterRemainPlot(data, plotName);
       setCache(cacheKey, data);
       return data;
     } catch (err) {

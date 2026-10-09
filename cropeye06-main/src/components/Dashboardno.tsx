@@ -1,7 +1,7 @@
 // DashboardNo.tsx
 import React, { useState, useEffect } from "react";
 import { Users, ShoppingCart, Loader2 } from "lucide-react";
-import { getTotalCounts } from "../api";
+import { getTotalCounts, getUsers } from "../api";
 
 interface DashboardStats {
   total_users?: number;
@@ -10,6 +10,34 @@ interface DashboardStats {
   orders?: number;
   bookings?: number;
   brix?: number;
+}
+
+function readCount(value: unknown): number | undefined {
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  if (value === "") return undefined;
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? count : undefined;
+}
+
+function getUsersResponseCount(data: unknown): number | undefined {
+  if (Array.isArray(data)) return data.length;
+  if (!data || typeof data !== "object") return undefined;
+
+  const payload = data as Record<string, unknown>;
+  const count =
+    readCount(payload.count) ??
+    readCount(payload.total_users) ??
+    readCount(payload.totalUsers) ??
+    readCount(payload.users);
+  if (count !== undefined) return count;
+
+  for (const key of ["results", "data", "users"]) {
+    const nested = payload[key];
+    if (Array.isArray(nested)) return nested.length;
+    const nestedCount = getUsersResponseCount(nested);
+    if (nestedCount !== undefined) return nestedCount;
+  }
+  return undefined;
 }
 
 export const DashboardNo: React.FC = () => {
@@ -24,23 +52,47 @@ export const DashboardNo: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await getTotalCounts();
-        const data = response.data;
+        const [countsResult, usersResult] = await Promise.allSettled([
+          getTotalCounts(),
+          getUsers(),
+        ]);
+        if (
+          countsResult.status === "rejected" &&
+          usersResult.status === "rejected"
+        ) {
+          throw countsResult.reason;
+        }
 
-        // 1. Properly Type the local variable to fix ts(7005)
+        if (countsResult.status === "rejected") {
+          console.error("Failed to load dashboard totals:", countsResult.reason);
+        }
+        if (usersResult.status === "rejected") {
+          console.error("Failed to load users for dashboard count:", usersResult.reason);
+        }
+
+        const data =
+          countsResult.status === "fulfilled" ? countsResult.value.data : {};
+        const usersCount =
+          usersResult.status === "fulfilled"
+            ? getUsersResponseCount(usersResult.value.data)
+            : undefined;
+
         const currentData: DashboardStats = {
-          total_users: data.total_users || data.totalUsers || data.users || 0,
+          total_users:
+            usersCount ??
+            readCount(data.total_users) ??
+            readCount(data.totalUsers) ??
+            readCount(data.users) ??
+            0,
           vendors: data.vendors || 0,
           stock_items: data.stock_items || data.stockItems || data.stock || 0,
           orders: data.orders || 0,
           bookings: data.bookings || 0,
-          brix: data.brix || 17.5, // Fallback for testing
+          brix: data.brix || 17.5,
         };
 
-        // 2. Update state with the typed object
         setStats(currentData);
 
-        // 3. LOGIC: Use currentData.brix (NOT setStats.brix) to fix ts(2339)
         if (currentData.brix !== undefined && currentData.brix > 0 && currentData.brix < 18) {
           const alertId = "low-brix-warning";
           

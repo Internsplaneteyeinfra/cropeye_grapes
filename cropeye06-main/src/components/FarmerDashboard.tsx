@@ -44,6 +44,7 @@ import {
   Loader2,
 } from "lucide-react";
 import axios from "axios";
+import { getSinglePlotAgroStats } from "../api";
 import { getCache, setCache } from "../utils/cache";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
 import { useAppContext } from "../context/AppContext";
@@ -620,6 +621,35 @@ function metricsFromLegacyAgroPlot(
   };
 }
 
+function readMetricNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (value == null || (typeof value === "string" && value.trim() === "")) {
+      continue;
+    }
+    const number = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+const unavailableSinglePlotMetrics: Partial<Metrics> = {
+  brix: null,
+  brixMin: null,
+  brixMax: null,
+  recovery: null,
+  area: null,
+  biomass: null,
+  totalBiomass: null,
+  sugarYieldMean: null,
+  sugarYieldMin: null,
+  sugarYieldMax: null,
+  actualYield: null,
+  daysToHarvest: null,
+  growthStage: null,
+  soilPH: null,
+  organicCarbonDensity: null,
+};
+
 // Overlay Component for chart states
 interface OverlayProps {
   message: string;
@@ -935,6 +965,9 @@ const FarmerDashboard: React.FC = () => {
     sugarYieldMax: null,
     sugarYieldMin: null,
   });
+  const [singlePlotMetrics, setSinglePlotMetrics] = useState<Partial<Metrics>>(
+    {},
+  );
 
   const totalProfileAreaAcres = useMemo(() => {
     const plots = Array.isArray(profile?.plots) ? profile.plots : [];
@@ -1069,6 +1102,7 @@ const FarmerDashboard: React.FC = () => {
       setLineChartData([]);
       setAggregatedData([]);
       setCombinedChartData([]);
+      setSinglePlotMetrics({});
       setMetrics({
         brix: null,
         brixMin: null,
@@ -1096,6 +1130,129 @@ const FarmerDashboard: React.FC = () => {
     }
     prevPlotIdRef.current = currentPlotId;
   }, [currentPlotId]);
+
+  useEffect(() => {
+    if (!currentPlotId || profileLoading) return;
+
+    let cancelled = false;
+    const endDate = getLocalDateIso();
+    const cacheKey = `agroSingle_v1_${currentPlotId}_${endDate}`;
+
+    const applySinglePlotMetrics = (payload: unknown) => {
+      const plot = extractPlotDataFromAgroStats(
+        payload,
+        currentPlotId,
+        profileRef.current?.plots,
+      );
+      if (!plot) {
+        setSinglePlotMetrics(unavailableSinglePlotMetrics);
+        setMetrics((previous) => ({
+          ...previous,
+          ...unavailableSinglePlotMetrics,
+        }));
+        return;
+      }
+
+      const brixSugar = plot.brix_sugar ?? plot.brixSugar ?? {};
+      const sugarYield = brixSugar.sugar_yield ?? plot.sugar_yield ?? {};
+      const brix = brixSugar.brix ?? plot.brix ?? {};
+      const recovery = brixSugar.recovery ?? plot.recovery ?? {};
+      const yieldMean = readMetricNumber(
+        sugarYield.mean,
+        sugarYield.avg,
+        sugarYield.average,
+        plot.sugar_yield_mean,
+        plot.expected_yield,
+      );
+      const yieldMin = readMetricNumber(
+        sugarYield.min,
+        plot.sugar_yield_min,
+      );
+      const yieldMax = readMetricNumber(
+        sugarYield.max,
+        plot.sugar_yield_max,
+      );
+      const patch: Partial<Metrics> = {};
+
+      const area = readMetricNumber(plot.area_acres, plot.area);
+      const brixMean = readMetricNumber(brix.mean, brix.avg, plot.brix_mean);
+      const brixMin = readMetricNumber(brix.min, plot.brix_min);
+      const brixMax = readMetricNumber(brix.max, plot.brix_max);
+      const recoveryMean = readMetricNumber(
+        recovery.mean,
+        recovery.avg,
+        plot.recovery_mean,
+      );
+      const daysToHarvest = readMetricNumber(plot.days_to_harvest);
+      patch.area = area;
+      patch.brix = brixMean;
+      patch.brixMin = brixMin;
+      patch.brixMax = brixMax;
+      patch.recovery = recoveryMean;
+      patch.sugarYieldMean = yieldMean;
+      patch.sugarYieldMin = yieldMin;
+      patch.sugarYieldMax = yieldMax;
+      patch.actualYield = yieldMean;
+      patch.daysToHarvest =
+        daysToHarvest != null && daysToHarvest >= 0 ? daysToHarvest : null;
+      if (yieldMean != null) {
+        patch.totalBiomass = yieldMean * 1.27;
+        patch.biomass = yieldMean * 1.27 * 0.12;
+      } else {
+        patch.totalBiomass = null;
+        patch.biomass = null;
+      }
+      const growthStage =
+        plot.harvest_status ||
+        plot.Sugarcane_Status ||
+        plot.growth_stage ||
+        plot.crop_status;
+      if (typeof growthStage === "string" && growthStage.trim()) {
+        patch.growthStage = growthStage.trim();
+      } else {
+        patch.growthStage = null;
+      }
+      patch.soilPH = readMetricNumber(
+        plot.soil?.phh2o,
+        plot.soil?.ph_h2o,
+        plot.soil_ph,
+      );
+      patch.organicCarbonDensity = readMetricNumber(
+        plot.soil?.organic_carbon_stock,
+        plot.organic_carbon_stock,
+      );
+
+      setSinglePlotMetrics(patch);
+      setMetrics((previous) => ({ ...previous, ...patch }));
+    };
+
+    const cached = getCache(cacheKey);
+    if (cached) {
+      applySinglePlotMetrics(cached);
+    } else {
+      void getSinglePlotAgroStats(currentPlotId)
+        .then((payload) => {
+          setCache(cacheKey, payload);
+          if (!cancelled) applySinglePlotMetrics(payload);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setSinglePlotMetrics(unavailableSinglePlotMetrics);
+          setMetrics((previous) => ({
+            ...previous,
+            ...unavailableSinglePlotMetrics,
+          }));
+          console.warn(
+            `FarmerDashboard: single-plot agro stats unavailable for ${currentPlotId} on ${endDate}`,
+            error,
+          );
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPlotId, profileLoading]);
 
   useEffect(() => {
     if (!currentPlotId) {
@@ -2216,18 +2373,27 @@ const FarmerDashboard: React.FC = () => {
     </div>
   );
 
-  const currentBiomass = metrics.biomass || 0;
-  const totalBiomass = metrics.totalBiomass || 0;
+  const dashboardMetrics = { ...metrics, ...singlePlotMetrics };
+  const dashboardCurrentBiomass = dashboardMetrics.biomass;
+  const totalBiomass = dashboardMetrics.totalBiomass;
+  const hasYieldForecast =
+    dashboardMetrics.sugarYieldMean != null &&
+    Number.isFinite(dashboardMetrics.sugarYieldMean);
+  const hasBiomass =
+    dashboardCurrentBiomass != null &&
+    totalBiomass != null &&
+    Number.isFinite(dashboardCurrentBiomass) &&
+    Number.isFinite(totalBiomass);
 
   const biomassData = [
     {
       name: "Total Biomass",
-      value: totalBiomass,
+      value: totalBiomass ?? 0,
       fill: "#3b82f6",
     },
     {
       name: "Underground Biomass",
-      value: currentBiomass,
+      value: dashboardCurrentBiomass ?? 0,
       fill: "#10b981",
     },
   ];
@@ -2497,9 +2663,9 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {metrics.sugarYieldMean != null &&
-                    Number.isFinite(metrics.sugarYieldMean)
-                    ? metrics.sugarYieldMean.toFixed(2)
+                  {dashboardMetrics.sugarYieldMean != null &&
+                    Number.isFinite(dashboardMetrics.sugarYieldMean)
+                    ? dashboardMetrics.sugarYieldMean.toFixed(2)
                     : "-"}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
@@ -2521,7 +2687,7 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center justify-end mb-2 pt-3 relative z-10">
               <div className="text-right">
                 <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {metricOrLoader(metrics.growthStage, !metrics.growthStage)}
+                  {metricOrLoader(dashboardMetrics.growthStage, !dashboardMetrics.growthStage)}
                 </div>
                 <div className="text-sm font-semibold" style={{ color: '#6bb043', visibility: 'hidden' }}>
                   &nbsp;
@@ -2575,19 +2741,19 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {(metrics.growthStage || "").toLowerCase().includes("harvested")
+                  {(dashboardMetrics.growthStage || "").toLowerCase().includes("harvested")
                     ? "0"
                     : metricOrLoader(
-                      metrics.brix !== null && metrics.brix !== undefined
-                        ? (metrics.brix === 0 ? "0" : metrics.brix)
+                      dashboardMetrics.brix !== null && dashboardMetrics.brix !== undefined
+                        ? (dashboardMetrics.brix === 0 ? "0" : dashboardMetrics.brix)
                         : null,
-                      metrics.brix === null || metrics.brix === undefined
+                      dashboardMetrics.brix === null || dashboardMetrics.brix === undefined
                     )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
                   °Brix
                 </div>
-                {!(metrics.growthStage || "").toLowerCase().includes("harvested") && (
+                {!(dashboardMetrics.growthStage || "").toLowerCase().includes("harvested") && (
                   <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
                     {BRIX_CARD_DAYS} days
                   </div>
@@ -2602,17 +2768,17 @@ const FarmerDashboard: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-semibold" style={{ color: '#ef4444' }}>Min:</span>
                   <span className="text-xs font-bold" style={{ color: '#212121' }}>
-                    {(metrics.growthStage || "").toLowerCase().includes("harvested")
+                    {(dashboardMetrics.growthStage || "").toLowerCase().includes("harvested")
                       ? "0"
-                      : (metrics.brixMin !== null && metrics.brixMin !== undefined ? (metrics.brixMin === 0 ? "0" : metrics.brixMin) : "-")}
+                      : (dashboardMetrics.brixMin !== null && dashboardMetrics.brixMin !== undefined ? (dashboardMetrics.brixMin === 0 ? "0" : dashboardMetrics.brixMin) : "-")}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-semibold" style={{ color: '#22c55e' }}>Max:</span>
                   <span className="text-xs font-bold" style={{ color: '#212121' }}>
-                    {(metrics.growthStage || "").toLowerCase().includes("harvested")
+                    {(dashboardMetrics.growthStage || "").toLowerCase().includes("harvested")
                       ? "0"
-                      : (metrics.brixMax !== null && metrics.brixMax !== undefined ? (metrics.brixMax === 0 ? "0" : metrics.brixMax) : "-")}
+                      : (dashboardMetrics.brixMax !== null && dashboardMetrics.brixMax !== undefined ? (dashboardMetrics.brixMax === 0 ? "0" : dashboardMetrics.brixMax) : "-")}
                   </span>
                 </div>
               </div>
@@ -3002,9 +3168,9 @@ const FarmerDashboard: React.FC = () => {
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
-                  {metrics.organicCarbonDensity != null &&
-                    Number.isFinite(Number(metrics.organicCarbonDensity))
-                    ? Number(metrics.organicCarbonDensity).toFixed(2)
+                  {dashboardMetrics.organicCarbonDensity != null &&
+                    Number.isFinite(Number(dashboardMetrics.organicCarbonDensity))
+                    ? Number(dashboardMetrics.organicCarbonDensity).toFixed(2)
                     : "-"}
                 </div>
                 <div className="mt-1 text-base font-semibold leading-none text-emerald-600 sm:text-lg">
@@ -3049,8 +3215,8 @@ const FarmerDashboard: React.FC = () => {
               </div>
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
-                  {metrics.soilPH != null && Number.isFinite(Number(metrics.soilPH))
-                    ? Number(metrics.soilPH).toFixed(2)
+                  {dashboardMetrics.soilPH != null && Number.isFinite(Number(dashboardMetrics.soilPH))
+                    ? Number(dashboardMetrics.soilPH).toFixed(2)
                     : "-"}
                 </div>
                 <div className="mt-1 text-base font-semibold leading-none text-yellow-600 sm:text-lg">pH</div>
@@ -3071,8 +3237,8 @@ const FarmerDashboard: React.FC = () => {
               <div className="flex w-[88px] sm:w-[96px] shrink-0 flex-col items-end justify-center text-right">
                 <div className="text-[30px] font-bold tabular-nums leading-none text-gray-800 sm:text-[34px]">
                   {metricOrLoader(
-                    metrics.stressTotalDays ?? metrics.stressCount,
-                    metrics.stressTotalDays == null && metrics.stressCount == null,
+                    dashboardMetrics.stressTotalDays ?? dashboardMetrics.stressCount,
+                    dashboardMetrics.stressTotalDays == null && dashboardMetrics.stressCount == null,
                   )}
                 </div>
                 <div className="mt-1 text-base font-semibold leading-none text-green-600 sm:text-lg">
@@ -3096,43 +3262,50 @@ const FarmerDashboard: React.FC = () => {
             </div>
             <div className="flex flex-col items-center mt-auto">
               <div className="w-full max-w-full overflow-hidden">
-                <PieChartWithNeedle
-                  value={metrics.sugarYieldMean || 0}
-                  max={metrics.sugarYieldMax || 400}
-                  title="Grapes Yield Forecast"
-                  unit=" T/acre"
-                  width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth * 0.8 : 300)}
-                  height={200}
-                />
+                {hasYieldForecast ? (
+                  <PieChartWithNeedle
+                    value={dashboardMetrics.sugarYieldMean ?? 0}
+                    max={dashboardMetrics.sugarYieldMax ?? 400}
+                    title="Grapes Yield Forecast"
+                    unit=" T/acre"
+                    width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth * 0.8 : 300)}
+                    height={200}
+                  />
+                ) : (
+                  <div className="flex h-[200px] items-center justify-center text-sm text-gray-500">
+                    Yield data unavailable
+                  </div>
+                )}
               </div>
               <div className="mt-2 text-center">
                 <div className="flex items-center justify-center gap-2 text-sm sm:text-base flex-wrap">
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-red-500"></div>
                     <span className="text-red-700 font-semibold">
-                      min: {(metrics.sugarYieldMin || 0).toFixed(1)} T/acre
+                      min: {dashboardMetrics.sugarYieldMin?.toFixed(1) ?? "-"} T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-purple-500"></div>
                     <span className="text-purple-700 font-semibold">
-                      mean: {(metrics.sugarYieldMean || 0).toFixed(1)}{" "}
+                      mean: {dashboardMetrics.sugarYieldMean?.toFixed(1) ?? "-"}{" "}
                       T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-green-500"></div>
                     <span className="text-green-700 font-semibold">
-                      max: {(metrics.sugarYieldMax || 0).toFixed(1)} T/acre
+                      max: {dashboardMetrics.sugarYieldMax?.toFixed(1) ?? "-"} T/acre
                     </span>
                   </div>
                 </div>
                 <div className="mt-1 text-sm sm:text-base text-gray-500">
                   Performance:{" "}
-                  {metrics.sugarYieldMax
-                    ? (((metrics.sugarYieldMean || 0) / metrics.sugarYieldMax) * 100).toFixed(1)
-                    : "0.0"}
-                  % of optimal yield
+                  {dashboardMetrics.sugarYieldMean != null &&
+                  dashboardMetrics.sugarYieldMax != null &&
+                  dashboardMetrics.sugarYieldMax > 0
+                    ? `${((dashboardMetrics.sugarYieldMean / dashboardMetrics.sugarYieldMax) * 100).toFixed(1)}% of optimal yield`
+                    : "—"}
                 </div>
               </div>
             </div>
@@ -3149,37 +3322,43 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex flex-col items-center justify-center">
               <div className="h-40 sm:h-48 md:h-52 flex flex-col items-center justify-center relative w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={biomassData}
-                      cx="50%"
-                      cy="80%"
-                      startAngle={180}
-                      endAngle={0}
-                      outerRadius={110}
-                      innerRadius={70}
-                      dataKey="value"
-                      labelLine={false}
-                    >
-                      {biomassData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      wrapperStyle={{ zIndex: 50 }}
-                      contentStyle={{ fontSize: "12px" }}
-                      formatter={(value: number, name: string) => [
-                        `${value.toFixed(1)} T/acre`,
-                        name,
-                      ]}
-                    />
-                  </PieChart>
+                  {hasBiomass ? (
+                    <PieChart>
+                      <Pie
+                        data={biomassData}
+                        cx="50%"
+                        cy="80%"
+                        startAngle={180}
+                        endAngle={0}
+                        outerRadius={110}
+                        innerRadius={70}
+                        dataKey="value"
+                        labelLine={false}
+                      >
+                        {biomassData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        wrapperStyle={{ zIndex: 50 }}
+                        contentStyle={{ fontSize: "12px" }}
+                        formatter={(value: number, name: string) => [
+                          `${value.toFixed(1)} T/acre`,
+                          name,
+                        ]}
+                      />
+                    </PieChart>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                      Biomass data unavailable
+                    </div>
+                  )}
                 </ResponsiveContainer>
               </div>
               {/* Total Biomass Value Display Below Chart */}
               <div className="-mt-4 mb-1">
                 <p className="text-base sm:text-lg font-semibold text-blue-600 text-center">
-                  {totalBiomass.toFixed(1)} T/acre
+                  {totalBiomass?.toFixed(1) ?? "-"} T/acre
                 </p>
               </div>
               <p className="text-sm sm:text-base text-gray-700 font-medium text-center mb-3">
@@ -3190,13 +3369,13 @@ const FarmerDashboard: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded bg-blue-500"></div>
                     <span className="text-blue-700 font-semibold">
-                      Total: {totalBiomass.toFixed(1)} T/acre
+                      Total: {totalBiomass?.toFixed(1) ?? "-"} T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded bg-green-500"></div>
                     <span className="text-green-700 font-semibold">
-                      Underground: {currentBiomass.toFixed(1)} T/acre
+                      Underground: {dashboardCurrentBiomass?.toFixed(1) ?? "-"} T/acre
                     </span>
                   </div>
                 </div>

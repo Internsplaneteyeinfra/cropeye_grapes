@@ -44,10 +44,7 @@ function isLocalhostUrl(url: string): boolean {
 }
 
 function useDevApiProxy(): boolean {
-  return (
-    import.meta.env.DEV &&
-    (import.meta.env.VITE_USE_API_PROXY as string | undefined)?.trim() === "true"
-  );
+  return false;
 }
 
 /** Dev default: direct Railway URL. Opt-in proxy via VITE_USE_API_PROXY=true. */

@@ -95,10 +95,10 @@ export function plotKeyFromRecord(plot: PlotRef | null | undefined): string {
   return "";
 }
 
-export function findPlotRef(
-  plots: PlotRef[] | null | undefined,
+export function findPlotRef<T extends PlotRef>(
+  plots: T[] | null | undefined,
   plotId: string,
-): PlotRef | null {
+): T | null {
   if (!plots?.length || !plotId?.trim()) return null;
 
   const key = normalizePlotKey(plotId);

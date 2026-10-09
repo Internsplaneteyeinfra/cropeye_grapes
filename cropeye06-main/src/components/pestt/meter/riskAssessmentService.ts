@@ -50,6 +50,8 @@ export interface RiskAssessmentResult {
   };
 }
 
+const GRAPES_ADMIN_BASE = 'https://cropeye-grapes-admin-production.up.railway.app';
+
 export interface RiskAssessmentApiResponse {
   plot_name: string;
   risk: {
@@ -84,13 +86,6 @@ function mapPixelDataToPestDetection(pixel?: RiskAssessmentApiResponse['pixel_da
 
 function assessmentFromApiPayload(body: RiskAssessmentApiResponse): RiskAssessmentResult {
   const r = body.risk;
-  const riskNames = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? value.filter((name): name is string => typeof name === 'string')
-          .map((name) => name.trim())
-          .filter(Boolean)
-      : [];
-
   return {
     stage: 'API',
     current_conditions: {
@@ -99,19 +94,19 @@ function assessmentFromApiPayload(body: RiskAssessmentApiResponse): RiskAssessme
       humidity: '—',
     },
     pests: {
-      High: riskNames(r.pests?.High),
-      Moderate: riskNames(r.pests?.Moderate),
-      Low: riskNames(r.pests?.Low),
+      High: [...(r.pests?.High || [])],
+      Moderate: [...(r.pests?.Moderate || [])],
+      Low: [...(r.pests?.Low || [])],
     },
     diseases: {
-      High: riskNames(r.diseases?.High),
-      Moderate: riskNames(r.diseases?.Moderate),
-      Low: riskNames(r.diseases?.Low),
+      High: [...(r.diseases?.High || [])],
+      Moderate: [...(r.diseases?.Moderate || [])],
+      Low: [...(r.diseases?.Low || [])],
     },
     weeds: {
-      High: riskNames(r.weeds?.High),
-      Moderate: riskNames(r.weeds?.Moderate),
-      Low: riskNames(r.weeds?.Low),
+      High: [...(r.weeds?.High || [])],
+      Moderate: [...(r.weeds?.Moderate || [])],
+      Low: [...(r.weeds?.Low || [])],
     },
   };
 }
@@ -125,8 +120,7 @@ export async function fetchRiskAssessmentFromApi(
   if (!plotName?.trim()) return null;
 
   const token = getAuthToken();
-  const baseUrl = getGrapesAdminBaseUrl().replace(/\/+$/, '');
-  const url = `${baseUrl}/risk-assessment?plot_name=${encodeURIComponent(plotName.trim())}`;
+  const url = `${GRAPES_ADMIN_BASE}/risk-assessment?plot_name=${encodeURIComponent(plotName.trim())}`;
 
   try {
     const response = await fetch(url, {

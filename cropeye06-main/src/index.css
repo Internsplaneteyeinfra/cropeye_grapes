@@ -4,40 +4,31 @@
 
 /* Global Grapes Theme Variables */
 :root {
-  --color-primary: rgb(102, 51, 153);
-  /* Grape Purple */
-  --color-secondary: rgb(46, 125, 50);
-  /* Leaf Green */
-  --color-accent: rgb(76, 175, 80);
-  /* Light Green */
-  --color-info: rgb(33, 150, 243);
-  /* Information Blue */
-  --bg-main: rgb(245, 247, 250);
-  /* Main Background */
-  --bg-card: rgb(255, 255, 255);
-  /* Card Background */
-  --text-primary: rgb(33, 33, 33);
-  /* Primary Text */
-  --text-secondary: rgb(97, 97, 97);
-  /* Secondary Text */
-  --color-success: rgb(56, 142, 60);
-  /* Success */
-  --color-warning: rgb(251, 192, 45);
-  /* Warning */
-  --color-error: rgb(211, 47, 47);
-  /* Error */
+  /* === Premium Light Mode Theme === */
+  --color-primary: #16a34a;
+  --color-secondary: #15803d;
+  --color-accent: #22c55e;
+  --color-info: #0ea5e9;
+  --bg-main: #f1f5f9;          /* Light gray background */
+  --bg-card: #ffffff;          /* White cards */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
   --radius-card: 16px;
   --radius-pill: 20px;
   --radius-input: 10px;
-  --shadow-card: 0px 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-hover: 0px 6px 18px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.1);
   --transition-fast: 0.2s ease;
 
-  /* Glassmorphism & Premium UI */
+  /* Layout */
   --sidebar-w: 280px;
-  --sidebar-bg-scale: 110%; /* Controls background illustration scaling */
-
-  /* Layout stability */
+  --sidebar-bg-scale: 110%;
   --app-max-w: 1440px;
   --app-gutter: 24px;
   --app-gutter-sm: 16px;
@@ -53,12 +44,12 @@ body,
 }
 
 body {
-  /* Adjusted white overlay to 40% to make background image slightly more visible */
-  background-image: linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)), url('/Image/Background.png') !important;
-  background-size: cover !important;
-  background-position: bottom center !important;
+  /* Premium Light Background */
+  background: #f8fafc !important;
+  background-color: #f8fafc !important;
   background-attachment: fixed !important;
-  background-repeat: no-repeat !important;
+  color: #0f172a !important;
+  font-family: 'Inter', 'Poppins', system-ui, sans-serif;
 }
 
 .main-background {
@@ -546,4 +537,179 @@ h3,
 .font-premium {
   font-family: "Outfit", "Poppins", sans-serif;
   letter-spacing: -0.01em;
+}
+/* ==========================================================================
+   AGRICULTURE AI — PREMIUM LIGHT MODE
+   ========================================================================== */
+
+/* ── All Cards: White Solid ── */
+.bg-white,
+[class*="bg-white"],
+.bg-slate-50,
+.bg-gray-50,
+.bg-gray-100,
+.bg-slate-100,
+.bg-blue-50,
+.bg-red-50,
+.bg-orange-50,
+.bg-amber-50,
+.card,
+[class*="card"] {
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #f1f5f9 !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04) !important;
+  border-radius: var(--radius-card) !important;
 }
+
+/* Force inline-styled divs (Recharts, Soil Report, etc.) */
+div[style*="background: white"],
+div[style*="background-color: white"],
+div[style*="background: #fff"],
+div[style*="background-color: #fff"],
+div[style*="background: #ffffff"],
+div[style*="background-color: #ffffff"],
+div[style*="background: rgb(255, 255, 255)"],
+div[style*="background-color: rgb(255, 255, 255)"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* ── Text on cards: Dark Gray ── */
+.text-gray-900, .text-gray-800, .text-gray-700, .text-gray-600,
+.text-slate-900, .text-slate-800, .text-slate-700, .text-black {
+  color: #0f172a !important;
+}
+
+.text-gray-500, .text-gray-400,
+.text-slate-500, .text-slate-400 {
+  color: #64748b !important;
+}
+
+/* ── Headings on cards: Very Dark Gray ── */
+h1, h2, h3, h4, h5, h6 {
+  color: #0f172a !important;
+}
+
+/* ── Body text ── */
+body {
+  color: #0f172a !important;
+}
+
+/* ── Green accent text ── */
+.text-emerald-600, .text-green-600,
+.text-emerald-700, .text-green-700,
+.text-emerald-500, .text-green-500 {
+  color: #16a34a !important;
+}
+.text-emerald-400, .text-green-400 {
+  color: #22c55e !important;
+}
+
+/* Status badge colours */
+.text-red-500, .text-red-600 { color: #dc2626 !important; }
+.text-yellow-500, .text-amber-500 { color: #d97706 !important; }
+.text-blue-500, .text-blue-600 { color: #2563eb !important; }
+
+/* ── Badge backgrounds ── */
+.bg-emerald-50, .bg-green-50, .bg-green-100, .bg-emerald-100 {
+  background: #dcfce7 !important;
+  color: #16a34a !important;
+  border: 1px solid #bbf7d0 !important;
+}
+.bg-red-100, .bg-red-50 { background: #fee2e2 !important; color: #dc2626 !important; }
+.bg-yellow-100, .bg-amber-100 { background: #fef3c7 !important; color: #d97706 !important; }
+.bg-blue-100 { background: #dbeafe !important; color: #2563eb !important; }
+
+/* ── Tables ── */
+table {
+  background: #ffffff !important;
+  border-radius: 12px !important;
+}
+table, tr, td, th {
+  border-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+thead, th {
+  background: #f8fafc !important;
+  color: #16a34a !important;
+  font-weight: 600 !important;
+}
+tbody tr:hover {
+  background: #f1f5f9 !important;
+}
+
+/* ── Form inputs & Selects: White ── */
+input, select, textarea {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.05) !important;
+}
+input::placeholder, textarea::placeholder { color: #94a3b8 !important; }
+input:focus, select:focus, textarea:focus {
+  border-color: #16a34a !important;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15) !important;
+}
+
+/* ── Progress / Gauge tracks ── */
+.bg-gray-200, .bg-slate-200 {
+  background: #e2e8f0 !important;
+}
+
+/* ── Shadows ── */
+.shadow-lg, .shadow-md, .shadow-sm, .shadow {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ── Header bar: White Glass ── */
+header,
+.app-container-header {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  color: #0f172a !important;
+}
+
+/* Make header text dark */
+header p, header span, header h1, header h2, header h3,
+.app-container-header p, .app-container-header span {
+  color: #0f172a !important;
+}
+
+/* ── Weather/info pills in header ── */
+.weather-pill,
+[class*="pill"] {
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+/* ── Buttons ── */
+button:not([class*="active"]):not([disabled]) {
+  transition: all 0.2s ease;
+}
+.btn-primary,
+[class*="btn-green"],
+button[class*="bg-green"],
+button[class*="bg-emerald"] {
+  background: #16a34a !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.2) !important;
+}
+.btn-primary:hover,
+[class*="btn-green"]:hover,
+button[class*="bg-green"]:hover,
+button[class*="bg-emerald"]:hover {
+  background: #15803d !important;
+}
+
+/* ── Recharts & SVG chart text: Dark text ── */
+text, tspan {
+  fill: #475569 !important;
+}

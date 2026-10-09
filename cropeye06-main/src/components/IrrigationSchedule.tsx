@@ -16,7 +16,7 @@ import {
   todayIsoInTz,
   type WaterRemainDay,
 } from "../utils/waterRemainApi";
-import { plotKeyFromRecord } from "../utils/plotName";
+import { findPlotRef, plotKeyFromRecord } from "../utils/plotName";
 import { fetchSoilMoistureForPlot } from "../utils/soilMoistureApi";
 import { getEventsBaseUrl } from "../utils/serviceUrls";
 import { CloudRain, Sun } from "lucide-react";
@@ -306,24 +306,27 @@ const IrrigationSchedule: React.FC = () => {
   useEffect(() => {
     if (!profile || profileLoading) return;
 
-    let selectedPlot = null;
-    if (selectedPlotName) {
-      selectedPlot = profile.plots?.find(
-        (p: any) =>
-          p.fastapi_plot_id === selectedPlotName ||
-          `${p.gat_number}_${p.plot_number}` === selectedPlotName,
-      );
-    }
-    if (!selectedPlot && profile.plots?.length) {
-      selectedPlot = profile.plots[0];
-    }
+    const selectedPlot =
+      (selectedPlotName
+        ? findPlotRef(profile.plots, selectedPlotName)
+        : null) ??
+      (!selectedPlotName ? profile.plots?.[0] : null) ??
+      null;
     if (!selectedPlot) {
       setPlotName("");
       setPlotCoords(null);
       setPlotConfig(null);
       setIrrigationEventDates(new Set());
+      setRemainDays([]);
+      setError(
+        selectedPlotName
+          ? `Selected plot "${selectedPlotName}" was not found in your profile.`
+          : null,
+      );
+      setLoading(false);
       return;
     }
+    setError(null);
 
     const plotId =
       plotKeyFromRecord(selectedPlot) ||
@@ -410,12 +413,13 @@ const IrrigationSchedule: React.FC = () => {
     let interval: ReturnType<typeof setInterval> | null = null;
     try {
       if (!profile || !selectedPlotName) return;
-      let selectedPlot = profile.plots?.find(
-        (p: any) =>
-          p.fastapi_plot_id === selectedPlotName ||
-          `${p.gat_number}_${p.plot_number}` === selectedPlotName,
-      );
-      if (!selectedPlot && profile.plots?.length) selectedPlot = profile.plots[0];
+      const selectedPlot =
+        (selectedPlotName
+          ? findPlotRef(profile.plots, selectedPlotName)
+          : null) ??
+        (!selectedPlotName ? profile.plots?.[0] : null) ??
+        null;
+      if (!selectedPlot) return;
       const coords = selectedPlot?.coordinates?.location?.coordinates;
       if (Array.isArray(coords) && coords.length >= 2) {
         const [lon, lat] = coords;

@@ -103,32 +103,52 @@ function resolveVariety(farm: any): string {
 }
 
 /** Prefer API distance fields (meters → km). Never use Math.random. */
-function resolveDistanceKm(plot: any, farm?: any): number {
-  const candidates = [
-    plot?.distance_km,
-    plot?.distance,
-    farm?.distance_km,
-    farm?.distance,
-    plot?.Distance,
-    farm?.Distance,
+function resolveDistanceKm(plot: any, farm?: any): number | null {
+  const records = [plot, farm]
+    .filter(Boolean)
+    .flatMap((record) => {
+      const nestedFarms = [
+        ...(Array.isArray(record?.farms) ? record.farms : []),
+        ...(Array.isArray(record?.farm_list) ? record.farm_list : []),
+      ];
+      return [record, ...nestedFarms];
+    });
+  const directFields = [
+    "distance_km",
+    "Distance (km)",
+    "distance",
+    "Distance",
   ];
-  for (const c of candidates) {
-    const n = parseFloat(String(c ?? ""));
-    if (Number.isFinite(n) && n >= 0) return n;
+  for (const record of records) {
+    for (const field of directFields) {
+      const value = record?.[field];
+      if (value == null || value === "") continue;
+      const distance = Number(value);
+      if (Number.isFinite(distance) && distance >= 0) return distance;
+    }
   }
-  const meters = [
-    plot?.distance_motor_to_plot_m,
-    farm?.distance_motor_to_plot_m,
-    plot?.distance_From_Motor,
-    farm?.distance_From_Motor,
-    plot?.irrigation_details?.distance_motor_to_plot_m,
-    farm?.irrigation_details?.distance_motor_to_plot_m,
-  ];
-  for (const m of meters) {
-    const n = parseFloat(String(m ?? ""));
-    if (Number.isFinite(n) && n >= 0) return n / 1000;
+
+  const irrigationRecords = records.flatMap((record) => {
+    const nested = [
+      record?.irrigation_details,
+      record?.irrigation,
+      record?.irrigations,
+    ];
+    return nested.flatMap((value) =>
+      Array.isArray(value) ? value : value ? [value] : [],
+    );
+  });
+  for (const irrigation of irrigationRecords) {
+    const value =
+      irrigation?.distance_motor_to_plot_m ??
+      irrigation?.distance_From_Motor;
+    if (value == null || value === "") continue;
+    const distanceMeters = Number(value);
+    if (Number.isFinite(distanceMeters) && distanceMeters >= 0) {
+      return distanceMeters / 1000;
+    }
   }
-  return 0;
+  return null;
 }
 
 function readAgroYieldBrix(plotRow: any): {
@@ -211,7 +231,31 @@ function extractFarmers(officer: any): any[] {
     officer?.assigned_farmers,
     officer?.farmer_details,
     officer?.my_farmers,
-  );
+    officer?.farmer_profiles,
+    officer?.all_farmers,
+  ).map((farmer: any) => {
+    const user =
+      farmer?.user && typeof farmer.user === "object" ? farmer.user : null;
+    return {
+      ...user,
+      ...farmer,
+      id:
+        farmer?.id ??
+        farmer?.farmer_id ??
+        farmer?.farmerId ??
+        farmer?.user_id ??
+        user?.id,
+      first_name: farmer?.first_name ?? user?.first_name ?? farmer?.name,
+      last_name: farmer?.last_name ?? user?.last_name ?? "",
+      plots: pickArray(
+        farmer?.plots,
+        farmer?.plot_list,
+        farmer?.plot,
+        farmer?.farms,
+        user?.plots,
+      ),
+    };
+  });
 }
 
 function extractPlots(farmer: any): any[] {
@@ -249,7 +293,7 @@ interface HarvestData {
   "Prediction Yield (T/acre)": number;
   "Brix (Degree)": number;
   "Recovery (Degree)": number;
-  "Distance (km)": number;
+  "Distance (km)": number | null;
   Stage: string;
   Region: string;
   "Grapes Type": string;

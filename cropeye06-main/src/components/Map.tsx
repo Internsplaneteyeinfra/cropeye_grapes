@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import "./Map.css";
 import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile";
 import { FaExpand } from 'react-icons/fa';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Droplets, MapPinned, Sprout, Wheat } from 'lucide-react';
 import SoilAnalysis from "./SoilAnalysis";
 import {
   FieldHealthAnalysis,
@@ -20,14 +20,9 @@ import FertilizerTable from "./FertilizerTable";
 import { useAppContext } from "../context/AppContext";
 import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
-import { fieldScoreCacheKey } from "../utils/plotName";
+import { fieldScoreCacheKey, findPlotRef } from "../utils/plotName";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
-import {
-  fetchAnalysisTimeline,
-  sortedRebinDatesForLayer,
-  type AnalysisTimelineResponse,
-} from "../services/analysisTimeline";
 
 // Add custom styles for the enhanced tooltip
 const tooltipStyles = `
@@ -325,6 +320,12 @@ const CustomTileLayer: React.FC<{
   );
 };
 
+function normalizeImageDate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const date = value.split("T", 1)[0].trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
 function isTodayDate(value: string): boolean {
   return value === new Date().toISOString().split("T")[0];
 }
@@ -423,15 +424,26 @@ const Map: React.FC<MapProps> = ({
   const [popupSide, setPopupSide] = useState<'left' | 'right' | null>(null);
   const DAYS_STEP = 15;
 
-  const [timelinePayload, setTimelinePayload] = useState<AnalysisTimelineResponse | null>(null);
+  // The admin endpoint returns date lists for all layers in one request per plot.
+  const [imageDatesPayload, setImageDatesPayload] = useState<Record<string, any> | null>(null);
   const [datesLoading, setDatesLoading] = useState(false);
-  const [datesError, setDatesError] = useState<string | null>(null);
   const selectedDateButtonRef = useRef<HTMLButtonElement | null>(null);
-  const availableDates = useMemo(
-    () => sortedRebinDatesForLayer(timelinePayload?.timeline, activeLayer),
-    [timelinePayload, activeLayer],
-  );
-  const latestAvailableDate = availableDates[availableDates.length - 1] ?? null;
+  const imageDatesLayerKey = {
+    Growth: "growth",
+    "Water Uptake": "water_uptake",
+    "Soil Moisture": "soil_moisture",
+    PEST: "pest_detection",
+    Brix: "growth",
+  }[activeLayer];
+  const availableDates = useMemo(() => {
+    const dates = imageDatesPayload?.[imageDatesLayerKey]?.dates;
+    if (!Array.isArray(dates)) return [];
+    return [...new Set(dates.map(normalizeImageDate).filter((date): date is string => date !== null))].sort();
+  }, [imageDatesPayload, imageDatesLayerKey]);
+  const latestAvailableDate =
+    normalizeImageDate(imageDatesPayload?.[imageDatesLayerKey]?.latest_date) ||
+    availableDates[availableDates.length - 1] ||
+    null;
 
   const isHarvested = useMemo(() => {
     const s = (cropStatus || "").toString().toLowerCase();
@@ -511,7 +523,41 @@ const Map: React.FC<MapProps> = ({
 
   useEffect(() => {
     setLayerChangeKey(prev => prev + 1);
-    setError(null);
+    // Reset to current date when switching layers (for Growth, Water Uptake, Soil Moisture, PEST, and Brix)
+    if (activeLayer === "Growth" || activeLayer === "Water Uptake" || activeLayer === "Soil Moisture" || activeLayer === "PEST" || activeLayer === "Brix") {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
+      setCurrentEndDate(todayStr);
+      
+      // Check if data exists in cache before showing loading spinner
+      let hasCachedData = false;
+      if (selectedPlotName) {
+        if (activeLayer === "Growth") {
+          hasCachedData = !!(growthData || hasApiData('growth', selectedPlotName) || getCache(`growth_${selectedPlotName}_${todayStr}`));
+        } else if (activeLayer === "Water Uptake") {
+          hasCachedData = !!(waterUptakeData || hasApiData('waterUptake', selectedPlotName) || getCache(`wateruptake_${selectedPlotName}_${todayStr}`));
+        } else if (activeLayer === "Soil Moisture") {
+          hasCachedData = !!(soilMoistureData || hasApiData('soilMoisture', selectedPlotName) || getCache(`soilmoisture_${selectedPlotName}_${todayStr}`));
+        } else if (activeLayer === "PEST") {
+          hasCachedData = !!(pestData || hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${todayStr}`));
+        } else if (activeLayer === "Brix") {
+          hasCachedData = !!(brixData || canopyVigourData || brixQualityData || 
+                          hasApiData('brix', selectedPlotName) || hasApiData('canopyVigour', selectedPlotName) || hasApiData('brixQuality', selectedPlotName) ||
+                          getCache(`brix_${selectedPlotName}_${todayStr}`) || getCache(`canopy_vigour_${selectedPlotName}_${todayStr}`) || getCache(`brixQuality_${selectedPlotName}`));
+        }
+      }
+      
+      // Only show loading spinner if data doesn't exist in cache
+      if ((!hasCachedData || shouldBypassMapLayerCache()) && selectedPlotName) {
+        setLoading(true);
+      } else {
+        setLoading(false); // Stop spinner if cached data exists
+      }
+      setError(null);
+    }
     
     // Ensure plotBoundary is preserved when switching layers
     // Try to extract from current layer data if plotBoundary is missing
@@ -539,46 +585,41 @@ const Map: React.FC<MapProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayer, selectedPlotName]);
 
-  // Fetch the available analysis dates once per plot, then filter them for the active layer.
+  // Fetch the complete image-date timeline once per plot, then derive dates for each layer.
   useEffect(() => {
     const plotName = activePlotName.trim();
     if (!plotName) {
-      setTimelinePayload(null);
+      setImageDatesPayload(null);
       setDatesLoading(false);
-      setDatesError(null);
       return;
     }
     let cancelled = false;
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
     setDatesLoading(true);
-    setDatesError(null);
-    setTimelinePayload(null);
+    setImageDatesPayload(null);
 
-    fetchAnalysisTimeline(plotName, controller.signal)
+    fetch(`${getGrapesAdminBaseUrl()}/image-dates?plot_name=${encodeURIComponent(plotName)}`, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`image-dates: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
-        if (!cancelled) setTimelinePayload(data);
+        if (cancelled) return;
+        setImageDatesPayload(data as Record<string, any>);
       })
       .catch((err) => {
-        if (cancelled) return;
-        const message = controller.signal.aborted
-          ? "Date request timed out. Please retry."
-          : err instanceof Error
-            ? err.message
-            : "Could not load dates.";
-        setDatesError(message);
-        console.warn("Map date timeline fetch failed:", err);
+        if (!cancelled) console.warn("image-dates fetch failed:", err);
       })
       .finally(() => {
-        window.clearTimeout(timeoutId);
         if (!cancelled) setDatesLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlotName]);
 
   useEffect(() => {
@@ -782,7 +823,12 @@ const Map: React.FC<MapProps> = ({
       profile.plots
         ?.map((plot) => resolveFarmerPlotId(plot))
         .filter(Boolean) || [];
-    const defaultPlot = plotNames.length > 0 ? plotNames[0] : null;
+    const requestedPlot = localStorage.getItem("selectedPlot") || "";
+    const selectedProfilePlot =
+      findPlotRef(profile.plots, requestedPlot) ?? profile.plots?.[0] ?? null;
+    const defaultPlot = selectedProfilePlot
+      ? resolveFarmerPlotId(selectedProfilePlot)
+      : null;
     
     console.log('🗺️ Map: Available plots:', plotNames);
     console.log('🗺️ Map: Setting default plot:', defaultPlot);
@@ -2878,9 +2924,106 @@ const Map: React.FC<MapProps> = ({
     });
   };
 
+  const farmerPlots = profile?.plots ?? [];
+  const plotFarms = farmerPlots.flatMap((plot) => plot.farms ?? []);
+  const farmerFarms = plotFarms.length > 0 ? plotFarms : profile?.farms ?? [];
+  const dashboardPlotCount = Math.max(
+    profile?.agricultural_summary?.total_plots ?? 0,
+    farmerPlots.length,
+  );
+  const derivedFarmArea = farmerFarms.reduce(
+    (area, farm) => area + (Number(farm.area_size_numeric ?? farm.area_size) || 0),
+    0,
+  );
+  const summaryFarmArea = profile?.agricultural_summary?.total_farm_area ?? 0;
+  const dashboardFarmArea = summaryFarmArea > 0 ? summaryFarmArea : derivedFarmArea;
+  const dashboardCropCount = new Set(
+    [
+      ...(profile?.agricultural_summary?.crop_types ?? []),
+      ...farmerFarms.map(
+        (farm) => farm.crop_type?.crop_type ?? farm.crop_type?.crop_variety,
+      ),
+    ].filter(Boolean),
+  ).size;
+  const derivedIrrigationCount = farmerFarms.reduce(
+    (count, farm) => count + (farm.irrigations_count ?? farm.irrigations?.length ?? 0),
+    0,
+  );
+  const dashboardIrrigationCount = Math.max(
+    profile?.agricultural_summary?.total_irrigations ?? 0,
+    derivedIrrigationCount,
+  );
+
   return (
     <div className="map-wrapper" style={{ minHeight: '100dvh', width: '100%', display: 'flex', justifyContent: 'center', overflowX: 'hidden' }}>
       <div className="map-content-container" style={{ width: '100%', maxWidth: '1920px', margin: '0 auto', padding: '0 1rem', boxSizing: 'border-box' }}>
+      <header className="map-dashboard-heading">
+        <div>
+          <p className="map-dashboard-eyebrow">CROPEYE GRAPE INTELLIGENCE</p>
+          <h1>Grape Field Overview</h1>
+          <p className="map-dashboard-subtitle">Your field conditions, crop health, and local weather at a glance.</p>
+        </div>
+        <div className="map-dashboard-date">
+          {new Date().toLocaleDateString(undefined, {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}
+        </div>
+      </header>
+      <section className="dashboard-farm-stats" aria-label="Farm summary">
+        {[
+          {
+            label: "Field health",
+            value: fieldAnalysisData && Number.isFinite(fieldAnalysisData.overallHealth)
+              ? `${fieldAnalysisData.overallHealth.toFixed(1)}%`
+              : "—",
+            note: fieldAnalysisData?.healthStatus ?? "Current plot score",
+            Icon: Sprout,
+            accent: "health",
+          },
+          {
+            label: "Farm area",
+            value: profileLoading || !profile ? "—" : `${dashboardFarmArea.toFixed(1)} ha`,
+            note: "Total registered area",
+            Icon: Sprout,
+            accent: "area",
+          },
+          {
+            label: "Registered plots",
+            value: profileLoading || !profile ? "—" : dashboardPlotCount.toLocaleString(),
+            note: "Field boundaries",
+            Icon: MapPinned,
+            accent: "plots",
+          },
+          {
+            label: "Crop types",
+            value: profileLoading || !profile ? "—" : dashboardCropCount.toLocaleString(),
+            note: "Currently registered",
+            Icon: Wheat,
+            accent: "crops",
+          },
+          {
+            label: "Irrigation points",
+            value: profileLoading || !profile ? "—" : dashboardIrrigationCount.toLocaleString(),
+            note: "Registered on your plots",
+            Icon: Droplets,
+            accent: "irrigation",
+          },
+        ].map(({ label, value, note, Icon, accent }) => (
+          <article className={`dashboard-farm-stat dashboard-farm-stat--${accent}`} key={label}>
+            <span className="dashboard-farm-stat-icon" aria-hidden="true">
+              <Icon size={19} strokeWidth={1.8} />
+            </span>
+            <div className="dashboard-farm-stat-copy">
+              <p>{label}</p>
+              <strong>{value}</strong>
+              <span>{note}</span>
+            </div>
+          </article>
+        ))}
+      </section>
       <div className="layer-controls">
         <div className="layer-buttons">
           {(["Growth", "Water Uptake", "Soil Moisture", "PEST", "Brix"] as const).map((layer) => (
@@ -3010,7 +3153,7 @@ const Map: React.FC<MapProps> = ({
       </div>
 
       {/* Map stays in original place — Field Score loads first, then layers unlock */}
-      <div className="flex flex-col lg:flex-row gap-4" style={{ marginTop: '1rem', width: '100%' }}>
+      <div className="map-primary-row flex flex-col lg:flex-row gap-4" style={{ marginTop: '1rem', width: '100%' }}>
         {/* Map Section - Increased width by 20px */}
         <div className="map-section-expanded" style={{ paddingLeft: '0', overflow: 'hidden', maxWidth: '100%', minWidth: 0 }}>
           {/* Enhanced Multi-Layer Tooltip */}
@@ -3119,15 +3262,10 @@ const Map: React.FC<MapProps> = ({
             )}
 
             {/* Date Ribbon - available satellite image dates from stored-tiles */}
-            {activePlotName && (
+            {(datesLoading || availableDates.length > 0) && (
               <div className="date-ribbon">
                 {datesLoading && (
                   <span className="date-ribbon-loading">Loading dates…</span>
-                )}
-                {!datesLoading && datesError && (
-                  <span className="date-ribbon-loading" role="status">
-                    Dates unavailable: {datesError}
-                  </span>
                 )}
                 {availableDates.map((d) => (
                   <button
@@ -3141,11 +3279,6 @@ const Map: React.FC<MapProps> = ({
                     <span className="date-ribbon-cell-label">{formatRibbonDate(d)}</span>
                   </button>
                 ))}
-                {!datesLoading && !datesError && availableDates.length === 0 && (
-                  <span className="date-ribbon-loading" role="status">
-                    No dates available for this layer.
-                  </span>
-                )}
               </div>
             )}
           </>
@@ -3229,24 +3362,12 @@ const Map: React.FC<MapProps> = ({
         </div>
         </div>
 
-        {/* Soil Analysis Section */}
-        <div className="soil-section-adjusted" style={{ minWidth: 0, width: '100%', flexShrink: 1 }}>
-          <div className="bg-white rounded-lg shadow-lg p-0 h-full overflow-hidden">
-            <div className="p-4">
-              <SoilAnalysis
-                plotName={activePlotName}
-                phValue={phValue}
-                phStatistics={phStatistics}
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Field Score / Crop Health / Irrigation — same place under the map */}
+      {/* Field Health / Pest & Disease / Soil Health */}
       <div
         ref={fieldScoreSectionRef}
-        className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch"
+        className="mt-4 map-health-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch"
         style={{ marginLeft: "0", paddingLeft: "0" }}
       >
         <div className="min-w-0 h-full flex flex-col">
@@ -3261,13 +3382,22 @@ const Map: React.FC<MapProps> = ({
         <div className="min-w-0 h-full flex flex-col">
           <CropHealthAnalysis />
         </div>
-        <div className="min-w-0 h-full flex flex-col">
-          <IrrigationSchedule />
+        <div className="soil-section-adjusted dashboard-soil-summary min-w-0 h-full">
+          <div className="bg-white rounded-lg shadow-lg p-0 h-full overflow-hidden">
+            <div className="p-4">
+              <SoilAnalysis
+                plotName={activePlotName}
+                phValue={phValue}
+                phStatistics={phStatistics}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Fertilizer + Soil Moisture — equal width side by side */}
-      <div className="mt-4 dashboard-cards-row grid grid-cols-1 lg:grid-cols-2 gap-4 w-full items-stretch">
+      {/* Irrigation, fertilizer, and soil moisture */}
+      <div className="mt-4 dashboard-cards-row map-dashboard-cards-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full items-stretch">
+        <IrrigationSchedule />
         <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
           <FertilizerTable embedded />
         </div>
@@ -3278,7 +3408,7 @@ const Map: React.FC<MapProps> = ({
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}
-      <div className="mt-6 sm:mt-8 w-full" style={{ marginLeft: '0', paddingLeft: '0' }}>
+      <div className="mt-6 sm:mt-8 map-weather-sections w-full min-w-0" style={{ marginLeft: '0', paddingLeft: '0' }}>
         <WeatherForecast />
       </div>
               </div>

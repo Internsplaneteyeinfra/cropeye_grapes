@@ -34,7 +34,7 @@ export function isMonthInRanges(ranges: string[], month: string): boolean {
 
   return ranges.some((range) =>
     range.split(/[;,]/).some((segment) => {
-      const indices = (segment.match(/[a-z]+/gi) ?? [])
+      const indices = (segment.match(/[a-z]+/gi) ?? [])                                                                                               
         .map(monthIndex)
         .filter((index): index is number => index !== null);
       if (indices.length === 0) return false;

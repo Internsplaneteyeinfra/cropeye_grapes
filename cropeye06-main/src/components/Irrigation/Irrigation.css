@@ -1,5 +1,4 @@
 .irrigation-container {
-  position: relative;
   max-width: 1200px;
   max-height: max-content;
   margin: 0 auto;
@@ -7,20 +6,6 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   width: 100%;
   box-sizing: border-box;
-  background:
-    linear-gradient(135deg, rgba(1, 18, 13, 0.9), rgba(9, 46, 35, 0.82) 35%, rgba(14, 62, 46, 0.76) 100%);
-  border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 18px 45px rgba(2, 17, 13, 0.38);
-  overflow: hidden;
-}
-
-.irrigation-container::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
-  pointer-events: none;
 }
 
 @media (max-width: 768px) {
@@ -36,8 +21,6 @@
 }
 
 .irrigation-header {
-  position: relative;
-  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -45,16 +28,15 @@
 }
 
 .irrigation-header h1 {
-  color: #f1f8f4;
+  color: #1e40af;
   font-size: 1.95rem;
   font-weight: 600;
   align-items: center;
-  margin: 0;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+   margin: 0;
 }
 
 .irrigation-header .date {
-  color: rgba(235, 246, 240, 0.9);
+  color: #64748b;
   font-size: 1rem;
 }
 
@@ -108,61 +90,46 @@
 }
 
 .irrigation-card {
-  position: relative;
-  z-index: 1;
-  background: rgba(16, 60, 45, 0.44) !important;
-  backdrop-filter: blur(18px) !important;
-  -webkit-backdrop-filter: blur(18px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 22px !important;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18) !important;
-  color: #edf7f0 !important;
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem 1rem 0.9rem;
+  padding: 1rem;
 }
 
 .irrigation-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 35px rgba(4, 20, 14, 0.25), 0 0 0 1px rgba(130, 214, 162, 0.22) !important;
-  border-color: rgba(130, 214, 162, 0.25) !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 .card-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  position: relative;
-  z-index: 1;
 }
 
 .card-icon {
-  color: #d7fbe3 !important;
-  opacity: 0.96;
+  color: #3b82f6;
 }
 
 .card-header h3 {
   margin: 0;
   font-size: 1rem;
-  font-weight: 600;
-  color: #edfdf3 !important;
-  letter-spacing: 0.01em;
+  font-weight: 500;
+  color: #1e293b;
 }
 
 .card-content {
-  position: relative;
-  z-index: 1;
-  padding: 1.3rem 1rem 1rem;
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 180px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
 }
 
 /* Water Uptake Ring */
@@ -2762,216 +2729,4 @@
   word-break: break-word;
   white-space: normal;
   display: inline;
-}
-
-/* Responsive layout for the weather and irrigation metric cards. */
-.irrigation-container {
-  container: irrigation-dashboard / inline-size;
-  position: relative;
-  isolation: isolate;
-  width: 100%;
-  max-width: 1440px;
-  min-width: 0;
-  max-height: none;
-  box-sizing: border-box;
-  margin: 0 auto;
-  padding: clamp(0.75rem, 2vw, 1.5rem);
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: clamp(1rem, 2vw, 1.75rem);
-  background:
-    radial-gradient(ellipse at 15% 0%, rgba(69, 131, 83, 0.24), transparent 42%),
-    linear-gradient(145deg, #10291f 0%, #123b2b 52%, #102a20 100%);
-  box-shadow: 0 16px 42px rgba(10, 32, 21, 0.18);
-}
-
-.irrigation-container::before {
-  content: none;
-}
-
-.irrigation-container > * {
-  min-width: 0;
-}
-
-.irrigation-container > .bg-white.rounded-lg.shadow-md {
-  position: relative;
-  z-index: 1;
-  margin-bottom: 1rem;
-  border: 1px solid rgba(222, 244, 228, 0.2);
-  border-radius: 1rem;
-  background: rgba(244, 251, 246, 0.96);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
-
-.irrigation-container > .bg-white.rounded-lg.shadow-md label {
-  color: #254735;
-}
-
-.irrigation-container > .bg-white.rounded-lg.shadow-md select {
-  width: min(100%, 22rem);
-  min-width: 0;
-}
-
-.irrigation-container .irrigation-header {
-  position: relative;
-  z-index: 1;
-  min-height: 2.5rem;
-  align-items: center;
-}
-
-.irrigation-container .irrigation-header .date {
-  margin-left: auto;
-  color: rgba(237, 248, 239, 0.88);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.irrigation-container > .card-row {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: stretch;
-  gap: clamp(0.75rem, 1.5vw, 1.25rem);
-  width: 100%;
-  min-width: 0;
-  margin: 0 0 clamp(0.75rem, 1.5vw, 1.25rem);
-}
-
-.irrigation-container > .card-row > .irrigation-card {
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  box-sizing: border-box;
-  padding: clamp(0.75rem, 1.5vw, 1rem);
-  gap: 0.75rem;
-  border-radius: 1rem !important;
-  background: linear-gradient(145deg, rgba(237, 250, 240, 0.12), rgba(198, 229, 204, 0.07)) !important;
-  border: 1px solid rgba(225, 246, 229, 0.2) !important;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14) !important;
-}
-
-.irrigation-container > .card-row > .irrigation-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(188, 235, 197, 0.42) !important;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2) !important;
-}
-
-.irrigation-container > .card-row > .irrigation-card .card-header {
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-.irrigation-container > .card-row > .irrigation-card .card-header h3 {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: #f1fbf3 !important;
-  font-size: clamp(0.875rem, 1.1vw, 1rem);
-}
-
-.irrigation-container > .card-row > .irrigation-card .card-content {
-  width: 100%;
-  min-width: 0;
-  min-height: clamp(140px, 16vw, 190px);
-  flex: 1 1 auto;
-  box-sizing: border-box;
-  padding: clamp(0.75rem, 1.5vw, 1.25rem);
-  border-radius: 0.75rem;
-  background: rgba(6, 28, 20, 0.2);
-}
-
-.irrigation-container > .card-row > .irrigation-card .value {
-  font-size: clamp(2rem, 3.4vw, 3rem);
-  color: #f3fff6;
-}
-
-.irrigation-container > .card-row > .irrigation-card .metric-update,
-.irrigation-container > .card-row > .irrigation-card .humidity-status,
-.irrigation-container > .card-row > .irrigation-card .humidity-range-label,
-.irrigation-container > .card-row > .irrigation-card .uptake-average,
-.irrigation-container > .card-row > .irrigation-card .water-volume,
-.irrigation-container > .card-row > .irrigation-card .water-status,
-.irrigation-container > .card-row > .irrigation-card .uptake-efficiency {
-  color: #e0f1e4;
-}
-
-.irrigation-container > .card-row > .irrigation-card .progress-text {
-  fill: #f1fbf3;
-}
-
-.irrigation-container > .card-row > .irrigation-card .rainfall-icon svg,
-.irrigation-container > .card-row > .irrigation-card .temp-icon svg,
-.irrigation-container > .card-row > .irrigation-card .humidity-icon svg {
-  width: clamp(3rem, 6vw, 5rem);
-  height: clamp(3rem, 7vw, 5.5rem);
-}
-
-.irrigation-container > .card-row > .irrigation-card .humidity-status,
-.irrigation-container > .card-row > .irrigation-card .humidity-range-label {
-  font-size: clamp(0.8rem, 1.1vw, 1rem);
-  text-align: center;
-}
-
-.irrigation-container > .card-row > .irrigation-card .gauge-labels {
-  gap: 0.5rem;
-  color: rgba(230, 243, 233, 0.8);
-  font-size: 0.75rem;
-}
-
-.irrigation-container > .card-row > .irrigation-card .gauge-labels span {
-  min-width: 0;
-}
-
-.irrigation-container > .card-row > .irrigation-card .card-footer,
-.irrigation-container .refresh-section .last-updated {
-  color: rgba(224, 241, 228, 0.78);
-}
-
-.irrigation-container .refresh-section {
-  position: relative;
-  z-index: 1;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  padding-top: 0.75rem;
-  border-top: 1px solid rgba(225, 246, 229, 0.14);
-}
-
-.irrigation-container .refresh-button {
-  border-radius: 0.65rem;
-  background: #2f8a50;
-  font-weight: 600;
-}
-
-.irrigation-container .refresh-button:hover {
-  background: #267542;
-}
-
-@container irrigation-dashboard (max-width: 900px) {
-  .irrigation-container > .card-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@container irrigation-dashboard (max-width: 560px) {
-  .irrigation-container > .card-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .irrigation-container > .card-row > .irrigation-card .card-content {
-    min-height: 140px;
-  }
-
-  .irrigation-container .irrigation-header {
-    margin-bottom: 0.75rem;
-  }
-
-  .irrigation-container .refresh-section {
-    align-items: flex-start;
-  }
-
-  .irrigation-container .refresh-section .last-updated {
-    width: 100%;
-    font-size: 0.75rem;
-  }
 }

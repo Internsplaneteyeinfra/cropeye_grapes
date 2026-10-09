@@ -5,7 +5,7 @@ import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import { getEventsBaseUrl } from "../utils/serviceUrls";
 import {
-  fetchPlotHarvestInfo,
+  fetchPlotRipeningInfo,
   harvestInfoFromAgroStatsBatch,
 } from "../utils/harvestStatusService";
 import { extractAgroStatsPlotRow } from "../utils/grapesEventsBundle";
@@ -681,6 +681,8 @@ const HarvestDashboard: React.FC = () => {
     -50, 500,
   ]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [statusUpdating, setStatusUpdating] = useState<boolean>(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [rawData, setRawData] = useState<HarvestData[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>("");
@@ -703,7 +705,10 @@ const HarvestDashboard: React.FC = () => {
 
   useEffect(() => {
     async function fetchData() {
+      let baseDataPublished = false;
       setLoading(true);
+      setStatusUpdating(false);
+      setStatusError(null);
       setLoadError(null);
       try {
         let fieldOfficers: any[] = [];
@@ -745,7 +750,7 @@ const HarvestDashboard: React.FC = () => {
 
         // Fallback: manager my-field-officers
         if (fieldOfficers.length === 0) {
-          const response = await api.get(API_BASE_URL);
+          const response = await api.get(API_BASE_URL, { timeout: 60_000 });
           const apiData = response.data ?? {};
           fieldOfficers = pickArray(
             apiData.field_officers,
@@ -935,6 +940,11 @@ const HarvestDashboard: React.FC = () => {
             new Set(dataPointToPlotIdMap.values()),
           );
 
+          setRawData(allData.map((item) => ({ ...item })));
+          baseDataPublished = true;
+          setLoading(false);
+          setStatusUpdating(uniquePlotIds.length > 0);
+
           // Fetch yield / brix / harvest status from events agroStats API
           const today = new Date().toISOString().slice(0, 10);
           const harvestStatusMap = new Map<string, string>();
@@ -1009,13 +1019,16 @@ const HarvestDashboard: React.FC = () => {
               }
 
               try {
-                const info = await fetchPlotHarvestInfo(plotId, today);
+                const info = await fetchPlotRipeningInfo(plotId);
                 if (info.harvestStatus) {
                   harvestStatusMap.set(plotId, info.harvestStatus);
                   setCache(cacheKey, info.harvestStatus);
                 }
-              } catch {
-                // Keep default status if API call fails
+              } catch (err) {
+                console.warn(
+                  `HarvestDashboard: ripening status fetch failed for plot ${plotId}`,
+                  err,
+                );
               }
             });
 
@@ -1137,10 +1150,18 @@ const HarvestDashboard: React.FC = () => {
           );
         }
       } catch (err) {
-        setRawData([]);
-        setLoadError("Failed to load harvest planning data.");
+        console.error("HarvestDashboard: failed to load data", err);
+        if (baseDataPublished) {
+          setStatusError(
+            "Some harvest status and yield details could not be updated.",
+          );
+        } else {
+          setRawData([]);
+          setLoadError("Failed to load harvest planning data.");
+        }
       } finally {
         setLoading(false);
+        setStatusUpdating(false);
       }
     }
 
@@ -1440,9 +1461,8 @@ const HarvestDashboard: React.FC = () => {
     return (
       <div className="min-h-screen dashboard-bg flex flex-col items-center justify-center gap-3 px-4">
         <CommonSpinner />
-        <p className="text-sm text-gray-600 text-center max-w-md">
-          Loading harvest planning data… this can take a few minutes while plot
-          harvest status is fetched.
+        <p className="text-sm text-gray-600 text-center max-w-md" role="status">
+          Loading farm and plot records…
         </p>
       </div>
     );
@@ -1463,6 +1483,16 @@ const HarvestDashboard: React.FC = () => {
   return (
     <div className="min-h-screen dashboard-bg p-4 lg:p-6">
       <div className="max-w-7xl mx-auto">
+        {(statusUpdating || statusError) && (
+          <p
+            className={`mb-4 text-sm ${statusError ? "text-amber-700" : "text-gray-600"}`}
+            role={statusError ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {statusError ||
+              "Farm plots are shown; harvest status and yield details are still updating."}
+          </p>
+        )}
         <div className="mb-8">
           <div className="flex flex-wrap items-center gap-4 mb-6">
             <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border shadow-sm">

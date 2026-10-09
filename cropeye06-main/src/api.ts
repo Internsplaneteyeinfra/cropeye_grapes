@@ -1471,7 +1471,15 @@ export type TeamConnectGrapesParams = {
   variety?: string;
 };
 
-export const getTeamConnectGrapes = (params?: TeamConnectGrapesParams) => {
+const TEAM_CONNECT_GRAPES_MISSING_KEY = "teamConnectGrapesMissing";
+
+export const getTeamConnectGrapes = async (
+  params?: TeamConnectGrapesParams,
+) => {
+  // Backends without this route return 404; skip it for the rest of the session.
+  if (sessionStorage.getItem(TEAM_CONNECT_GRAPES_MISSING_KEY) === "1") {
+    throw new Error("team-connect/grapes is not available on this backend");
+  }
   const query: Record<string, string> = {};
   if (params?.region && params.region !== "All") {
     query.region = params.region;
@@ -1489,12 +1497,17 @@ export const getTeamConnectGrapes = (params?: TeamConnectGrapesParams) => {
   if (params?.variety && params.variety !== "All") {
     query.variety = params.variety;
   }
-  return api.get("/users/team-connect/grapes/", {
-    // In dev, expose the exact backend route in Network and proxy it directly.
-    baseURL: import.meta.env.DEV ? "/api" : API_BASE_URL,
-    params: query,
-    timeout: 60_000,
-  });
+  try {
+    return await api.get("/users/team-connect/grapes/", {
+      params: query,
+      timeout: 60_000,
+    });
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      sessionStorage.setItem(TEAM_CONNECT_GRAPES_MISSING_KEY, "1");
+    }
+    throw err;
+  }
 };
 
 /** Fetch agro stats for the selected farmer plot. */

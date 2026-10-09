@@ -2374,26 +2374,18 @@ const FarmerDashboard: React.FC = () => {
   );
 
   const dashboardMetrics = { ...metrics, ...singlePlotMetrics };
-  const dashboardCurrentBiomass = dashboardMetrics.biomass;
-  const totalBiomass = dashboardMetrics.totalBiomass;
-  const hasYieldForecast =
-    dashboardMetrics.sugarYieldMean != null &&
-    Number.isFinite(dashboardMetrics.sugarYieldMean);
-  const hasBiomass =
-    dashboardCurrentBiomass != null &&
-    totalBiomass != null &&
-    Number.isFinite(dashboardCurrentBiomass) &&
-    Number.isFinite(totalBiomass);
+  const currentBiomass = dashboardMetrics.biomass || 0;
+  const totalBiomass = dashboardMetrics.totalBiomass || 0;
 
   const biomassData = [
     {
       name: "Total Biomass",
-      value: totalBiomass ?? 0,
+      value: totalBiomass,
       fill: "#3b82f6",
     },
     {
       name: "Underground Biomass",
-      value: dashboardCurrentBiomass ?? 0,
+      value: currentBiomass,
       fill: "#10b981",
     },
   ];
@@ -3262,50 +3254,43 @@ const FarmerDashboard: React.FC = () => {
             </div>
             <div className="flex flex-col items-center mt-auto">
               <div className="w-full max-w-full overflow-hidden">
-                {hasYieldForecast ? (
-                  <PieChartWithNeedle
-                    value={dashboardMetrics.sugarYieldMean ?? 0}
-                    max={dashboardMetrics.sugarYieldMax ?? 400}
-                    title="Grapes Yield Forecast"
-                    unit=" T/acre"
-                    width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth * 0.8 : 300)}
-                    height={200}
-                  />
-                ) : (
-                  <div className="flex h-[200px] items-center justify-center text-sm text-gray-500">
-                    Yield data unavailable
-                  </div>
-                )}
+                <PieChartWithNeedle
+                  value={dashboardMetrics.sugarYieldMean || 0}
+                  max={dashboardMetrics.sugarYieldMax || 400}
+                  title="Grapes Yield Forecast"
+                  unit=" T/acre"
+                  width={Math.min(300, typeof window !== 'undefined' ? window.innerWidth * 0.8 : 300)}
+                  height={200}
+                />
               </div>
               <div className="mt-2 text-center">
                 <div className="flex items-center justify-center gap-2 text-sm sm:text-base flex-wrap">
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-red-500"></div>
                     <span className="text-red-700 font-semibold">
-                      min: {dashboardMetrics.sugarYieldMin?.toFixed(1) ?? "-"} T/acre
+                      min: {(dashboardMetrics.sugarYieldMin || 0).toFixed(1)} T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-purple-500"></div>
                     <span className="text-purple-700 font-semibold">
-                      mean: {dashboardMetrics.sugarYieldMean?.toFixed(1) ?? "-"}{" "}
+                      mean: {(dashboardMetrics.sugarYieldMean || 0).toFixed(1)}{" "}
                       T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded bg-green-500"></div>
                     <span className="text-green-700 font-semibold">
-                      max: {dashboardMetrics.sugarYieldMax?.toFixed(1) ?? "-"} T/acre
+                      max: {(dashboardMetrics.sugarYieldMax || 0).toFixed(1)} T/acre
                     </span>
                   </div>
                 </div>
                 <div className="mt-1 text-sm sm:text-base text-gray-500">
                   Performance:{" "}
-                  {dashboardMetrics.sugarYieldMean != null &&
-                  dashboardMetrics.sugarYieldMax != null &&
-                  dashboardMetrics.sugarYieldMax > 0
-                    ? `${((dashboardMetrics.sugarYieldMean / dashboardMetrics.sugarYieldMax) * 100).toFixed(1)}% of optimal yield`
-                    : "—"}
+                  {dashboardMetrics.sugarYieldMax
+                    ? (((dashboardMetrics.sugarYieldMean || 0) / dashboardMetrics.sugarYieldMax) * 100).toFixed(1)
+                    : "0.0"}
+                  % of optimal yield
                 </div>
               </div>
             </div>
@@ -3322,43 +3307,37 @@ const FarmerDashboard: React.FC = () => {
             <div className="flex flex-col items-center justify-center">
               <div className="h-40 sm:h-48 md:h-52 flex flex-col items-center justify-center relative w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  {hasBiomass ? (
-                    <PieChart>
-                      <Pie
-                        data={biomassData}
-                        cx="50%"
-                        cy="80%"
-                        startAngle={180}
-                        endAngle={0}
-                        outerRadius={110}
-                        innerRadius={70}
-                        dataKey="value"
-                        labelLine={false}
-                      >
-                        {biomassData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        wrapperStyle={{ zIndex: 50 }}
-                        contentStyle={{ fontSize: "12px" }}
-                        formatter={(value: number, name: string) => [
-                          `${value.toFixed(1)} T/acre`,
-                          name,
-                        ]}
-                      />
-                    </PieChart>
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-gray-500">
-                      Biomass data unavailable
-                    </div>
-                  )}
+                  <PieChart>
+                    <Pie
+                      data={biomassData}
+                      cx="50%"
+                      cy="80%"
+                      startAngle={180}
+                      endAngle={0}
+                      outerRadius={110}
+                      innerRadius={70}
+                      dataKey="value"
+                      labelLine={false}
+                    >
+                      {biomassData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      wrapperStyle={{ zIndex: 50 }}
+                      contentStyle={{ fontSize: "12px" }}
+                      formatter={(value: number, name: string) => [
+                        `${value.toFixed(1)} T/acre`,
+                        name,
+                      ]}
+                    />
+                  </PieChart>
                 </ResponsiveContainer>
               </div>
               {/* Total Biomass Value Display Below Chart */}
               <div className="-mt-4 mb-1">
                 <p className="text-base sm:text-lg font-semibold text-blue-600 text-center">
-                  {totalBiomass?.toFixed(1) ?? "-"} T/acre
+                  {totalBiomass.toFixed(1)} T/acre
                 </p>
               </div>
               <p className="text-sm sm:text-base text-gray-700 font-medium text-center mb-3">
@@ -3369,13 +3348,13 @@ const FarmerDashboard: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded bg-blue-500"></div>
                     <span className="text-blue-700 font-semibold">
-                      Total: {totalBiomass?.toFixed(1) ?? "-"} T/acre
+                      Total: {totalBiomass.toFixed(1)} T/acre
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded bg-green-500"></div>
                     <span className="text-green-700 font-semibold">
-                      Underground: {dashboardCurrentBiomass?.toFixed(1) ?? "-"} T/acre
+                      Underground: {currentBiomass.toFixed(1)} T/acre
                     </span>
                   </div>
                 </div>

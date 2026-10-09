@@ -87,11 +87,19 @@ export async function fetchPlotHarvestInfo(
   }
 
   try {
-    const ripening = await fetchRipeningStageMilestones(base, plotName);
-    return harvestInfoFromPayload(ripening);
+    return await fetchPlotRipeningInfo(plotName);
   } catch {
     return { harvestStatus: null, harvestDate: null, isHarvested: false };
   }
+}
+
+/** Fetch harvest status from ripening-stage when the batch agroStats row is missing. */
+export async function fetchPlotRipeningInfo(
+  plotName: string
+): Promise<PlotHarvestInfo> {
+  const base = getEventsBaseUrl().replace(/\/+$/, "");
+  const ripening = await fetchRipeningStageMilestones(base, plotName);
+  return harvestInfoFromPayload(ripening);
 }
 
 /** Batch harvest statuses from one agroStats response (HarvestDashboard). */

@@ -1019,6 +1019,8 @@ const HarvestDashboard: React.FC = () => {
           debouncedPlotArea !== "All" ||
           debouncedVariety !== "All";
 
+        let teamConnectOk = false;
+
         // Primary: grapes harvest team-connect endpoint
         try {
           const grapesRes = await getTeamConnectGrapes({
@@ -1028,6 +1030,7 @@ const HarvestDashboard: React.FC = () => {
             variety: selectedVariety?.value,
           });
           const parsed = normalizeTeamConnectGrapesOfficers(grapesRes.data);
+          teamConnectOk = true;
           if (parsed.filterOptions.representatives.length > 0) {
             setRepresentativeFilterOptions(
               parsed.filterOptions.representatives,
@@ -1076,7 +1079,10 @@ const HarvestDashboard: React.FC = () => {
         }
 
         // Fallback: existing owner FO loaders
-        if (fieldOfficers.length === 0 && !hasTeamConnectFilters) {
+        if (
+          fieldOfficers.length === 0 &&
+          (!teamConnectOk || !hasTeamConnectFilters)
+        ) {
           const loaded = await loadOwnerFieldOfficers({
             industryId: industry.id,
           });
@@ -1086,7 +1092,7 @@ const HarvestDashboard: React.FC = () => {
 
         if (fieldOfficers.length === 0) {
           setRawData([]);
-          if (!hasTeamConnectFilters) {
+          if (!teamConnectOk || !hasTeamConnectFilters) {
             setLoadError(
               "No field officers or farmers found for your grapes industry. Check the team-connect/grapes response and owner access.",
             );

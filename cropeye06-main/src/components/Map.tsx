@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import "./Map.css";
 import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile";
 import { FaExpand } from 'react-icons/fa';
-import { ArrowLeft, Droplets, MapPinned, Sprout, Wheat } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import SoilAnalysis from "./SoilAnalysis";
 import {
   FieldHealthAnalysis,
@@ -2924,106 +2924,9 @@ const Map: React.FC<MapProps> = ({
     });
   };
 
-  const farmerPlots = profile?.plots ?? [];
-  const plotFarms = farmerPlots.flatMap((plot) => plot.farms ?? []);
-  const farmerFarms = plotFarms.length > 0 ? plotFarms : profile?.farms ?? [];
-  const dashboardPlotCount = Math.max(
-    profile?.agricultural_summary?.total_plots ?? 0,
-    farmerPlots.length,
-  );
-  const derivedFarmArea = farmerFarms.reduce(
-    (area, farm) => area + (Number(farm.area_size_numeric ?? farm.area_size) || 0),
-    0,
-  );
-  const summaryFarmArea = profile?.agricultural_summary?.total_farm_area ?? 0;
-  const dashboardFarmArea = summaryFarmArea > 0 ? summaryFarmArea : derivedFarmArea;
-  const dashboardCropCount = new Set(
-    [
-      ...(profile?.agricultural_summary?.crop_types ?? []),
-      ...farmerFarms.map(
-        (farm) => farm.crop_type?.crop_type ?? farm.crop_type?.crop_variety,
-      ),
-    ].filter(Boolean),
-  ).size;
-  const derivedIrrigationCount = farmerFarms.reduce(
-    (count, farm) => count + (farm.irrigations_count ?? farm.irrigations?.length ?? 0),
-    0,
-  );
-  const dashboardIrrigationCount = Math.max(
-    profile?.agricultural_summary?.total_irrigations ?? 0,
-    derivedIrrigationCount,
-  );
-
   return (
     <div className="map-wrapper" style={{ minHeight: '100dvh', width: '100%', display: 'flex', justifyContent: 'center', overflowX: 'hidden' }}>
       <div className="map-content-container" style={{ width: '100%', maxWidth: '1920px', margin: '0 auto', padding: '0 1rem', boxSizing: 'border-box' }}>
-      <header className="map-dashboard-heading">
-        <div>
-          <p className="map-dashboard-eyebrow">CROPEYE GRAPE INTELLIGENCE</p>
-          <h1>Grape Field Overview</h1>
-          <p className="map-dashboard-subtitle">Your field conditions, crop health, and local weather at a glance.</p>
-        </div>
-        <div className="map-dashboard-date">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })}
-        </div>
-      </header>
-      <section className="dashboard-farm-stats" aria-label="Farm summary">
-        {[
-          {
-            label: "Field health",
-            value: fieldAnalysisData && Number.isFinite(fieldAnalysisData.overallHealth)
-              ? `${fieldAnalysisData.overallHealth.toFixed(1)}%`
-              : "—",
-            note: fieldAnalysisData?.healthStatus ?? "Current plot score",
-            Icon: Sprout,
-            accent: "health",
-          },
-          {
-            label: "Farm area",
-            value: profileLoading || !profile ? "—" : `${dashboardFarmArea.toFixed(1)} ha`,
-            note: "Total registered area",
-            Icon: Sprout,
-            accent: "area",
-          },
-          {
-            label: "Registered plots",
-            value: profileLoading || !profile ? "—" : dashboardPlotCount.toLocaleString(),
-            note: "Field boundaries",
-            Icon: MapPinned,
-            accent: "plots",
-          },
-          {
-            label: "Crop types",
-            value: profileLoading || !profile ? "—" : dashboardCropCount.toLocaleString(),
-            note: "Currently registered",
-            Icon: Wheat,
-            accent: "crops",
-          },
-          {
-            label: "Irrigation points",
-            value: profileLoading || !profile ? "—" : dashboardIrrigationCount.toLocaleString(),
-            note: "Registered on your plots",
-            Icon: Droplets,
-            accent: "irrigation",
-          },
-        ].map(({ label, value, note, Icon, accent }) => (
-          <article className={`dashboard-farm-stat dashboard-farm-stat--${accent}`} key={label}>
-            <span className="dashboard-farm-stat-icon" aria-hidden="true">
-              <Icon size={19} strokeWidth={1.8} />
-            </span>
-            <div className="dashboard-farm-stat-copy">
-              <p>{label}</p>
-              <strong>{value}</strong>
-              <span>{note}</span>
-            </div>
-          </article>
-        ))}
-      </section>
       <div className="layer-controls">
         <div className="layer-buttons">
           {(["Growth", "Water Uptake", "Soil Moisture", "PEST", "Brix"] as const).map((layer) => (
@@ -3362,15 +3265,11 @@ const Map: React.FC<MapProps> = ({
         </div>
         </div>
 
-      </div>
-
-      {/* Field Health / Pest & Disease / Soil Health */}
-      <div
-        ref={fieldScoreSectionRef}
-        className="mt-4 map-health-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0 items-stretch"
-        style={{ marginLeft: "0", paddingLeft: "0" }}
-      >
-        <div className="min-w-0 h-full flex flex-col">
+        {/* Field Score + Past 7-Day Irrigation beside the map */}
+        <div
+          ref={fieldScoreSectionRef}
+          className="soil-section-adjusted flex flex-col gap-4 min-w-0"
+        >
           <FieldHealthAnalysis
             fieldAnalysisData={fieldAnalysisData}
             loading={
@@ -3378,11 +3277,24 @@ const Map: React.FC<MapProps> = ({
               (!!selectedPlotName && !fieldScoreReady && !fieldAnalysisData)
             }
           />
+          <IrrigationSchedule />
         </div>
-        <div className="min-w-0 h-full flex flex-col">
+      </div>
+
+      {/* Soil moisture */}
+      <div className="mt-4 w-full min-w-0">
+        <SoilMoistureCard
+          className="dashboard-card-soil h-full"
+          optimalRange={[35, 58]}
+        />
+      </div>
+
+      {/* Crop Health Analysis / Soil Nutrients */}
+      <div className="mt-4 map-health-row grid grid-cols-1 lg:grid-cols-5 gap-4 w-full min-w-0 items-stretch">
+        <div className="min-w-0 h-full flex flex-col lg:col-span-2">
           <CropHealthAnalysis />
         </div>
-        <div className="soil-section-adjusted dashboard-soil-summary min-w-0 h-full">
+        <div className="dashboard-soil-summary min-w-0 h-full lg:col-span-3">
           <div className="bg-white rounded-lg shadow-lg p-0 h-full overflow-hidden">
             <div className="p-4">
               <SoilAnalysis
@@ -3395,16 +3307,11 @@ const Map: React.FC<MapProps> = ({
         </div>
       </div>
 
-      {/* Irrigation, fertilizer, and soil moisture */}
-      <div className="mt-4 dashboard-cards-row map-dashboard-cards-row grid grid-cols-1 lg:grid-cols-3 gap-4 w-full items-stretch">
-        <IrrigationSchedule />
+      {/* Fertilizer schedule */}
+      <div className="mt-4 dashboard-cards-row map-dashboard-cards-row w-full">
         <div className="irrigation-card dashboard-card-fertilizer flex flex-col min-w-0 h-full">
           <FertilizerTable embedded />
         </div>
-        <SoilMoistureCard
-          className="dashboard-card-soil h-full"
-          optimalRange={[35, 58]}
-        />
       </div>
 
       {/* Weather Forecast Section - Below Fertilizer and Soil Moisture */}

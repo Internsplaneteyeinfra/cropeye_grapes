@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronRight,
   CalendarDays,
@@ -689,7 +690,8 @@ export const Header: React.FC<HeaderProps> = ({
       </header>
 
       {/* Location Permission Prompt */}
-      {showLocationPrompt && <LocationPermissionPrompt />}
+      {showLocationPrompt &&
+        createPortal(<LocationPermissionPrompt />, document.body)}
     </>
   );
 };

@@ -552,24 +552,31 @@
 /* Location Permission Prompt Styles */
 .location-prompt-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 1rem
+    max(1rem, env(safe-area-inset-bottom, 0px));
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1000000;
   backdrop-filter: blur(4px);
 }
 
 .location-prompt-modal {
+  box-sizing: border-box;
   background: white;
   border-radius: 1rem;
   padding: 2rem;
   max-width: 400px;
   width: 90%;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   animation: modalSlideIn 0.3s ease-out;
 }
@@ -664,6 +671,20 @@
   background: #f9fafb;
   border-color: #9ca3af;
   color: #374151;
+}
+
+@media (max-width: 480px) {
+  .location-prompt-modal {
+    padding: 1.25rem;
+  }
+
+  .location-prompt-actions {
+    flex-direction: column;
+  }
+
+  .location-prompt-actions button {
+    justify-content: center;
+  }
 }
 
 /* Location Request Button in Error State */

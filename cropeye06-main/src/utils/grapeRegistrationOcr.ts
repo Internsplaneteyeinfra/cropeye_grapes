@@ -10,6 +10,7 @@ export const MAX_REGISTRATION_DOCUMENT_BYTES = 15 * 1024 * 1024;
 
 export {
   GRAPE_REGISTRATION_OCR_DRAFT_KEY,
+  looksLikeLandRecord712,
   makeGrapeRegistrationOcrDraft,
   parseGrapeRegistrationOcrDraft,
 } from "./grapeRegistrationOcrMapping";
@@ -71,9 +72,8 @@ async function renderPdfPages(
   file: File,
   onProgress: ProgressCallback,
 ): Promise<HTMLCanvasElement[]> {
-  const pdfDocument = await getDocument({
-    data: await file.arrayBuffer(),
   const pdfDocument = await openPdfDocument(file);
+  const canvases: HTMLCanvasElement[] = [];
   try {
     if (pdfDocument.numPages > 20) {
       throw new Error(
@@ -120,8 +120,6 @@ async function renderPdfPages(
   }
 }
 
-export async function scanGrapeRegistrationForm(
-  file: File,
 async function extractPdfTextLines(
   file: File,
   onProgress: ProgressCallback,
@@ -204,6 +202,7 @@ export async function scanGrapeRegistrationForm(
 
   try {
     worker = await createBrowserOcrWorker(onProgress);
+    const lines: { text: string; confidence: number }[] = [];
     for (let index = 0; index < canvases.length; index += 1) {
       onProgress(`Scanning page ${index + 1} of ${canvases.length}`, 0);
       const { data } = await worker.recognize(canvases[index]);

@@ -48,7 +48,7 @@
 </head>
 <body>
     <h1>Test Field Analysis API</h1>
-    
+
     <div class="test-section">
         <h2>Test Field Analysis API Endpoint</h2>
         <div class="endpoint-info">
@@ -77,24 +77,24 @@
             const resultDiv = document.getElementById('field-analysis-result');
             resultDiv.textContent = `Testing field analysis for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&start_date=2025-05-10&end_date=2025-06-20`, {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Field Analysis - ${plotName}:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
                 // Analyze the response structure
                 analyzeFieldResponse(data, plotName);
-                
+
             } catch (error) {
                 resultDiv.textContent = `Field Analysis - ${plotName}:\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -105,21 +105,21 @@
             const resultDiv = document.getElementById('date-range-result');
             resultDiv.textContent = `Testing with date range: ${startDate} to ${endDate}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=294724&start_date=${startDate}&end_date=${endDate}`, {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Date Range Test (${startDate} to ${endDate}):\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `Date Range Test (${startDate} to ${endDate}):\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -128,15 +128,15 @@
 
         function analyzeFieldResponse(data, plotName) {
             console.log('Analyzing field analysis response structure:', data);
-            
+
             // Check for expected fields
             const expectedFields = ['plot_name', 'overall_health', 'health_status', 'statistics'];
             const missingFields = expectedFields.filter(field => !(field in data));
-            
+
             if (missingFields.length > 0) {
                 console.warn('Missing expected fields:', missingFields);
             }
-            
+
             // Check statistics structure
             if (data.statistics && typeof data.statistics === 'object') {
                 console.log('Statistics object:', data.statistics);
@@ -146,7 +146,7 @@
             } else {
                 console.warn('Statistics field is missing or not an object');
             }
-            
+
             // Log the actual values
             console.log('Field Analysis Data for', plotName, ':', {
                 plot_name: data.plot_name,
@@ -164,4 +164,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

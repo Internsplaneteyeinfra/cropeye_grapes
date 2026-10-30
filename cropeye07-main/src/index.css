@@ -65,7 +65,7 @@
   .mobile-draw-controls .leaflet-draw-toolbar {
     margin-top: 10px !important;
   }
-  
+
   .mobile-draw-controls .leaflet-draw-toolbar a {
     width: 40px !important;
     height: 40px !important;
@@ -73,7 +73,7 @@
     font-size: 18px !important;
     margin: 2px !important;
   }
-  
+
   /* keep built-in sprite positioning so icons remain visible */
   .mobile-draw-controls .leaflet-draw-toolbar .leaflet-draw-draw-polygon,
   .mobile-draw-controls .leaflet-draw-toolbar .leaflet-draw-edit-remove,
@@ -85,7 +85,7 @@
   .mobile-draw-controls .leaflet-draw-toolbar a:hover {
     background-color: #f4f4f4 !important;
   }
-  
+
   .mobile-draw-controls .leaflet-draw-toolbar a:active {
     background-color: #e0e0e0 !important;
   }

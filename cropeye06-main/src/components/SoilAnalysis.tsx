@@ -10,7 +10,7 @@ import { isValidSoilNpkResponse, normalizeNpkFromApi } from "../utils/npkNormali
 interface NutrientData {
   name: string;
   symbol: string;
-  value: number | string | null;  
+  value: number | string | null;
   unit: string;
   optimalRange: string;
   level: "very-low" | "low" | "medium" | "optimal" | "very-high" | "unknown";
@@ -910,7 +910,7 @@ const SoilAnalysis: React.FC<SoilAnalysisProps> = ({
         <>
           <div className="w-full">
             <div className="overflow-x-auto min-w-0">
-              <div className="flex items-end justify-between gap-2 h-40 w-full">
+              <div className="flex items-end justify-between gap-2 h-24 w-full">
                 {metrics.map((metric, idx) => (
                   <div
                     key={idx}

@@ -82,17 +82,17 @@ export const AddStock: React.FC<AddStockProps> = ({ setStocks }) => {
         status: 'Working',
         remark: ''
       });
-      
+
       setSuccess('Stock added successfully! The stock list will be updated automatically.');
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccess('');
       }, 3000);
     } catch (err: any) {
-      
+
       let errorMessage = 'Error adding stock. Please try again.';
-      
+
       if (err?.response?.status === 404) {
         errorMessage = 'API endpoint not found (404). Please check the server configuration.';
       } else if (err?.response?.status === 400) {
@@ -103,7 +103,7 @@ export const AddStock: React.FC<AddStockProps> = ({ setStocks }) => {
             .filter(([key]) => key !== 'detail' && key !== 'message')
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('; ');
-          
+
           errorMessage = errorData.detail || errorData.message || fieldErrors || 'Invalid data format. Please check all fields.';
         } else {
           errorMessage = 'Invalid request format (400). Please check all required fields are filled.';
@@ -113,7 +113,7 @@ export const AddStock: React.FC<AddStockProps> = ({ setStocks }) => {
       } else {
         errorMessage = err?.message || errorMessage;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -121,7 +121,7 @@ export const AddStock: React.FC<AddStockProps> = ({ setStocks }) => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen dashboard-bg-bleed"
     >
       <div className="min-h-screen bg-black bg-opacity-40">

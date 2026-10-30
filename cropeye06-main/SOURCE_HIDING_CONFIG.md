@@ -128,4 +128,3 @@ mangle: {
 - ✅ Development mode unchanged (only affects production build)
 - ✅ Code splitting still works (just with hidden names)
 - ✅ Performance maintained (actually improved with better minification)
-

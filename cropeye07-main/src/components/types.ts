@@ -3,7 +3,7 @@ export interface FieldMap{
     name: string;
     acres: number;
   }
-  
+
   export interface NutrientAnalysis {
     name: string;
     current: string;
@@ -11,11 +11,11 @@ export interface FieldMap{
     organic: string;
     chemical: string;
   }
-  
+
   export interface FertilizerTable {
     nutrients:NutrientAnalysis[];
   }
-  
+
   export interface IrrigationSchedule {
     date: string;
     time: string;
@@ -24,8 +24,8 @@ export interface FieldMap{
     rainfall: number;
     probability: number;
   }
-  
-  
+
+
   export interface WeatherForecast {
     date: string;
     temperature: number;
@@ -33,7 +33,7 @@ export interface FieldMap{
     rainfall: number;
     windSpeed: number;
   }
-  
+
   export interface CropHealthAnalysis {
   irrigation: IrrigationSchedule[];
   fertilizer: FertilizerTable;

@@ -247,7 +247,7 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
   const paginatedData = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -268,7 +268,7 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
-            <button 
+            <button
               onClick={fetchBookings}
               disabled={loading}
               // className="text-blue-600 hover:text-blue-800 flex items-center justify-center py-2 px-4 border border-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
@@ -277,8 +277,8 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
               {/* {loading ? <Loader2 className="w-5 h-5 mr-1 animate-spin" /> : <Search className="w-5 h-5 mr-1" />} */}
               {/* <span className="hidden sm:inline">Refresh</span> */}
             </button>
-            <button 
-              onClick={handleDownload} 
+            <button
+              onClick={handleDownload}
               className="text-green-600 hover:text-green-800 flex items-center justify-center py-2 px-4 border border-green-600 rounded hover:bg-green-50"
             >
               <Download className="w-5 h-5 mr-1" />
@@ -396,16 +396,16 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
                           </select>
                         </td>
                         <td className="px-4 py-2 space-x-3">
-                          <button 
-                            onClick={() => handleSave(booking.id)} 
+                          <button
+                            onClick={() => handleSave(booking.id)}
                             disabled={saving}
                             className="text-green-600 hover:text-green-800 disabled:opacity-50"
                             title="Save"
                           >
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                           </button>
-                          <button 
-                            onClick={handleCancel} 
+                          <button
+                            onClick={handleCancel}
                             disabled={saving}
                             className="text-red-600 hover:text-red-800 disabled:opacity-50"
                             title="Cancel"
@@ -425,8 +425,8 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
                           <button onClick={() => handleEdit(booking.id)} className="text-blue-600 hover:text-blue-800" title="Edit">
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button 
-                            onClick={() => handleDelete(booking.id)} 
+                          <button
+                            onClick={() => handleDelete(booking.id)}
                             disabled={deleting === booking.id}
                             className="text-red-600 hover:text-red-800 disabled:opacity-50"
                             title="Delete"
@@ -505,16 +505,16 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
                       </select>
                     </div>
                     <div className="flex justify-end space-x-2 pt-2">
-                      <button 
-                        onClick={() => handleSave(booking.id)} 
+                      <button
+                        onClick={() => handleSave(booking.id)}
                         disabled={saving}
                         className="text-green-600 hover:text-green-800 px-3 py-1 rounded border disabled:opacity-50 flex items-center space-x-1"
                       >
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         <span>Save</span>
                       </button>
-                      <button 
-                        onClick={handleCancel} 
+                      <button
+                        onClick={handleCancel}
                         disabled={saving}
                         className="text-red-600 hover:text-red-800 px-3 py-1 rounded border disabled:opacity-50 flex items-center space-x-1"
                       >
@@ -535,7 +535,7 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
                         {booking.status || 'N/A'}
                       </span>
                     </div>
-                    
+
                     <div className="space-y-2 text-sm text-gray-600">
                       <div className="flex items-center">
                         <span className="font-medium w-20">User:</span>
@@ -550,13 +550,13 @@ export const BookingList: React.FC<BookingListProps> = ({ bookings, setBookings 
                         <span>{booking.endDate || booking.end_date || 'N/A'}</span>
                       </div>
                     </div>
-                    
+
                     <div className="flex justify-end space-x-2 mt-3 pt-3 border-t border-gray-100">
                       <button onClick={() => handleEdit(booking.id)} className="text-blue-600 hover:text-blue-800 px-3 py-1 rounded border" title="Edit">
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => handleDelete(booking.id)} 
+                      <button
+                        onClick={() => handleDelete(booking.id)}
                         disabled={deleting === booking.id}
                         className="text-red-600 hover:text-red-800 px-3 py-1 rounded border disabled:opacity-50"
                         title="Delete"

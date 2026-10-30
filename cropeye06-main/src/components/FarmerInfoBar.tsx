@@ -75,6 +75,16 @@ function isTaskFromFieldOfficer(n: NotificationRow): boolean {
   return false;
 }
 
+/** Base already includes `/api` (or `/api/backend` proxy). Do not prefix `/api` again. */
+function notificationsApiUrl(path: string): string {
+  const base = getNotificationsBaseUrl().replace(/\/+$/, "");
+  const rest = path.replace(/^\/+/, "");
+  if (/\/api$/i.test(base) || /\/api\/backend$/i.test(base)) {
+    return `${base}/${rest}`;
+  }
+  return `${base}/api/${rest}`;
+}
+
 function isTaskLikeNotification(n: NotificationRow): boolean {
   if (typeof n.task_id === "number" && n.task_id > 0) return true;
   const t = String(n.notification_type || "").toLowerCase();
@@ -318,9 +328,9 @@ const FarmerInfoBar: React.FC = () => {
 
   // Get farmer name
   const farmerName = profile ? getFarmerName() : 'Loading...';
-  
+
   // Get total plots count - use agricultural_summary first, fallback to plots array length
-  const totalPlots = profile 
+  const totalPlots = profile
     ? (getTotalPlots() || profile.plots?.length || 0)
     : 0;
 
@@ -455,7 +465,7 @@ const FarmerInfoBar: React.FC = () => {
     () => displayItems.filter((n) => !n.is_read).length,
     [displayItems]
   );
-  
+
   const forecastLatLon = useMemo(
     () =>
       getFirstPlotLatLon(profile?.plots) ?? {
@@ -592,6 +602,7 @@ const FarmerInfoBar: React.FC = () => {
   // Initial alert notification on login
   const alertTriggeredRef = useRef(false);
   const permissionPromptAttachedRef = useRef(false);
+  const unreadToastShownRef = useRef(false);
 
   const showLoginAlert = (title: string, message: string) => {
     alertTriggeredRef.current = true;
@@ -642,24 +653,24 @@ const FarmerInfoBar: React.FC = () => {
       permissionPromptAttachedRef.current = false;
     };
   }, []);
-  
+
   useEffect(() => {
     if (alertTriggeredRef.current) return;
 
     let cancelled = false;
-    
+
     fetchForecastCurrentWeather(forecastLatLon.lat, forecastLatLon.lon)
       .then((data) => {
         if (cancelled) return;
-        
+
         let alertMsg = `Today's Weather: ${data.temperature_c ?? '--'}°C, Humidity: ${data.humidity ?? '--'}%. Click to view.`;
-        
+
         if (data.rain_alert || data.next_24h_prediction?.morning?.rain_alert) {
           alertMsg = `Rain Expected! Temp: ${data.temperature_c ?? '--'}°C, Humidity: ${data.humidity ?? '--'}%. Click to view.`;
         } else if ((data.temperature_c && data.temperature_c >= 35) || (data.temperature_c && data.temperature_c <= 2) || (data.humidity && data.humidity > 80)) {
           alertMsg = `Extreme Weather (${data.temperature_c ?? '--'}°C, ${data.humidity ?? '--'}%). Click to view.`;
         }
-        
+
         setPendingLoginAlert({ title: "Weather Alert", message: alertMsg });
       })
       .catch(() => {
@@ -669,7 +680,7 @@ const FarmerInfoBar: React.FC = () => {
           message: "Weather update is temporarily unavailable. Open alerts to view latest notifications.",
         });
       });
-      
+
     return () => {
       cancelled = true;
     };
@@ -678,13 +689,15 @@ const FarmerInfoBar: React.FC = () => {
   useEffect(() => {
     if (!pendingLoginAlert) return;
     if (alertTriggeredRef.current) return;
-    if (forecastLoading || appState?.apiData?.isPreloading) return;
+
+    const stillLoading = forecastLoading || appState?.apiData?.isPreloading;
+    const delay = stillLoading ? 2000 : 300;
 
     const timer = window.setTimeout(() => {
       if (alertTriggeredRef.current) return;
       showLoginAlert(pendingLoginAlert.title, pendingLoginAlert.message);
       setPendingLoginAlert(null);
-    }, 300);
+    }, delay);
 
     return () => window.clearTimeout(timer);
   }, [pendingLoginAlert, forecastLoading, appState?.apiData?.isPreloading]);
@@ -693,8 +706,7 @@ const FarmerInfoBar: React.FC = () => {
     setLoading(true);
     try {
       const token = getAuthToken();
-      const base = getNotificationsBaseUrl();
-      const res = await fetch(`${base.replace(/\/+$/, '')}/api/notifications/`, {
+      const res = await fetch(notificationsApiUrl("notifications/"), {
         method: 'GET',
         headers: {
           Accept: 'application/json',
@@ -711,6 +723,25 @@ const FarmerInfoBar: React.FC = () => {
           ? data.results
           : [];
       setItems(rows);
+      if (!unreadToastShownRef.current) {
+        const unread = rows.filter((n) => !n.is_read);
+        unreadToastShownRef.current = true;
+        if (unread[0]) {
+          const latest = unread[0];
+          setToasts((prev) => {
+            const next: ToastItem[] = [
+              {
+                id: latest.id,
+                message: latest.message,
+                created_at: latest.created_at,
+                title: latest.task_title ? `Task: ${latest.task_title}` : "New notification",
+              },
+              ...prev,
+            ].slice(0, 3);
+            return next;
+          });
+        }
+      }
     } catch (e) {
       // keep silent; dropdown will show empty
       setItems([]);
@@ -722,9 +753,8 @@ const FarmerInfoBar: React.FC = () => {
   const markAllRead = async () => {
     try {
       const token = getAuthToken();
-      const base = getNotificationsBaseUrl();
       const res = await fetch(
-        `${base.replace(/\/+$/, '')}/api/notifications/mark-all-read/`,
+        notificationsApiUrl("notifications/mark-all-read/"),
         {
           method: 'PATCH',
           headers: {
@@ -779,6 +809,11 @@ const FarmerInfoBar: React.FC = () => {
   };
 
   useEffect(() => {
+    void fetchNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     void fetchNotifications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -816,7 +851,8 @@ const FarmerInfoBar: React.FC = () => {
     const token = getAuthToken();
     if (!token) return;
 
-    const base = getNotificationsBaseUrl();
+    // Channels routes live at /ws/ on the host root, not under the REST /api prefix.
+    const base = getNotificationsBaseUrl().replace(/\/+$/, '').replace(/^(https?:\/\/[^/]+)\/api$/i, '$1');
     const wsBase = base.startsWith('https://')
       ? base.replace(/^https:\/\//, 'wss://')
       : base.startsWith('http://')
@@ -1145,7 +1181,7 @@ const FarmerInfoBar: React.FC = () => {
                       <button
                         type="button"
                         className="notif-profile-open"
-                        onClick={openMyProfile}
+                        onClick={() => openMyProfile(false)} // false = no edit
                       >
                         <UserRound size={15} aria-hidden="true" />
                         Go to My Profile

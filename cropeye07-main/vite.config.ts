@@ -2,11 +2,29 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react()],
+export default defineConfig(() => ({
+  plugins: [
+    react(),
+    {
+      name: "sugarcane-public-under-base",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const url = req.url || "";
+          if (url === "/" || url.startsWith("/?")) {
+            const query = url.includes("?") ? url.slice(url.indexOf("?")) : "";
+            res.statusCode = 302;
+            res.setHeader("Location", `/sugarcan/${query}`);
+            res.end();
+            return;
+          }
+          next();
+        });
+      },
+    },
+  ],
   assetsInclude: ["**/*.geojson"],
-  // When deployed behind one domain (Render + nginx), sugarcane app is served under /sugarcan/
-  base: mode === "production" ? "/sugarcan/" : "/",
+  // Same path as production so gateway/ngrok can reverse-proxy this Vite server.
+  base: "/sugarcan/",
 
   // Ensure single React instance (fixes "isElement" undefined errors with chunking)
   resolve: {
@@ -34,17 +52,17 @@ export default defineConfig(({ mode }) => ({
       },
       external: [],
     },
-    
+
     // Chunk size warning threshold
     chunkSizeWarningLimit: 600,
-    
+
     // Report compressed size (gzipped)
     reportCompressedSize: true,
-    
+
     // Don't emit asset files with source info
     assetsInlineLimit: 4096,
   },
-  
+
   // Hide source file references in production
   define: {
     // Only set in production build, not in dev mode (breaks React Fast Refresh)
@@ -53,15 +71,18 @@ export default defineConfig(({ mode }) => ({
       'process.env.NODE_ENV': '"production"',
     } : {}),
   },
-  
+
   // Disable dev source maps completely
   server: {
     host: "0.0.0.0",
     port: 3002,
     strictPort: true,
-    hmr: {
-      port: 3002,
-    },
+    allowedHosts: [
+      "localhost",
+      ".ngrok-free.dev",
+      ".ngrok.io",
+      ".ngrok.app",
+    ],
     sourcemapIgnoreList: () => {
       return true; // Ignore all source maps in dev too
     },

@@ -81,4 +81,3 @@ If you still see CORS errors after restarting:
 ✅ Proxy configuration added to `vite.config.ts`
 ✅ All fetch functions updated to use conditional URLs
 ⏳ **Waiting for dev server restart to activate proxy**
-

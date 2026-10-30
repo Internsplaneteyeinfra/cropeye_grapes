@@ -201,12 +201,12 @@ function RecenterMap({ latlng }: { latlng: [number, number] }) {
 }
 
 // Component to handle map editing setup - enables editing programmatically
-function MapEditHandler({ 
-  featureGroup, 
-  editingPlotId, 
+function MapEditHandler({
+  featureGroup,
+  editingPlotId,
   plots,
-  onEditStop 
-}: { 
+  onEditStop
+}: {
   featureGroup: React.RefObject<L.FeatureGroup>;
   editingPlotId: string | null;
   plots: Plot[];
@@ -871,7 +871,7 @@ function AddFarm() {
     const layers = e.layers;
     layers.eachLayer((layer: L.Layer) => {
       const geoJson = (layer as any).toGeoJSON();
-      
+
       if (geoJson.geometry.type === "Polygon") {
         const points = geoJson.geometry.coordinates[0].length - 1;
         if (points < 3) {
@@ -1057,7 +1057,7 @@ function AddFarm() {
     setPlots((prev) =>
       prev.map((p) => (p.id === plotId ? { ...p, isSaved: true } : p))
     );
-    
+
     // Show success message for this specific plot
     const plotIndex = plots.findIndex(p => p.id === plotId);
     const savedCount = plots.filter(p => p.isSaved).length + 1;
@@ -1438,30 +1438,30 @@ The farmer can now login with Email credentials to access the dashboard and moni
       }, 15000);
     } catch (error: any) {
       setSubmitStatus("error");
-      
+
       // Extract detailed error message
       const status = error.response?.status;
       const errorData = error.response?.data;
-      
+
       let errorMessage = "An unexpected error occurred. Please try again.";
-      
+
       // Handle authentication and authorization errors with specific messages
       if (status === 401 || error.requiresAuth) {
         // 401: Not authenticated (no token or invalid token)
-        errorMessage = errorData?.detail || 
-                      errorData?.message || 
+        errorMessage = errorData?.detail ||
+                      errorData?.message ||
                       error.message ||
                       "❌ Authentication Required: Please login to register farmers. The registration endpoint requires authentication.";
       } else if (status === 403) {
         // 403: Authenticated but not authorized (wrong role)
-        errorMessage = errorData?.detail || 
-                      errorData?.message || 
+        errorMessage = errorData?.detail ||
+                      errorData?.message ||
                       error.message ||
                       "❌ Access Denied: Only Field Officers, Managers, and Admins can register farmers. Please login with an authorized account.";
       } else if (status === 400) {
         // Parse nested error structure from backend
         const detail = errorData?.detail || errorData?.message || errorData?.error || "";
-        
+
         // Extract username/email conflict errors
         if (typeof detail === 'string') {
           // Check for username already exists
@@ -1471,7 +1471,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
           }
           // Check for email already exists
           else if (detail.toLowerCase().includes('email') && detail.toLowerCase().includes('already exists')) {
-            const emailMatch = detail.match(/email\s+['"]([^'"]+)['"]\s+already\s+exists/i) || 
+            const emailMatch = detail.match(/email\s+['"]([^'"]+)['"]\s+already\s+exists/i) ||
                              detail.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
             if (emailMatch) {
               errorMessage = `❌ Email "${emailMatch[1]}" is already registered. Please use a different email address.`;
@@ -1488,11 +1488,11 @@ The farmer can now login with Email credentials to access the dashboard and moni
             // Helper function to extract message from ErrorDetail
             const extractErrorDetailMessage = (str: string): string | null => {
               // Try multiple patterns to handle different ErrorDetail formats
-              
+
               // Pattern 1: ErrorDetail(string="message", code='invalid') - with quotes
               let match = str.match(/ErrorDetail\(string=['"]([^'"]+)['"]/i);
               if (match && match[1] && match[1].trim()) return match[1].trim();
-              
+
               // Pattern 2: ErrorDetail(string=message (without quotes, before comma or closing paren)
               match = str.match(/ErrorDetail\(string=([^,)]+?)(?:\s*,\s*code|\))/i);
               if (match && match[1] && match[1].trim()) {
@@ -1505,7 +1505,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 }
                 return extracted;
               }
-              
+
               // Pattern 3: ErrorDetail(string=message (capture everything until closing paren or bracket)
               match = str.match(/ErrorDetail\(string=([^)]+?)\)/i);
               if (match && match[1] && match[1].trim()) {
@@ -1517,7 +1517,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 }
                 return extracted;
               }
-              
+
               // Pattern 4: Simple extraction - just get what's after string= (most flexible)
               match = str.match(/ErrorDetail\(string=([^,)]+)/i);
               if (match && match[1] && match[1].trim()) {
@@ -1528,7 +1528,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 }
                 return extracted;
               }
-              
+
               // Pattern 5: Handle incomplete ErrorDetail - extract until end of string
               match = str.match(/ErrorDetail\(string=([^)]*?)$/i);
               if (match && match[1] && match[1].trim()) {
@@ -1537,19 +1537,19 @@ The farmer can now login with Email credentials to access the dashboard and moni
                   return extracted;
                 }
               }
-              
+
               return null;
             };
-            
+
             // Extract the error message
             let innerMessage = extractErrorDetailMessage(detail);
-            
+
             // If we couldn't extract, try direct matching
             if (!innerMessage || innerMessage.length === 0) {
               // Try to extract username/email from the detail string directly
               const usernameMatch = detail.match(/Username\s+['"]([^'"]+)['"]\s+already\s+exists/i);
               const emailMatch = detail.match(/email\s+['"]([^'"]+)['"]\s+already\s+exists/i);
-              
+
               if (usernameMatch && usernameMatch[1]) {
                 errorMessage = `❌ Username "${usernameMatch[1]}" is already taken. Please choose a different username.`;
               } else if (emailMatch && emailMatch[1]) {
@@ -1575,7 +1575,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                   // Clean up whitespace
                   .replace(/\s+/g, ' ')
                   .trim();
-                
+
                 // If cleaned message is empty or still contains ErrorDetail, show generic message
                 if (!cleaned || cleaned.includes('ErrorDetail') || cleaned.length < 3) {
                   // Try one more aggressive extraction - handle incomplete ErrorDetail(string=
@@ -1611,7 +1611,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 .replace(/\[/g, '')
                 .replace(/\]/g, '')
                 .trim();
-              
+
               // Check what type of error it is
               if (innerMessage.toLowerCase().includes('username') && innerMessage.toLowerCase().includes('already exists')) {
                 // Extract username from the message
@@ -1658,7 +1658,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 .replace(/\(/g, '')
                 .replace(/\)/g, '')
                 .trim();
-              
+
               if (cleanedDetail && cleanedDetail.length > 3 && !cleanedDetail.includes('ErrorDetail')) {
                 errorMessage = `❌ ${cleanedDetail}`;
               } else {
@@ -1682,9 +1682,9 @@ The farmer can now login with Email credentials to access the dashboard and moni
       } else if (errorData?.message) {
         errorMessage = `❌ ${errorData.message}`;
       }
-      
+
       setSubmitMessage(errorMessage);
-      
+
       // Log the error for debugging (only non-authentication errors)
       // Authentication errors are expected and already handled with user-friendly messages
       if (status !== 401 && status !== 403 && !error.requiresAuth) {
@@ -2370,7 +2370,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                 </div>
               </div>
 
-              
+
             </div>
 
             {/* Map Location and Plots Section */}
@@ -2436,8 +2436,8 @@ The farmer can now login with Email credentials to access the dashboard and moni
                         className={`bg-white p-3 sm:p-6 rounded border-2 ${
                           editingPlotId === plot.id
                             ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-300'
-                            : plot.isSaved 
-                            ? 'border-green-500 bg-green-50' 
+                            : plot.isSaved
+                            ? 'border-green-500 bg-green-50'
                             : 'border-orange-400 bg-orange-50'
                         }`}
                       >
@@ -2614,7 +2614,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
 
                   <div className="mt-6 pt-4 border-t border-green-300">
                     <div className="text-lg font-bold text-green-900">
-                      Total Area: {totalArea.acres.toFixed(2)} acres 
+                      Total Area: {totalArea.acres.toFixed(2)} acres
                     </div>
                     <div className="text-sm text-green-700">
                       {plots.length} plot{plots.length !== 1 ? "s" : ""} •{" "}
@@ -2637,7 +2637,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
               {editingPlotId && (
                 <div className="mb-3 sm:mb-4 p-2 sm:p-3 bg-purple-50 border border-purple-200 rounded">
                   <span className="text-xs sm:text-sm text-purple-700">
-                    <b>✏️ Edit Mode Active:</b> The edit mode has been activated. You can now <strong>click and drag the vertices (corners)</strong> of the highlighted polygon to adjust its shape. 
+                    <b>✏️ Edit Mode Active:</b> The edit mode has been activated. You can now <strong>click and drag the vertices (corners)</strong> of the highlighted polygon to adjust its shape.
                     The area will be automatically recalculated when you finish editing. Click the <strong>"Save" button</strong> in the map toolbar when you're done, or click "Cancel Edit" below to exit edit mode.
                   </span>
                 </div>
@@ -2763,9 +2763,9 @@ The farmer can now login with Email credentials to access the dashboard and moni
                     zoomOffset={0}
                   />
                   <RecenterMap latlng={center} />
-                  
+
                   {/* Map Edit Handler */}
-                  <MapEditHandler 
+                  <MapEditHandler
                     featureGroup={featureGroupRef}
                     editingPlotId={editingPlotId}
                     plots={plots}
@@ -2858,7 +2858,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                   </div>
                 )}
               </div>
-              
+
               <div className="flex justify-center sm:justify-between items-center">
                 <button
                   type="submit"

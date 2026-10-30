@@ -22,7 +22,7 @@ interface ETResponse {
 const EvapotranspirationCard: React.FC = () => {
   const { appState, setAppState, getCached, setCached, selectedPlotName } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
-  
+
   const [plotName, setPlotName] = useState<string>("");
   const etValue = appState?.etValue ?? 0;
   const trendData = Array.isArray(appState?.etTrendData) ? appState.etTrendData : [];
@@ -35,15 +35,15 @@ const EvapotranspirationCard: React.FC = () => {
   useEffect(() => {
     if (profile && !profileLoading) {
       let plotToUse = "";
-      
+
       // Use global selectedPlotName if available
       if (selectedPlotName) {
         // Find the plot by fastapi_plot_id or constructed ID
-        const foundPlot = profile.plots?.find((plot: any) => 
+        const foundPlot = profile.plots?.find((plot: any) =>
           plot.fastapi_plot_id === selectedPlotName ||
           `${plot.gat_number}_${plot.plot_number}` === selectedPlotName
         );
-        
+
         if (foundPlot && foundPlot.fastapi_plot_id) {
           plotToUse = foundPlot.fastapi_plot_id;
         } else {
@@ -54,7 +54,7 @@ const EvapotranspirationCard: React.FC = () => {
         const plotNames = profile.plots?.map((plot: any) => plot.fastapi_plot_id) || [];
         plotToUse = plotNames.length > 0 ? plotNames[0] : "";
       }
-      
+
       if (plotToUse && plotToUse !== plotName) {
         setPlotName(plotToUse);
         console.log('EvapotranspirationCard: Setting plot name to:', plotToUse);
@@ -113,7 +113,7 @@ const EvapotranspirationCard: React.FC = () => {
       // Extract hourly trend data from hourly_records_et array
       let trendDataExtracted: number[] = [];
       let hourlyDataWithTime: Array<{time: string, value: number}> = [];
-      
+
       if (data.hourly_records_et && Array.isArray(data.hourly_records_et) && data.hourly_records_et.length > 0) {
         // Use real hourly data from API
         // Extract both time and et0_fao_evapotranspiration values
@@ -121,10 +121,10 @@ const EvapotranspirationCard: React.FC = () => {
           time: record.time || '',
           value: Number(record.et0_fao_evapotranspiration) || 0
         }));
-        
+
         // Map the et0_fao_evapotranspiration values for trendDataExtracted
         trendDataExtracted = hourlyDataWithTime.map(item => item.value);
-        
+
         // Ensure we have exactly 24 hours of data
         // If we have fewer than 24 records, pad with zeros and generate time
         while (hourlyDataWithTime.length < 24) {
@@ -136,7 +136,7 @@ const EvapotranspirationCard: React.FC = () => {
           });
           trendDataExtracted.push(0);
         }
-        
+
         // If we have more than 24 records, take only the first 24
         if (hourlyDataWithTime.length > 24) {
           hourlyDataWithTime = hourlyDataWithTime.slice(0, 24);
@@ -150,7 +150,7 @@ const EvapotranspirationCard: React.FC = () => {
           const fluctuation = (Math.sin(i / 3) + 1) * 0.1 * base;
           return Math.round((base + fluctuation) * 10) / 10;
         });
-        
+
         hourlyDataWithTime = trendDataExtracted.map((value, i) => {
           const hour = i.toString().padStart(2, '0');
           return {
@@ -159,7 +159,7 @@ const EvapotranspirationCard: React.FC = () => {
           };
         });
       }
-      
+
       // Store hourly data with time for tooltips
       setHourlyData(hourlyDataWithTime);
 
@@ -182,7 +182,7 @@ const EvapotranspirationCard: React.FC = () => {
     } catch (err: any) {
       const errorMessage = err.message || 'Unknown error';
       setError(`Failed to fetch ET data: ${errorMessage}`);
-      
+
       // Log detailed error for debugging
       console.error('ET API fetch error:', {
         error: err,
@@ -191,7 +191,7 @@ const EvapotranspirationCard: React.FC = () => {
         url: `https://sef-cropeye.up.railway.app/plots/${plotName}/compute-et/`,
         plotName: plotName
       });
-      
+
       setAppState((prev: any) => ({
         ...prev,
         etValue: 0,
@@ -249,10 +249,10 @@ const EvapotranspirationCard: React.FC = () => {
                 const numVal = Number(val) || 0;
                 // Get time from hourlyData if available, otherwise use index
                 const timeData = hourlyData[i] || null;
-                const displayTime = timeData?.time 
+                const displayTime = timeData?.time
                   ? new Date(timeData.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
                   : `${i.toString().padStart(2, '0')}:00`;
-                
+
                 return (
                   <div
                     key={i}

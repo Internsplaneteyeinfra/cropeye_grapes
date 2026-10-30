@@ -509,7 +509,7 @@ export const PestDisease: React.FC = () => {
                           {weed.when && <li className="break-words"><span className="font-semibold">When:</span> {weed.when}</li>}
                           {weed.where && <li className="break-words"><span className="font-semibold">Where:</span> {weed.where}</li>}
                           {weed.why && <li className="break-words"><span className="font-semibold">Why:</span> {weed.why}</li>}
-                          
+
                           {weed.identification && weed.identification.length > 0 && (
                             <li className="break-words">
                               <span className="font-semibold">Identification:</span> {weed.identification.join(', ')}

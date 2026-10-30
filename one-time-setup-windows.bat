@@ -63,7 +63,7 @@ echo ✨ Running initial security scan...
 if exist ".pre-commit-config.yaml" (
     set REPORT_FILE=security-scan-report-%date:~-4,4%%date:~-10,2%%date:~-7,2%-%time:~0,2%%time:~3,2%.txt
     set REPORT_FILE=%REPORT_FILE: =0%
-    
+
     (
         echo ==========================================
         echo Security Scan Report - Initial Setup
@@ -77,7 +77,7 @@ if exist ".pre-commit-config.yaml" (
         echo Report saved: %REPORT_FILE%
         echo ==========================================
     ) > "%REPORT_FILE%" 2>&1
-    
+
     type "%REPORT_FILE%"
     echo.
     echo 📊 Report saved to: %REPORT_FILE%
@@ -102,4 +102,3 @@ echo.
 echo 💡 You NEVER need to run any setup script again!
 echo.
 pause
-

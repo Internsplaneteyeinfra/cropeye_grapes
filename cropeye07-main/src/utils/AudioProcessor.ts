@@ -19,7 +19,7 @@ export class AudioProcessor {
   private outputNode: AudioNode | null = null;
   private inputNode: MediaStreamAudioSourceNode | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
-  
+
   private config: AudioConfig = {
     inputSampleRate: 16000,
     outputSampleRate: 24000,

@@ -451,5 +451,5 @@ export const pestsData: Pest[] = [
       "Fish oil resin soap: 2.5 ml per liter water (mix with insecticide)"
     ]
   },
-  
+
 ];

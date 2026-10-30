@@ -27,9 +27,9 @@ interface WeatherForecastProps {
   lon?: number;
 }
 
-const WeatherForecast: React.FC<WeatherForecastProps> = ({ 
-  lat: propLat, 
-  lon: propLon 
+const WeatherForecast: React.FC<WeatherForecastProps> = ({
+  lat: propLat,
+  lon: propLon
 }) => {
   const { appState, setAppState, setCached, selectedPlotName, getCached } = useAppContext();
   const chartData = appState.weatherChartData || [];
@@ -57,13 +57,13 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     const fetchFarmerCoordinates = async () => {
       try {
         setLoadingCoordinates(true);
-        
+
         let profileData = getCached("farmerProfile", 10 * 60 * 1000);
         if (!profileData?.plots?.length) {
           const response = await getFarmerMyProfile();
           profileData = response.data;
         }
-        
+
         if (!profileData?.plots || profileData.plots.length === 0) {
           setFarmerCoordinates(null);
           setLoadingCoordinates(false);
@@ -73,17 +73,17 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
         // Get coordinates from the selected plot (or first plot if no selection)
         let selectedPlot = null;
         if (selectedPlotName) {
-          selectedPlot = profileData.plots.find((p: any) => 
+          selectedPlot = profileData.plots.find((p: any) =>
             p.fastapi_plot_id === selectedPlotName ||
             `${p.gat_number}_${p.plot_number}` === selectedPlotName
           );
         }
-        
+
         // Fallback to first plot if selected plot not found
         if (!selectedPlot) {
           selectedPlot = profileData.plots[0];
         }
-        
+
         if (selectedPlot?.coordinates?.location) {
           const coords = {
             lat: selectedPlot.coordinates.location.latitude,
@@ -130,15 +130,15 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     }
 
     const cacheKey = `weatherChartData_${lat}_${lon}`; // Include coordinates in cache key
-    
+
     // Test parsing function - only log once on initial load
     if (!hasFetchedWeather) {
       testParsing();
     }
-    
+
     // Clear cache to force fresh data fetch
     localStorage.removeItem(cacheKey);
-    
+
     // const cached = getCached(cacheKey);
     // if (cached) {
     //   setAppState((prev: any) => ({
@@ -148,11 +148,11 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
     //   }));
     //   return;
     // }
-        
+
         // Mark as fetching to prevent multiple calls
         fetchingRef.current = true;
         setHasFetchedWeather(true);
-        
+
         fetchWeatherForecast(lat, lon)
       .then((data) => {
         // Support both legacy array and new { source, data: [...] } shape
@@ -172,7 +172,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
         // Generate next 7 days starting from tomorrow (exclude today)
         const days: any[] = [];
-        
+
         // Create a map of API data by date for easy lookup
         const apiDataByDate = new Map<string, any>();
         rawList.forEach((d: any) => {
@@ -180,17 +180,17 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
           const iso = dateStr ? dateStr.split('T')[0] : new Date().toISOString().split("T")[0];
           apiDataByDate.set(iso, d);
         });
-        
+
         // Generate next 7 days starting from tomorrow
         const today = new Date();
         for (let i = 1; i <= 7; i++) { // Start from i=1 (tomorrow) instead of i=0 (today)
           const futureDate = new Date(today);
           futureDate.setDate(today.getDate() + i);
           const iso = futureDate.toISOString().split("T")[0];
-          
+
           // Get API data for this date, or use default values if not available
           const apiData = apiDataByDate.get(iso) || {};
-          
+
           days.push({
             date: futureDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
             temperature: parseNum(apiData.temperature_max),
@@ -215,12 +215,12 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
           // Fallback: generate next 7 days with zero values
           const days: any[] = [];
           const today = new Date();
-          
+
           for (let i = 1; i <= 7; i++) { // Start from i=1 (tomorrow)
             const futureDate = new Date(today);
             futureDate.setDate(today.getDate() + i);
             const iso = futureDate.toISOString().split("T")[0];
-            
+
             days.push({
               date: futureDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
               temperature: 0,
@@ -230,7 +230,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
               fullDate: iso,
             });
           }
-          
+
           setAppState((prev: any) => ({
             ...prev,
             weatherChartData: days,
@@ -257,7 +257,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
 
 
-  
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -314,7 +314,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
         {/* Metric Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 sm:gap-3 mb-0">
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "temperature"
                   ? "bg-amber-600 ring-2 ring-amber-400 text-white"
@@ -341,7 +341,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "rainfall"
                   ? "bg-blue-700 ring-2 ring-blue-400 text-white"
@@ -368,7 +368,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "wind"
                   ? "bg-green-700 ring-2 ring-green-400 text-white"
@@ -393,7 +393,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "humidity"
                   ? "bg-purple-800 ring-2 ring-purple-400 text-white"

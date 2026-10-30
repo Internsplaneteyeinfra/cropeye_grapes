@@ -109,16 +109,16 @@
 //   // Toggle status between InProcess and Completed (skip Pending)
 //   const toggleTaskStatus = (taskId: number, currentStatus: 'Pending' | 'Completed' | 'InProcess') => {
 //     let newStatus: 'Pending' | 'Completed' | 'InProcess';
-    
+
 //     if (currentStatus === 'Pending' || currentStatus === 'InProcess') {
 //       newStatus = 'Completed';
 //     } else {
 //       newStatus = 'InProcess';
 //     }
 
-//     setTasks(prev => 
-//       prev.map(task => 
-//         task.id === taskId 
+//     setTasks(prev =>
+//       prev.map(task =>
+//         task.id === taskId
 //           ? { ...task, status: newStatus }
 //           : task
 //       )
@@ -221,7 +221,7 @@
 
 //           <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
 //             <button onClick={handleDownload} className="text-green-600 hover:text-green-800 flex items-center text-sm">
-//               <Download className="w-4 h-4 mr-1" /> 
+//               <Download className="w-4 h-4 mr-1" />
 //             </button>
 
 //             <div className="relative w-full sm:w-auto">
@@ -304,11 +304,11 @@
 //                     <span className="ml-1">{task.status}</span>
 //                   </button>
 //                 </div>
-                
+
 //                 {task.description && (
 //                   <p className="text-gray-600 text-sm mb-3 line-clamp-2">{task.description}</p>
 //                 )}
-                
+
 //                 <div className="space-y-2">
 //                   <div className="flex items-center text-sm text-gray-500">
 //                     <Calendar className="w-4 h-4 mr-2 flex-shrink-0" />
@@ -390,8 +390,8 @@ interface ViewListProps {
   currentUserName?: string;
 }
 
-const ViewList: React.FC<ViewListProps> = ({ 
-  currentUserId, 
+const ViewList: React.FC<ViewListProps> = ({
+  currentUserId,
   currentUserRole,
   currentUserName = 'User'
 }) => {
@@ -414,16 +414,16 @@ const ViewList: React.FC<ViewListProps> = ({
     try {
       console.log('Fetching tasks for user ID:', currentUserId);
       const response = await getTasksForUser(currentUserId);
-      
-      const tasksData = response.data.results 
-        ? response.data.results 
+
+      const tasksData = response.data.results
+        ? response.data.results
         : (Array.isArray(response.data) ? response.data : []);
-      
+
       // Filter to ensure only tasks assigned to current user
       const filteredTasks = tasksData.filter((task: any) =>
         task.assigned_to && task.assigned_to.id === currentUserId
       );
-      
+
       console.log('Tasks loaded for view list:', filteredTasks.length);
       setTasks(filteredTasks);
     } catch (error) {
@@ -436,7 +436,7 @@ const ViewList: React.FC<ViewListProps> = ({
 
   const toggleTaskStatus = async (taskId: number, currentStatus: string) => {
     let newStatus: string;
-    
+
     if (currentStatus === 'pending' || currentStatus === 'in_progress') {
       newStatus = 'completed';
     } else {
@@ -444,9 +444,9 @@ const ViewList: React.FC<ViewListProps> = ({
     }
 
     // Optimistically update UI
-    setTasks(prev => 
-      prev.map(task => 
-        task.id === taskId 
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
           ? { ...task, status: newStatus }
           : task
       )
@@ -459,9 +459,9 @@ const ViewList: React.FC<ViewListProps> = ({
     } catch (error) {
       console.error('Failed to update task status:', error);
       // Revert on error
-      setTasks(prev => 
-        prev.map(task => 
-          task.id === taskId 
+      setTasks(prev =>
+        prev.map(task =>
+          task.id === taskId
             ? { ...task, status: currentStatus }
             : task
         )
@@ -574,15 +574,15 @@ const ViewList: React.FC<ViewListProps> = ({
           <div className="flex items-center gap-3 sm:gap-0">
             <h2 className="text-lg sm:text-xl font-bold text-gray-700">Task Checklist</h2>
             <div className="flex items-center gap-3 sm:hidden">
-              <button 
+              <button
                 onClick={fetchTasks}
                 disabled={loading}
                 className="text-blue-600 hover:text-blue-800 flex items-center"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
-              <button 
-                onClick={handleDownload} 
+              <button
+                onClick={handleDownload}
                 className="text-green-600 hover:text-green-800 flex items-center"
               >
                 <Download className="w-4 h-4" />
@@ -590,20 +590,20 @@ const ViewList: React.FC<ViewListProps> = ({
             </div>
           </div>
           <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
-            <button 
+            <button
               onClick={fetchTasks}
               disabled={loading}
               className="hidden sm:flex text-blue-600 hover:text-blue-800 items-center text-sm"
             >
               <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-            
+
             </button>
-            <button 
-              onClick={handleDownload} 
+            <button
+              onClick={handleDownload}
               className="hidden sm:flex text-green-600 hover:text-green-800 items-center text-sm"
             >
               <Download className="w-4 h-4 mr-1" />
-              
+
             </button>
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-2.5 text-gray-400 h-4 w-4" />
@@ -667,8 +667,8 @@ const ViewList: React.FC<ViewListProps> = ({
                           <div className="flex items-center">
                             <User className="w-4 h-4 mr-1 text-gray-400" />
                             <span className="text-gray-700">
-                              {task.created_by 
-                                ? `${task.created_by.first_name} ${task.created_by.last_name}` 
+                              {task.created_by
+                                ? `${task.created_by.first_name} ${task.created_by.last_name}`
                                 : 'N/A'}
                             </span>
                           </div>
@@ -708,11 +708,11 @@ const ViewList: React.FC<ViewListProps> = ({
                         <span className="ml-1">{getStatusLabel(task.status)}</span>
                       </button>
                     </div>
-                    
+
                     {task.description && (
                       <p className="text-gray-600 text-sm mb-3">{task.description}</p>
                     )}
-                    
+
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
@@ -726,8 +726,8 @@ const ViewList: React.FC<ViewListProps> = ({
                       <div className="flex items-center text-sm text-gray-500">
                         <User className="w-4 h-4 mr-2 flex-shrink-0" />
                         <span>
-                          Assigned by: {task.created_by 
-                            ? `${task.created_by.first_name} ${task.created_by.last_name}` 
+                          Assigned by: {task.created_by
+                            ? `${task.created_by.first_name} ${task.created_by.last_name}`
                             : 'N/A'}
                         </span>
                       </div>

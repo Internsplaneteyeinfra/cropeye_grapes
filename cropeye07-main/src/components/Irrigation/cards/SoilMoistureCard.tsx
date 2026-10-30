@@ -34,7 +34,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
   const moisturePercent = appState.moisturePercent ?? 0;
   const currentSoilMoisture = appState.currentSoilMoisture ?? moisturePercent; // may be set by trend card
   const status = appState.moistureStatus ?? "Loading...";
-  
+
   // Prioritize shared value from SoilMoistureTrendCard
   const [yesterdayMoisture, setYesterdayMoisture] = useState<number | null>(null);
   const [yesterdayDate, setYesterdayDate] = useState<string | null>(null);
@@ -44,7 +44,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
       : currentSoilMoisture > 0
       ? currentSoilMoisture
       : moisturePercent;
-  
+
   // Debug: Log the values being used
   console.log('SoilMoistureCard Debug:', {
     currentSoilMoisture: currentSoilMoisture,
@@ -53,7 +53,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
     appState: appState,
     selectedPlotName: selectedPlotName
   });
-  
+
   const [loading, setLoading] = useState<boolean>(!displayMoisture);
   const [error, setError] = useState<string | null>(null);
   const [plotName, setPlotName] = useState<string>("");
@@ -62,15 +62,15 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
   useEffect(() => {
     if (profile && !profileLoading) {
       let plotToUse = "";
-      
+
       // Use global selectedPlotName if available
       if (selectedPlotName) {
         // Find the plot by fastapi_plot_id or constructed ID
-        const foundPlot = profile.plots?.find((plot: any) => 
+        const foundPlot = profile.plots?.find((plot: any) =>
           plot.fastapi_plot_id === selectedPlotName ||
           `${plot.gat_number}_${plot.plot_number}` === selectedPlotName
         );
-        
+
         if (foundPlot && foundPlot.fastapi_plot_id) {
           plotToUse = foundPlot.fastapi_plot_id;
         } else {
@@ -81,7 +81,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
         const plotNames = profile.plots?.map((plot: any) => plot.fastapi_plot_id) || [];
         plotToUse = plotNames.length > 0 ? plotNames[0] : "";
       }
-      
+
       if (plotToUse && plotToUse !== plotName) {
         setPlotName(plotToUse);
         console.log('SoilMoistureCard: Setting plot name to:', plotToUse);
@@ -216,7 +216,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
             style={{ fontSize: "24px", fontWeight: "bold", color: "#333" }}
           >
            {/* {loading ? "..." : `${displayMoisture.toFixed(2)}%`} */}
-          
+
           </div>
           <small className="text-gray-600">Soil Moisture Level</small>
         </div>

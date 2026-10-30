@@ -64,12 +64,12 @@ export const useLiveAPI = (
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  
+
   const frameIntervalRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const apiKeyRef = useRef<string>(GEMINI_API_KEY);
@@ -81,7 +81,7 @@ export const useLiveAPI = (
       canvasRef.current.width = 1280;
       canvasRef.current.height = 720;
     }
-    
+
     if (!videoRef.current) {
       videoRef.current = document.createElement('video');
       videoRef.current.autoplay = true;
@@ -147,12 +147,12 @@ export const useLiveAPI = (
     }
 
     const audioContext = audioContextRef.current;
-    
+
     try {
       // Handle 24kHz PCM audio chunks from Gemini (16-bit little-endian)
       const pcmData = new Int16Array(audioData);
       const float32Data = new Float32Array(pcmData.length);
-      
+
       for (let i = 0; i < pcmData.length; i++) {
         float32Data[i] = pcmData[i] / 32768.0;
       }
@@ -162,17 +162,17 @@ export const useLiveAPI = (
 
       const audioBuffer = audioContext.createBuffer(1, float32Data.length, sampleRate);
       audioBuffer.getChannelData(0).set(float32Data);
-      
+
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
-      
+
       setState(prev => ({ ...prev, isSpeaking: true }));
-      
+
       source.onended = () => {
         setState(prev => ({ ...prev, isSpeaking: false }));
       };
-      
+
       source.start(0);
     } catch (error) {
       console.error('Error playing audio:', error);
@@ -186,19 +186,19 @@ export const useLiveAPI = (
     try {
       const audioContext = new AudioContext({ sampleRate: 16000 });
       inputAudioContextRef.current = audioContext;
-      
+
       const source = audioContext.createMediaStreamSource(audioStreamRef.current);
-      
+
       // Use ScriptProcessor for audio input (16kHz, 16-bit PCM mono)
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       scriptProcessorRef.current = processor;
-      
+
       processor.onaudioprocess = async (e) => {
         if (!state.isListening || !state.isConnected) return;
 
         const inputData = e.inputBuffer.getChannelData(0);
         const pcmData = new Int16Array(inputData.length);
-        
+
         for (let i = 0; i < inputData.length; i++) {
           pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
         }
@@ -223,7 +223,7 @@ export const useLiveAPI = (
       // Store audio chunks for batching (send every 2 seconds)
       // This is a simplified approach - real implementation would use WebSocket
       console.log('Audio chunk received, length:', audioBuffer.byteLength);
-      
+
       // Note: Direct WebSocket to Gemini Live API may not work from browser
       // Consider using a backend proxy for WebSocket connections
       // For now, we'll use Web Speech API for voice input transcription
@@ -241,10 +241,10 @@ export const useLiveAPI = (
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(7);
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/${GEMINI_LIVE_MODEL}:generateContent?key=${apiKeyRef.current}&_t=${timestamp}&_r=${randomId}`;
-      
+
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
@@ -304,15 +304,15 @@ export const useLiveAPI = (
         hasCandidates: !!data.candidates,
         candidatesCount: data.candidates?.length || 0,
       });
-      
+
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
+
       if (reply) {
         console.log('📝 Response text length:', reply.length);
         const lang = detectLanguage(reply);
         setState(prev => ({ ...prev, detectedLanguage: lang }));
         callbacks.onResponse?.(reply, lang);
-        
+
         // Use Web Speech API for audio output
         await speakText(reply, lang);
       } else {
@@ -331,7 +331,7 @@ export const useLiveAPI = (
     if ('speechSynthesis' in window) {
       // Stop any ongoing speech for barge-in support
       window.speechSynthesis.cancel();
-      
+
       const utterance = new SpeechSynthesisUtterance(text);
       const langMap: Record<SupportedLanguage, string> = {
         marathi: 'mr-IN',
@@ -342,9 +342,9 @@ export const useLiveAPI = (
       utterance.rate = 0.9;
       utterance.pitch = 1;
       utterance.volume = 1;
-      
+
       setState(prev => ({ ...prev, isSpeaking: true }));
-      
+
       return new Promise<void>((resolve) => {
         // Implement barge-in: stop speaking if user audio is detected
         const checkForBargeIn = () => {
@@ -355,10 +355,10 @@ export const useLiveAPI = (
             resolve();
           }
         };
-        
+
         // Check for barge-in periodically (every 100ms)
         const bargeInInterval = setInterval(checkForBargeIn, 100);
-        
+
         utterance.onend = () => {
           clearInterval(bargeInInterval);
           setState(prev => ({ ...prev, isSpeaking: false }));
@@ -369,7 +369,7 @@ export const useLiveAPI = (
           setState(prev => ({ ...prev, isSpeaking: false }));
           resolve();
         };
-        
+
         window.speechSynthesis.speak(utterance);
       });
     }
@@ -385,7 +385,7 @@ export const useLiveAPI = (
 
       // Get screen capture
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { 
+        video: {
           frameRate: 1, // 1 FPS
           width: { ideal: 1280 },
           height: { ideal: 720 }
@@ -423,7 +423,7 @@ export const useLiveAPI = (
       console.log('🔵 Initializing Live API connection...');
       console.log('API Key present:', !!apiKeyRef.current, 'Length:', apiKeyRef.current?.length || 0);
       console.log('Model:', GEMINI_LIVE_MODEL);
-      
+
       // Test API key first
       try {
         // Add cache-busting timestamp and random ID
@@ -432,7 +432,7 @@ export const useLiveAPI = (
         const testEndpoint = `https://generativelanguage.googleapis.com/v1beta/${GEMINI_LIVE_MODEL}:generateContent?key=${apiKeyRef.current}&_t=${timestamp}&_r=${randomId}`;
         const testResponse = await fetch(testEndpoint, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
@@ -456,25 +456,25 @@ export const useLiveAPI = (
             },
           }),
         });
-        
+
         if (!testResponse.ok) {
           const errorData = await testResponse.json().catch(() => ({}));
           throw new Error(errorData.error?.message || `API test failed: ${testResponse.status}`);
         }
-        
+
         console.log('✅ API key validated successfully');
       } catch (error: any) {
         console.error('❌ API key validation failed:', error);
         throw new Error(`API key validation failed: ${error.message}. Please check your VITE_GEMINI_API_KEY in .env file.`);
       }
-      
+
       // Set connection state
       setState(prev => ({ ...prev, isConnected: true, isListening: true }));
-      
+
       // Start periodic screen analysis
       const analyzeScreenPeriodically = async () => {
         if (!state.isConnected) return;
-        
+
         try {
           const frame = await captureScreenFrame();
           if (frame) {
@@ -485,10 +485,10 @@ export const useLiveAPI = (
           console.error('❌ Error in periodic screen analysis:', error);
         }
       };
-      
+
       // Analyze screen every 3 seconds
       frameIntervalRef.current = window.setInterval(analyzeScreenPeriodically, 3000);
-      
+
       // Initial analysis after 1 second
       setTimeout(async () => {
         const frame = await captureScreenFrame();
@@ -499,7 +499,7 @@ export const useLiveAPI = (
 
       // Start audio processing for voice input
       await processAudioInput();
-      
+
       // Initial screen analysis
       setTimeout(async () => {
         const frame = await captureScreenFrame();

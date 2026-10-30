@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Phone, 
-  Send, 
-  Loader2, 
-  Search, 
-  MessageCircle, 
-  Mail, 
-  User, 
-  Shield, 
-  Users, 
-  MapPin, 
+import {
+  Phone,
+  Send,
+  Loader2,
+  Search,
+  MessageCircle,
+  Mail,
+  User,
+  Shield,
+  Users,
+  MapPin,
   CheckCircle,
   AlertCircle,
   X,
@@ -75,7 +75,7 @@ interface ContactuserProps {
 const filterContactsByRole = (contacts: Contact[], currentUserRole: string): Contact[] => {
 
 
-  
+
   switch (currentUserRole.toLowerCase()) {
     case 'fieldofficer':
       // Field Officer can see: Farmers, Managers, Owners, Field Officers
@@ -86,7 +86,7 @@ const filterContactsByRole = (contacts: Contact[], currentUserRole: string): Con
 
       console.log('🔍 Field Officer filtered contacts:', fieldOfficerContacts.map(c => ({ name: c.name, role: c.role })));
       return fieldOfficerContacts;
-      
+
     case 'manager':
       // Manager can see: Owners, Field Officers
       const managerContacts = contacts.filter(contact => {
@@ -95,7 +95,7 @@ const filterContactsByRole = (contacts: Contact[], currentUserRole: string): Con
       });
 
       return managerContacts;
-      
+
     case 'owner':
     case 'admin':
       // Owner/Admin can see: Field Officers, Managers, Farmers
@@ -106,7 +106,7 @@ const filterContactsByRole = (contacts: Contact[], currentUserRole: string): Con
 
       console.log('🔍 Owner/Admin filtered contacts:', ownerContacts.map(c => ({ name: c.name, role: c.role })));
       return ownerContacts;
-      
+
     case 'farmer':
       // Farmer can see: Field Officers, Managers, Owners
       const farmerContacts = contacts.filter(contact => {
@@ -116,7 +116,7 @@ const filterContactsByRole = (contacts: Contact[], currentUserRole: string): Con
 
       console.log('🔍 Farmer filtered contacts:', farmerContacts.map(c => ({ name: c.name, role: c.role })));
       return farmerContacts;
-      
+
     default:
       // Default: show all contacts
 
@@ -155,7 +155,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  
+
   // Message view states
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -164,23 +164,23 @@ const Contactuser: React.FC<ContactuserProps> = () => {
   const [showMessageView, setShowMessageView] = useState(false);
   const [replyMessage, setReplyMessage] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
-  
+
   // Store messages locally by conversation ID (fallback when API fails)
   const [localMessages, setLocalMessages] = useState<Record<number, Message[]>>({});
-  
+
   // Ref for auto-scrolling to latest message
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // Debug: Log messages state changes
   useEffect(() => {
 
-    console.log('🔍 Messages:', messages.map(m => ({ 
-      id: m.id, 
-      sender: m.sender?.first_name || m.sender?.username, 
+    console.log('🔍 Messages:', messages.map(m => ({
+      id: m.id,
+      sender: m.sender?.first_name || m.sender?.username,
       content: m.content?.substring(0, 30),
-      created_at: m.created_at 
+      created_at: m.created_at
     })));
-    
+
     // Auto-scroll to bottom when messages change
     if (messagesEndRef.current && messages.length > 0) {
       setTimeout(() => {
@@ -204,13 +204,13 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
         console.log('Is Array:', Array.isArray(response.data));
         console.log('Response Data Keys:', response.data ? Object.keys(response.data) : 'No keys');
-        
+
         let usersData = response.data;
-        
+
         // Handle different API response formats
         if (usersData && typeof usersData === 'object') {
 
-          
+
           // If response has a 'results' property (common in paginated APIs)
           if (Array.isArray(usersData.results)) {
 
@@ -230,22 +230,22 @@ const Contactuser: React.FC<ContactuserProps> = () => {
           else if (usersData.contacts && typeof usersData.contacts === 'object') {
 
             console.log('Contacts object keys:', Object.keys(usersData.contacts));
-            
+
             // Handle role-based contacts structure: {owner: {...}, field_officers: [...], farmers: [...]}
             const allContacts: any[] = [];
-            
+
             // Process each role category
             Object.keys(usersData.contacts).forEach(roleKey => {
               const roleData = usersData.contacts[roleKey];
 
-              
+
               if (Array.isArray(roleData)) {
                 // If it's an array (like field_officers: [], farmers: [])
                 roleData.forEach(contact => {
                   allContacts.push({
                     ...contact,
-                    role: roleKey === 'field_officers' ? 'fieldofficer' : 
-                          roleKey === 'farmers' ? 'farmer' : 
+                    role: roleKey === 'field_officers' ? 'fieldofficer' :
+                          roleKey === 'farmers' ? 'farmer' :
                           roleKey === 'managers' ? 'manager' :
                           roleKey.replace('_', '') // Convert 'field_officers' to 'fieldofficer', 'farmers' to 'farmer', 'managers' to 'manager'
                   });
@@ -260,7 +260,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
               }
             });
-            
+
             usersData = allContacts;
 
             console.log('📋 All extracted contacts with roles:', allContacts.map(c => ({ name: c.name, role: c.role })));
@@ -280,7 +280,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
           }
         }
-        
+
         // Check if usersData is an array
         if (!Array.isArray(usersData)) {
 
@@ -289,16 +289,16 @@ const Contactuser: React.FC<ContactuserProps> = () => {
           setError(`Invalid data format received from server. Expected an array of users, but got: ${typeof usersData}. Please check the API response format.`);
           return;
         }
-        
 
-        
+
+
         // Transform API data to Contact format
         const contactsData: Contact[] = usersData.map((user: any) => {
           // Debug log for role object
           if (typeof user.role === 'object') {
 
           }
-          
+
           return {
             id: user.id,
             name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'Unknown',
@@ -311,15 +311,15 @@ const Contactuser: React.FC<ContactuserProps> = () => {
             avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.username || 'User')}&background=random&color=fff&size=128`
           };
         });
-        
 
-        
+
+
         // Apply role-based filtering
         const currentUserRole = getUserRole();
         const filteredContacts = filterContactsByRole(contactsData, currentUserRole || '');
 
 
-        
+
         setContacts(filteredContacts);
         setFilteredContacts(filteredContacts);
       } catch (err: any) {
@@ -387,23 +387,23 @@ const Contactuser: React.FC<ContactuserProps> = () => {
       const conversation = response.data;
 
       setSelectedConversation(conversation);
-      
+
       let allMessages: Message[] = [];
-      
+
       // PRIORITY 1: Use GET /conversations/{id}/messages/ to fetch ALL messages from backend
       if (conversation.id) {
         try {
 
           const messagesResponse = await getMessages(conversation.id);
 
-          
+
           // Handle different response formats
           if (messagesResponse.data) {
             // Check if it's paginated (has results array)
             if (Array.isArray(messagesResponse.data.results)) {
               allMessages = messagesResponse.data.results;
 
-            } 
+            }
             // Check if it's a direct array
             else if (Array.isArray(messagesResponse.data)) {
               allMessages = messagesResponse.data;
@@ -415,7 +415,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
             }
           }
-          
+
           // Log all message details for debugging
           if (allMessages.length > 0) {
             console.log('📋 All messages from backend:', allMessages.map(m => ({
@@ -435,13 +435,13 @@ const Contactuser: React.FC<ContactuserProps> = () => {
           }
         }
       }
-      
+
       // FALLBACK 1: If no messages from API, check conversation.messages
       if (allMessages.length === 0 && conversation.messages && Array.isArray(conversation.messages)) {
         allMessages = conversation.messages;
 
       }
-      
+
       // FALLBACK 2: Merge with local storage (but prioritize backend messages)
       if (conversation.id && localMessages[conversation.id] && allMessages.length === 0) {
         allMessages = [...localMessages[conversation.id]];
@@ -455,7 +455,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
         }
       }
-      
+
       // FALLBACK 3: If we have last_message, include it if not already present
       if (conversation.last_message) {
         const lastMsgId = conversation.last_message.id;
@@ -464,7 +464,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
         }
       }
-      
+
       // Merge with existing messages in state (if merging is enabled)
       if (mergeWithExisting && messages.length > 0) {
         const newIds = new Set(allMessages.map((m: Message) => m.id));
@@ -474,28 +474,28 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
         }
       }
-      
+
       // Sort messages by created_at (oldest first) to show conversation history
       allMessages.sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
         return dateA - dateB;
       });
-      
+
       // Remove duplicates based on message ID
-      const uniqueMessages = allMessages.filter((msg, index, self) => 
+      const uniqueMessages = allMessages.filter((msg, index, self) =>
         index === self.findIndex((m: Message) => m.id === msg.id)
       );
-      
+
       console.log('📋 Final messages array (sorted, unique):', uniqueMessages.length);
-      console.log('�� Message details:', uniqueMessages.map(m => ({ 
-        id: m.id, 
+      console.log('�� Message details:', uniqueMessages.map(m => ({
+        id: m.id,
         sender: m.sender?.first_name + ' ' + m.sender?.last_name,
         recipient: m.recipient?.first_name || m.recipients?.[0]?.first_name,
         content: m.content?.substring(0, 30),
-        created_at: m.created_at 
+        created_at: m.created_at
       })));
-      
+
       // Store in local storage for this conversation (as backup)
       if (conversation.id) {
         setLocalMessages(prev => ({
@@ -503,7 +503,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
           [conversation.id]: uniqueMessages
         }));
       }
-      
+
       // Always update the messages state with all messages
 
       setMessages(uniqueMessages);
@@ -541,11 +541,11 @@ const Contactuser: React.FC<ContactuserProps> = () => {
       const convResponse = await getConversationWithUser(contact.id);
       const conversation = convResponse.data;
       setSelectedConversation(conversation);
-      
+
       // Always fetch from backend first using GET /conversations/{id}/messages/
       // This ensures we get ALL stored messages from the backend
       await fetchConversationMessages(contact.id, false); // Don't merge initially, use backend as source of truth
-      
+
       // After fetching from backend, merge with local storage if needed
       if (conversation.id && localMessages[conversation.id]) {
         const localMsgs = localMessages[conversation.id];
@@ -594,9 +594,9 @@ const Contactuser: React.FC<ContactuserProps> = () => {
       });
 
 
-      
+
       setReplyMessage('');
-      
+
       // IMPORTANT: Always refresh from backend after sending to get ALL messages
       // This ensures both sender and receiver see the complete conversation
       if (selectedConversation.id) {
@@ -609,7 +609,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 
         }
       }
-      
+
       // Refresh conversations
       await fetchConversations();
     } catch (error: any) {
@@ -626,23 +626,23 @@ const Contactuser: React.FC<ContactuserProps> = () => {
     if (selectedContacts.length > 0 && message.trim()) {
       setSendingMessage(true);
       setSendError(null);
-      
+
       try {
         const recipientIds = selectedContacts.map(c => c.id);
         const response = await sendMessage({
           recipient_id: recipientIds,
           content: message.trim()
         });
-        
 
-        
+
+
         setMessage('');
         setMessageSent(true);
         setTimeout(() => setMessageSent(false), 3000);
-        
+
         // Refresh conversations
         await fetchConversations();
-        
+
         // If viewing a conversation, refresh ALL messages from backend
         if (selectedConversation && showMessageView) {
           const otherParticipant = selectedConversation.other_participant;
@@ -678,19 +678,19 @@ const Contactuser: React.FC<ContactuserProps> = () => {
   };
 
   const toggleSelectAllForRole = (roleContacts: Contact[]) => {
-    const allSelected = roleContacts.every(contact => 
+    const allSelected = roleContacts.every(contact =>
       selectedContacts.some(c => c.id === contact.id)
     );
-    
+
     if (allSelected) {
       // Deselect all contacts in this role
-      setSelectedContacts(prev => 
+      setSelectedContacts(prev =>
         prev.filter(contact => !roleContacts.some(roleContact => roleContact.id === contact.id))
       );
     } else {
       // Select all contacts in this role
       setSelectedContacts(prev => {
-        const newSelections = roleContacts.filter(contact => 
+        const newSelections = roleContacts.filter(contact =>
           !prev.some(c => c.id === contact.id)
         );
         return [...prev, ...newSelections];
@@ -773,8 +773,8 @@ const Contactuser: React.FC<ContactuserProps> = () => {
               <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
               <h3 className="text-xl font-semibold text-gray-800 mb-4">Oops! Something went wrong</h3>
               <p className="text-red-600 mb-6 max-w-md mx-auto">{error}</p>
-              <button 
-                onClick={() => window.location.reload()} 
+              <button
+                onClick={() => window.location.reload()}
                 className="bg-red-600 text-white px-6 py-3 rounded-xl hover:bg-red-700 transition-colors duration-200 flex items-center gap-2 mx-auto"
               >
                 <AlertCircle className="w-4 h-4" />
@@ -788,7 +788,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -811,7 +811,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
           <div className="bg-white rounded-2xl shadow-xl p-8 mb-8 bg-opacity-95">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
               <div>
-            
+
             {/* Stats */}
             {/* <div className="flex gap-4">
               <div className="bg-blue-50 rounded-xl p-4 text-center">
@@ -844,7 +844,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                     className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   />
                 </div>
-                
+
                 <div className="flex gap-2">
                   <select
                     value={selectedRole}
@@ -858,7 +858,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                       </option>
                     ))}
                   </select>
-                  
+
                   <button
                     onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
                     className="px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
@@ -882,7 +882,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                       {/* Role Header */}
                       <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4">
                         <div className="flex items-center justify-between">
-                          <div 
+                          <div
                             className="flex items-center gap-3 cursor-pointer hover:from-gray-100 hover:to-gray-200 transition-all duration-200 flex-1"
                             onClick={() => toggleRoleExpansion(role)}
                           >
@@ -902,12 +902,12 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                               }}
                               className="px-3 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors duration-200"
                             >
-                              {roleContacts.every(contact => 
+                              {roleContacts.every(contact =>
                                 selectedContacts.some(c => c.id === contact.id)
                               ) ? 'Deselect All' : 'Select All'}
                             </button>
-                            {expandedRoles.has(role) ? 
-                              <ChevronUp className="w-5 h-5 text-gray-500 cursor-pointer" onClick={() => toggleRoleExpansion(role)} /> : 
+                            {expandedRoles.has(role) ?
+                              <ChevronUp className="w-5 h-5 text-gray-500 cursor-pointer" onClick={() => toggleRoleExpansion(role)} /> :
                               <ChevronDown className="w-5 h-5 text-gray-500 cursor-pointer" onClick={() => toggleRoleExpansion(role)} />
                             }
                           </div>
@@ -925,7 +925,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                               }}
                               className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 hover:shadow-lg ${
                                 selectedContacts.some(c => c.id === contact.id)
-                                  ? 'border-blue-500 bg-blue-50 shadow-lg' 
+                                  ? 'border-blue-500 bg-blue-50 shadow-lg'
                                   : 'border-gray-100 hover:border-blue-300 bg-white'
                               }`}
                             >
@@ -951,11 +951,11 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                                     )} */}
                                   </div>
                                   <p className="text-sm text-gray-600 mb-2">@{contact.username}</p>
-                                  
+
                                   <div className="flex flex-col gap-1">
                                     {contact.phone !== 'N/A' && (
-                                      <a 
-                                        href={`tel:${contact.phone}`} 
+                                      <a
+                                        href={`tel:${contact.phone}`}
                                         className="text-blue-600 hover:text-blue-800 flex items-center gap-2 text-sm transition-colors"
                                         onClick={(e) => e.stopPropagation()}
                                       >
@@ -964,7 +964,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                     </a>
                                     )}
                                     {contact.email !== 'N/A' && (
-                                      <a 
+                                      <a
                                         href={`mailto:${contact.email}`}
                                         className="text-gray-600 hover:text-gray-800 flex items-center gap-2 text-sm transition-colors"
                                         onClick={(e) => e.stopPropagation()}
@@ -1073,7 +1073,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                 placeholder="Type your message here..."
               />
             </div>
-                    
+
             <button
               type="submit"
                       disabled={!message.trim() || sendingMessage}
@@ -1091,7 +1091,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                         </>
                       )}
             </button>
-            
+
             {sendError && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 text-red-600" />
@@ -1159,7 +1159,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                 </button>
                 <div>
                   <h2 className="text-xl font-semibold text-gray-800">
-                    {selectedConversation?.other_participant 
+                    {selectedConversation?.other_participant
                       ? `${selectedConversation.other_participant.first_name} ${selectedConversation.other_participant.last_name}`
                       : 'Messages'}
                   </h2>
@@ -1207,7 +1207,7 @@ const Contactuser: React.FC<ContactuserProps> = () => {
                   {messages.map((msg, index) => {
                     const currentUser = getUserData();
                     const isCurrentUser = currentUser && msg.sender && msg.sender.id === currentUser.id;
-                    
+
                     return (
                       <div
                         key={msg.id || `msg-${index}-${msg.created_at}`}
@@ -1290,4 +1290,3 @@ const Contactuser: React.FC<ContactuserProps> = () => {
 };
 
 export default Contactuser;
-

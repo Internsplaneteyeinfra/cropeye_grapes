@@ -156,14 +156,14 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
     const urlParams = new URLSearchParams(window.location.search);
     const viewParam = urlParams.get('view');
     const hash = window.location.hash.replace('#', '').replace('#/', '');
-    
+
     // Priority: URL param > hash > default to Home
     if (viewParam) {
       handleRouteFromURL(viewParam);
     } else if (hash) {
       handleRouteFromURL(hash);
     }
-    
+
     // Listen for hash changes (for hash-based routing)
     const handleHashChange = () => {
       const newHash = window.location.hash.replace('#/', '').replace('#', '');
@@ -171,7 +171,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
         handleRouteFromURL(newHash);
       }
     };
-    
+
     // Listen for popstate (browser back/forward)
     const handlePopState = () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -180,10 +180,10 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
         handleRouteFromURL(viewParam);
       }
     };
-    
+
     window.addEventListener('hashchange', handleHashChange);
     window.addEventListener('popstate', handlePopState);
-    
+
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
       window.removeEventListener('popstate', handlePopState);
@@ -369,7 +369,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       return [View.Home, ...newOthers];
     });
     setIsSidebarOpen(false);
-    
+
     // Update URL for refresh support
     const viewMap: Partial<Record<View, string>> = {
       [View.Home]: 'home',
@@ -409,7 +409,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       [View.AgricultureData]: 'agriculturedata',
       [View.Contactuser]: 'contactuser',
     };
-    
+
     const urlName = viewMap[nextView] || 'home';
     const newURL = `${window.location.pathname}?view=${urlName}`;
     window.history.pushState({ view: urlName }, '', newURL);
@@ -736,8 +736,8 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       </div>
 
       {/* Global Chatbot Component - Single Frame Design */}
-      <Chatbot 
-        isOpen={isChatbotOpen} 
+      <Chatbot
+        isOpen={isChatbotOpen}
         onClose={() => setIsChatbotOpen(false)}
         userRole={userRole}
       />

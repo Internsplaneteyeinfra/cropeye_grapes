@@ -90,12 +90,12 @@ body {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
-  
+
   /* Override sm:overflow-x-hidden at 1024px */
   .pest-tab-scroll.overflow-x-auto {
     overflow-x: auto !important;
   }
-  
+
   /* Ensure the table inside can scroll */
   .pest-tab-scroll table {
     min-width: 100%;

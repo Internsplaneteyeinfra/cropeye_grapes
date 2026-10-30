@@ -3,25 +3,50 @@ import { Activity } from "lucide-react";
 import "../Irrigation.css";
 import { useAppContext } from "../../../context/AppContext";
 import { useFarmerProfile } from "../../../hooks/useFarmerProfile";
+import { toBackendPlotName } from "../../../utils/plotName";
+import {
+  collectPlotApiIds,
+  findPlotInFarmerProfile,
+  getPlotAreaAcresFromProfile,
+} from "../../../utils/grapesEventsBundle";
 
 const WaterUptakeCard: React.FC = () => {
   const { appState, getCached, setCached } = useAppContext();
 
   const irrigationSchedule = appState.irrigationScheduleData || [];
   const todayData = irrigationSchedule.find((day: any) => day.isToday);
-  const waterReqLiters = todayData?.waterRequired ?? 0;
+  const waterReqLiters = Number(
+    todayData?.waterRequired ??
+      (todayData?.irrigationNeedKl != null ? Number(todayData.irrigationNeedKl) * 1000 : 0),
+  ) || 0;
   const { profile, loading: profileLoading } = useFarmerProfile();
   const storedPlot = typeof window !== 'undefined' ? localStorage.getItem('selectedPlot') : null;
   const plotName = (appState.plotName && appState.plotName.trim())
     || (storedPlot && storedPlot.trim())
     || (profile?.plots?.[0]?.fastapi_plot_id || "");
 
-  // Get plants_in_field from current plot
-  const currentPlot = profile?.plots?.find(plot => plot.fastapi_plot_id === plotName);
-  const plantsInField = currentPlot?.farms?.[0]?.plants_in_field ?? 0;
-  
-  // Calculate water per plant per hour: (waterRequired / plants_in_field) / 24
-  const waterPerPlantPerHour = plantsInField > 0 ? (waterReqLiters / plantsInField) / 24 : 0;
+  const currentPlot = plotName ? findPlotInFarmerProfile(profile, plotName) : null;
+  const currentFarm = currentPlot?.farms?.[0];
+  const spacingA = Number(currentFarm?.spacing_a);
+  const spacingB = Number(currentFarm?.spacing_b);
+  const plantsInField = Number(currentFarm?.plants_in_field);
+  const areaAcres = plotName ? getPlotAreaAcresFromProfile(profile, plotName) : null;
+
+  // waterRequired is litres per acre; spacing is in feet (43,560 sq ft per acre).
+  const plantsPerAcre =
+    spacingA > 0 && spacingB > 0
+      ? 43560 / (spacingA * spacingB)
+      : plantsInField > 0 && areaAcres
+        ? plantsInField / areaAcres
+        : null;
+
+  const waterPerPlantPerHour =
+    todayData && plantsPerAcre ? waterReqLiters / plantsPerAcre / 24 : null;
+  const missingReason = !todayData
+    ? "Today's water requirement is not available yet."
+    : !plantsPerAcre
+      ? "Add row and plant spacing for this farm to calculate per-plant uptake."
+      : null;
 
   const [efficiency, setEfficiency] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -48,32 +73,45 @@ const WaterUptakeCard: React.FC = () => {
 
         setLoading(true);
         setError(null);
-        
+
         const currentEndDate = new Date().toISOString().split('T')[0];
         const baseUrl = 'https://admin-cropeye.up.railway.app';
-        const url = `${baseUrl}/wateruptake?plot_name=${plotName}&end_date=${currentEndDate}&days_back=7`;
-        
-        const response = await fetch(url, {
-          method: "POST",
-          mode: "cors",
-          cache: "no-cache",
-          credentials: "omit",
-          headers: { "Accept": "application/json" },
-        });
+        const candidates = [
+          ...new Set(collectPlotApiIds(profile, plotName).map(toBackendPlotName).filter(Boolean)),
+        ];
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => '');
-          throw new Error(`API ${response.status}${errorText ? `: ${errorText}` : ''}`);
+        let data: any = null;
+        let lastStatus: number | null = null;
+        for (const id of candidates) {
+          const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(id)}&end_date=${currentEndDate}&days_back=7`;
+          const response = await fetch(url, {
+            method: "POST",
+            mode: "cors",
+            cache: "no-cache",
+            credentials: "omit",
+            headers: { "Accept": "application/json" },
+          });
+          if (response.ok) {
+            data = await response.json();
+            break;
+          }
+          lastStatus = response.status;
         }
 
-        const data = await response.json();
+        if (!data) {
+          throw new Error(
+            lastStatus === 404
+              ? `No satellite water-uptake data for plot ${toBackendPlotName(plotName)}`
+              : `Water-uptake service error${lastStatus ? ` (${lastStatus})` : ""}`,
+          );
+        }
         setCached(cacheKey, data); // Cache for Map and future visits
 
         const pixelSummary = data.pixel_summary;
 
         if (!pixelSummary) {
           console.warn('WaterUptakeCard: No pixel_summary in API response', data);
-          setEfficiency(0);
+          setEfficiency(null);
           setLoading(false);
           return;
         }
@@ -101,14 +139,15 @@ const WaterUptakeCard: React.FC = () => {
           message: err?.message,
           plotName
         });
-        setError("Failed to fetch efficiency data");
+        setError(err?.message || "Failed to fetch efficiency data");
         setEfficiency(null);
         setLoading(false);
       }
     };
 
     fetchEfficiency();
-  }, [plotName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotName, profile]);
 
   // Circle visuals
   const minRadius = 70;
@@ -197,7 +236,7 @@ const WaterUptakeCard: React.FC = () => {
               textAnchor="middle"
               className="progress-text value"
             >
-              {loading ? "..." : waterPerPlantPerHour.toFixed(2)}
+              {loading ? "..." : waterPerPlantPerHour != null ? waterPerPlantPerHour.toFixed(2) : "—"}
             </text>
             <text
               x="50%"
@@ -219,6 +258,14 @@ const WaterUptakeCard: React.FC = () => {
           {/* Average: {average} L/Day */}
         </div>
 
+        {!loading && missingReason && (
+          <div className="text-xs text-gray-500 text-center px-3">{missingReason}</div>
+        )}
+        {!loading && efficiency === 0 && (
+          <div className="text-xs text-amber-700 text-center px-3 mt-1">
+            Satellite shows no plot area with adequate water uptake this week — the crop is under water stress.
+          </div>
+        )}
         {error && <div className="text-red-500 mt-1">{error}</div>}
       </div>
     </div>
@@ -226,4 +273,3 @@ const WaterUptakeCard: React.FC = () => {
 };
 
 export default WaterUptakeCard;
-

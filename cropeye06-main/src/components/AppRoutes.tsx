@@ -272,13 +272,13 @@ const AppRoutesContent: React.FC = () => {
     } catch (error: any) {
       const status = error.response?.status;
       // const errorMessage = error.response?.data?.detail || error.message;
-      
+
       // Handle 401/403 - Token expired or invalid
       if (status === 401 || status === 403) {
         handleLogout();
         return;
       }
-      
+
       // Handle network errors - keep user logged in with cached credentials
       // This prevents logout when accessing from different network/laptop
       if (!error.response || error.code === 'ECONNABORTED' || error.message?.includes('Network Error') || error.message?.includes('timeout')) {
@@ -288,7 +288,7 @@ const AppRoutesContent: React.FC = () => {
         setLoading(false);
         return;
       }
-      
+
       // Handle CORS errors - also keep user logged in
       if (error.message?.includes('CORS') || error.message?.includes('Failed to fetch')) {
         console.warn('⚠️ CORS/Network error detected, keeping user logged in with cached credentials');
@@ -297,7 +297,7 @@ const AppRoutesContent: React.FC = () => {
         setLoading(false);
         return;
       }
-      
+
       // Handle other errors - only logout for actual auth errors
       // For unknown errors, keep user logged in if we have a valid token format
       if (isValidToken(token)) {
@@ -307,7 +307,7 @@ const AppRoutesContent: React.FC = () => {
         setLoading(false);
         return;
       }
-      
+
       // Only logout if token is invalid format
       handleLogout();
     } finally {

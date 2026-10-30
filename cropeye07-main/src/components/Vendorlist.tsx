@@ -40,7 +40,7 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
       try {
         const response = await getVendors();
         const data = response?.data;
-        
+
         // Handle different response formats
         let vendors: any[] = [];
         if (Array.isArray(data)) {
@@ -52,10 +52,10 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
         } else if (data?.vendors && Array.isArray(data.vendors)) {
           vendors = data.vendors;
         }
-        
+
         // Transform API response to match User interface
         const transformedVendors: User[] = vendors.map((vendor: any, index: number) => {
-          
+
           const transformed = {
             id: vendor.id,
             vendorName: vendor.vendor_name || vendor.vendorName || vendor.name || '',
@@ -69,10 +69,10 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
             city: vendor.city || '',
             address: vendor.address || '',
           };
-          
+
           return transformed;
         });
-        
+
         setUsers(transformedVendors);
       } catch (err: any) {
         setError(err?.response?.data?.message || err?.message || 'Failed to fetch vendors');
@@ -116,19 +116,19 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
           delete apiData[key];
         }
       });
-      
+
 
       await patchVendor(id, apiData);
-      
+
       // Update local state immediately (optimistic update)
       const updatedUsers = (users || []).map((user) => (user.id === id ? { ...user, ...editedUser } : user));
       setUsers(updatedUsers);
-      
+
       // Refresh data from API to ensure consistency
       try {
         const refreshResponse = await getVendors();
         const refreshData = refreshResponse?.data;
-        
+
         let vendors: any[] = [];
         if (Array.isArray(refreshData)) {
           vendors = refreshData;
@@ -139,7 +139,7 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
         } else if (refreshData?.vendors && Array.isArray(refreshData.vendors)) {
           vendors = refreshData.vendors;
         }
-        
+
         const transformedVendors: User[] = vendors.map((vendor: any) => ({
           id: vendor.id,
           vendorName: vendor.vendor_name || vendor.vendorName || vendor.name || '',
@@ -153,11 +153,11 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
           city: vendor.city || '',
           address: vendor.address || '',
         }));
-        
+
         setUsers(transformedVendors);
         } catch (refreshErr) {
       }
-      
+
       setEditingId(null);
       setEditedUser({});
     } catch (err: any) {
@@ -211,7 +211,7 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginatedData = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-  
+
   // Reset to page 1 if current page is greater than total pages (e.g., after filtering)
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
@@ -220,7 +220,7 @@ export const VendorList: React.FC<VendorListProps> = ({ users, setUsers }) => {
   }, [totalPages, currentPage]);
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`

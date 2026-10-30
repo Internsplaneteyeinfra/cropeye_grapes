@@ -20,7 +20,7 @@ const LiveChat: React.FC<LiveChatProps> = ({ isOpen, onClose }) => {
   const [selectedVoice, setSelectedVoice] = useState<string>('puck');
   const [showSettings, setShowSettings] = useState(false);
   const [waveformData, setWaveformData] = useState<number[]>([]);
-  
+
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,7 +67,7 @@ const LiveChat: React.FC<LiveChatProps> = ({ isOpen, onClose }) => {
     samples.forEach((sample, index) => {
       const x = index * step;
       const y = centerY + (sample * centerY * 0.8); // Scale amplitude
-      
+
       if (index === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -151,8 +151,8 @@ const LiveChat: React.FC<LiveChatProps> = ({ isOpen, onClose }) => {
         <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${
-              isConnected 
-                ? connectionStrength === 'excellent' ? 'bg-green-400' 
+              isConnected
+                ? connectionStrength === 'excellent' ? 'bg-green-400'
                   : connectionStrength === 'good' ? 'bg-yellow-400'
                   : connectionStrength === 'fair' ? 'bg-orange-400'
                   : 'bg-red-400'
@@ -331,7 +331,7 @@ const LiveChat: React.FC<LiveChatProps> = ({ isOpen, onClose }) => {
                   {isConnected ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Listening:</span>
                 <div className={`flex items-center gap-2 ${isListening ? 'text-green-600' : 'text-gray-400'}`}>

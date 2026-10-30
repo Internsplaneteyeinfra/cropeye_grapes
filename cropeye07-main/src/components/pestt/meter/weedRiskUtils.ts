@@ -54,4 +54,3 @@ export const buildWeedRiskLevelMap = (buckets: WeedRiskBuckets): Map<string, Wee
   buckets.low.forEach((weed) => map.set(weed.name, 'Low'));
   return map;
 };
-

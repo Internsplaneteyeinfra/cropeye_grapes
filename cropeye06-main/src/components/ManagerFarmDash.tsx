@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import LightIntensityCard from "./LightIntensityCard";
+import CropStageValue from "./CropStageValue";
 import {
   Line,
   XAxis,
@@ -18,6 +20,7 @@ import {
   MapContainer,
   TileLayer,
   Polygon,
+  CircleMarker,
   Tooltip as LeafletTooltip,
   useMap,
 } from "react-leaflet";
@@ -38,6 +41,7 @@ import {
   Gauge,
   Sprout,
 } from "lucide-react";
+import CropStageCandles from "./ownerDashboard/CropStageCandles";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
@@ -47,7 +51,12 @@ import {
   getGrapesAdminBaseUrl,
 } from "../utils/serviceUrls";
 import {
+  agroStatsCacheKey,
+  extractAgroStatsPlotRow,
+  fetchAgroStatsPayload,
   fetchGrapesPlotDashboardData,
+  fetchGrapesScopeDashboardData,
+  getLocalDateIso,
   grapesPlotFormBody,
   ripeningMilestonesFromPayload,
 } from "../utils/grapesEventsBundle";
@@ -62,6 +71,10 @@ import {
   vigourToBarRows,
   dominantVigourCategory,
 } from "../utils/canopyVigour";
+import { extractFarms, resolveFarmAreaAcres } from "../utils/ownerPortfolio";
+import { grapeVarietyLabel } from "../utils/grapeVarieties";
+import { growthStageSummaryFromNames, useGrapesStage } from "../hooks/useGrapesStage";
+import { useOwnerSeasonStages } from "../hooks/useOwnerSeasonStages";
 import {
   getMyFieldOfficers,
   normalizeFieldOfficersFromResponse,
@@ -229,8 +242,188 @@ function farmerId(farmer: any): string {
 
 function plotIdFromRow(plot: any): string {
   const id =
-    plot?.fastapi_plot_id ?? plot?.plot_id ?? plot?.id ?? plot?.farm_id;
+    plot?.fastapi_plot_id ??
+    plot?.farms?.[0]?.fastapi_plot_id ??
+    (plot?.gat_number && plot?.plot_number
+      ? `${plot.gat_number}_${plot.plot_number}`
+      : null) ??
+    plot?.plot_id ??
+    plot?.id ??
+    plot?.farm_id;
   return id == null || id === "" ? "" : String(id);
+}
+
+function farmerPlotRecords(farmer: any): any[] {
+  return pickArray(
+    farmer?.plots,
+    farmer?.plot_list,
+    farmer?.plot,
+    farmer?.farms,
+  );
+}
+
+function farmerPlotIds(farmer: any): string[] {
+  return farmerPlotRecords(farmer).map(plotIdFromRow).filter(Boolean);
+}
+
+function farmerDisplayName(farmer: any): string {
+  return (
+    `${farmer?.first_name || ""} ${farmer?.last_name || ""}`.trim() ||
+    farmer?.name ||
+    "—"
+  );
+}
+
+function plotAliases(record: any): string[] {
+  const farm = record?.farms?.[0];
+  const gat =
+    record?.gat_number != null && record?.plot_number != null
+      ? `${record.gat_number}_${record.plot_number}`
+      : farm?.gat_number != null && farm?.plot_number != null
+        ? `${farm.gat_number}_${farm.plot_number}`
+        : null;
+  return [
+    ...new Set(
+      [
+        record?.fastapi_plot_id,
+        farm?.fastapi_plot_id,
+        record?.farm_uid,
+        farm?.farm_uid,
+        record?.plot_name,
+        farm?.plot_name,
+        gat,
+        record?.plot_id,
+        farm?.plot_id,
+        record?.id,
+        farm?.id,
+        record?.farm_id,
+      ]
+        .map((value) => (value == null ? "" : String(value).trim()))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function lngLatRingToLatLng(ring: unknown): [number, number][] {
+  if (!Array.isArray(ring) || ring.length < 3) return [];
+  const coords: [number, number][] = [];
+  for (const point of ring) {
+    if (!Array.isArray(point) || point.length < 2) continue;
+    const a = Number(point[0]);
+    const b = Number(point[1]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    // GeoJSON is [lng, lat]. If the first value looks like latitude, keep order.
+    if (Math.abs(a) <= 90 && Math.abs(b) <= 180 && Math.abs(b) > 90) {
+      coords.push([a, b]);
+    } else {
+      coords.push([b, a]);
+    }
+  }
+  return coords.length >= 3 ? coords : [];
+}
+
+function ringsFromGeometry(geometry: unknown): unknown[] {
+  if (!geometry) return [];
+  let geom: any = geometry;
+  if (typeof geom === "string") {
+    try {
+      geom = JSON.parse(geom);
+    } catch {
+      return [];
+    }
+  }
+  const coords = geom.coordinates ?? geom;
+  if (!Array.isArray(coords) || coords.length === 0) return [];
+  const first = coords[0];
+  if (typeof first === "number") return [];
+  if (Array.isArray(first) && typeof first[0] === "number") return [coords];
+  if (Array.isArray(first?.[0]) && typeof first[0][0] === "number") return [first];
+  if (Array.isArray(first?.[0]?.[0]) && typeof first[0][0][0] === "number") {
+    return first.map((polygon: any) => polygon[0]);
+  }
+  return [];
+}
+
+function boundaryRingFromRecord(record: any): [number, number][] {
+  if (!record || typeof record !== "object") return [];
+  const farm = record.farms?.[0];
+  const geometries = [
+    record.boundary,
+    record.geometry,
+    record.coordinates?.boundary,
+    farm?.boundary,
+    farm?.geometry,
+    record,
+  ];
+  for (const geometry of geometries) {
+    for (const ring of ringsFromGeometry(geometry)) {
+      const coords = lngLatRingToLatLng(ring);
+      if (coords.length >= 3) return coords;
+    }
+  }
+  return [];
+}
+
+function pointFromRecord(record: any): [number, number] | null {
+  if (!record || typeof record !== "object") return null;
+  const candidates = [
+    record.location?.coordinates,
+    record.farms?.[0]?.location?.coordinates,
+    record.coordinates?.location
+      ? [record.coordinates.location.longitude, record.coordinates.location.latitude]
+      : null,
+  ];
+  for (const pair of candidates) {
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    const lng = Number(pair[0]);
+    const lat = Number(pair[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return [lat, lng];
+    if (Math.abs(lng) <= 90 && Math.abs(lat) <= 180) return [lng, lat];
+  }
+  return null;
+}
+
+function lookupAgroRow(agro: any, aliases: string[], record: any): any | null {
+  if (!agro || typeof agro !== "object") return null;
+  for (const id of aliases) {
+    const direct = agro[id];
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  }
+  for (const id of aliases) {
+    const row = extractAgroStatsPlotRow(
+      agro,
+      id,
+      record ? { plots: [record] } : null,
+    );
+    if (row) return row;
+  }
+  return null;
+}
+
+type MapPlotShape = {
+  id: string;
+  farmerName: string;
+  coords: [number, number][];
+  center?: [number, number] | null;
+};
+
+function firstNonEmptyText(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function formatSummaryDate(value: string | null): string {
+  if (!value) return "—";
+  const datePart = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return "—";
+  return new Date(`${datePart}T00:00:00`).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 const ManagerFarmDash: React.FC = () => {
@@ -264,6 +457,7 @@ const ManagerFarmDash: React.FC = () => {
   const [plotCoordinates, setPlotCoordinates] = useState<[number, number][]>(
     [],
   );
+  const [mapPlots, setMapPlots] = useState<MapPlotShape[]>([]);
   const [visibleLines, setVisibleLines] = useState<VisibleLines>({
     growth: true,
     stress: true,
@@ -302,6 +496,24 @@ const ManagerFarmDash: React.FC = () => {
   const [showStressEvents] = useState<boolean>(false);
   const [ndreStressEvents, setNdreStressEvents] = useState<StressEvent[]>([]);
   const [showNDREEvents, setShowNDREEvents] = useState<boolean>(false);
+  const {
+    ripening,
+    fruitPruningDate,
+    savedFoundationPruningDate,
+    savedFruitPruningDate,
+    stageName: currentStageName,
+  } = useGrapesStage(selectedPlotId || null);
+  const scopeStagePlotIds = selectedPlotId ? [] : plots;
+  const seasonStages = useOwnerSeasonStages(scopeStagePlotIds);
+  const growthStageSummary = useMemo(
+    () =>
+      growthStageSummaryFromNames(
+        scopeStagePlotIds.map(
+          (id) => seasonStages.stages.get(id)?.stageName ?? null,
+        ),
+      ),
+    [scopeStagePlotIds, seasonStages.stages],
+  );
   const [milestoneState, setMilestoneState] = useState<{
     ripeningStartDate: string | null;
     harvestReadyStartDate: string | null;
@@ -363,7 +575,7 @@ const ManagerFarmDash: React.FC = () => {
           ripeningStartDate: milestones.ripeningStartDate,
           harvestReadyStartDate: milestones.harvestReadyStartDate,
           loading: false,
-          error: !(milestones.ripeningStartDate || milestones.harvestReadyStartDate),
+          error: false,
         });
       } catch (err) {
         if (cancelled) return;
@@ -382,34 +594,124 @@ const ManagerFarmDash: React.FC = () => {
     };
   }, [selectedPlotId]);
 
-  // NEW: Function to set plot coordinates from existing state
-  const setPlotCoordinatesFromState = (plotId: string): void => {
-    const farmer = farmersForSelectedOfficer.find(
-      (f) => farmerId(f) === String(selectedFarmerId),
-    );
-    const plot = pickArray(
-      farmer?.plots,
-      farmer?.plot_list,
-      farmer?.plot,
-      farmer?.farms,
-    ).find((p: any) => plotIdFromRow(p) === String(plotId));
+  const showMapPlots = async (plotIds: string[]): Promise<void> => {
+    const wanted = new Set(plotIds.map((id) => String(id)));
+    const sourceFarmers = selectedFarmerId
+      ? farmersForSelectedOfficer.filter(
+          (farmer) => farmerId(farmer) === String(selectedFarmerId),
+        )
+      : farmersForSelectedOfficer;
 
-    if (plot && plot.boundary?.coordinates) {
-      const geom = plot.boundary.coordinates[0];
-      if (geom) {
-        // The API gives [lng, lat], Leaflet needs [lat, lng]
-        const coords = geom.map(([lng, lat]: [number, number]) => [lat, lng]);
-        setPlotCoordinates(coords);
+    let agro = getCache(agroStatsCacheKey(getLocalDateIso()));
+    if (!agro) {
+      agro = await fetchAgroStatsPayload(BASE_URL, getLocalDateIso(), {
+        get: getCache,
+        set: setCache,
+      });
+    }
 
-        // Calculate and set map center
-        const center = calculateCenter(coords);
-        setMapCenter(center);
-        setMapKey((prev) => prev + 1); // Force map re-render
-      } else {
-        setPlotCoordinates([]);
+    const shapes: MapPlotShape[] = [];
+    const seen = new Set<string>();
+
+    const addShape = (
+      id: string,
+      farmerName: string,
+      record: any,
+      aliases: string[],
+    ) => {
+      if (!id || seen.has(id)) return;
+      let coords = boundaryRingFromRecord(record);
+      if (coords.length < 3) {
+        const cached = aliases
+          .map((alias) => plotCoordinatesCache.get(alias))
+          .find((ring) => ring && ring.length >= 3);
+        if (cached) coords = cached;
       }
-    } else {
-      setPlotCoordinates([]);
+      if (coords.length < 3) {
+        coords = boundaryRingFromRecord(lookupAgroRow(agro, aliases, record));
+      }
+      const center =
+        coords.length >= 3
+          ? calculateCenter(coords)
+          : pointFromRecord(record) ??
+            pointFromRecord(lookupAgroRow(agro, aliases, record));
+      if (coords.length < 3 && !center) return;
+      seen.add(id);
+      shapes.push({ id, farmerName, coords, center: center ?? null });
+    };
+
+    for (const farmer of sourceFarmers) {
+      for (const record of farmerPlotRecords(farmer)) {
+        const aliases = plotAliases(record);
+        if (
+          selectedPlotId &&
+          wanted.size > 0 &&
+          !aliases.some((alias) => wanted.has(alias))
+        ) {
+          continue;
+        }
+        const id =
+          aliases.find((alias) => wanted.has(alias)) ||
+          plotIdFromRow(record) ||
+          aliases[0];
+        addShape(id, farmerDisplayName(farmer), record, aliases);
+      }
+    }
+
+    for (const id of plotIds) {
+      if (seen.has(id)) continue;
+      addShape(id, "—", null, [id]);
+    }
+
+    const unresolved = plotIds.filter((id) => !seen.has(String(id)));
+    if (unresolved.length > 0) {
+      const today = getLocalDateIso();
+      await Promise.all(
+        unresolved.slice(0, 12).map(async (id) => {
+          try {
+            const response = await axios.post(
+              `${BASE_URL}/analyze?plot_name=${encodeURIComponent(id)}&date=${today}`,
+            );
+            const feature = response.data?.features?.[0];
+            const coords = boundaryRingFromRecord({
+              geometry: feature?.geometry ?? response.data?.geometry,
+            });
+            const center = pointFromRecord({
+              location: feature?.geometry?.type === "Point" ? feature.geometry : null,
+            });
+            if (coords.length < 3 && !center) return;
+            seen.add(id);
+            shapes.push({
+              id,
+              farmerName: "—",
+              coords,
+              center: coords.length >= 3 ? calculateCenter(coords) : center,
+            });
+          } catch {
+            /* plot has no analyze geometry */
+          }
+        }),
+      );
+    }
+
+    setMapPlots(shapes);
+    const focused =
+      (selectedPlotId
+        ? shapes.find((shape) => shape.id === selectedPlotId)
+        : null) ?? shapes[0];
+    setPlotCoordinates(focused?.coords ?? []);
+    if (shapes.length > 0) {
+      const points = shapes.flatMap((shape) =>
+        shape.coords.length >= 3
+          ? shape.coords
+          : shape.center
+            ? [shape.center]
+            : [],
+      );
+      if (points.length > 0) {
+        setMapCenter(calculateCenter(points));
+        setMapKey((prev) => prev + 1);
+      }
     }
   };
 
@@ -425,53 +727,51 @@ const ManagerFarmDash: React.FC = () => {
     );
     const farmersList = extractNestedFarmers(officer);
     setFarmersForSelectedOfficer(farmersList);
-    if (farmersList.length > 0) {
-      setSelectedFarmerId(farmerId(farmersList[0]));
-    } else {
-      setSelectedFarmerId("");
-    }
+    // Keep farmer empty so FO-level averages load until a farmer is chosen.
+    setSelectedFarmerId("");
   }, [selectedFieldOfficerId, fieldOfficers]);
 
-  // Fetch plots when farmer is selected
+  // Plots list: all FO plots when no farmer, otherwise that farmer's plots.
   useEffect(() => {
-    if (selectedFarmerId) {
-      const selectedFarmer = farmersForSelectedOfficer.find(
-        (f) => farmerId(f) === String(selectedFarmerId),
-      );
-
-      if (selectedFarmer) {
-        const plotIds = pickArray(
-          selectedFarmer.plots,
-          selectedFarmer.plot_list,
-          selectedFarmer.plot,
-          selectedFarmer.farms,
-        )
-          .map(plotIdFromRow)
-          .filter(Boolean);
-
-        setPlots(plotIds);
-
-        if (plotIds.length > 0) {
-          setSelectedPlotId(plotIds[0]);
-        } else {
-          setSelectedPlotId("");
-        }
-      } else {
-        setPlots([]);
-        setSelectedPlotId("");
-      }
-    } else {
+    if (!selectedFieldOfficerId) {
       setPlots([]);
       setSelectedPlotId("");
+      return;
     }
-  }, [selectedFarmerId, farmersForSelectedOfficer]);
+
+    const sourceFarmers = selectedFarmerId
+      ? farmersForSelectedOfficer.filter(
+          (f) => farmerId(f) === String(selectedFarmerId),
+        )
+      : farmersForSelectedOfficer;
+    const plotIds = [...new Set(sourceFarmers.flatMap(farmerPlotIds))];
+    setPlots(plotIds);
+
+    if (selectedFarmerId && plotIds.length > 0) {
+      setSelectedPlotId(plotIds[0]);
+    } else {
+      setSelectedPlotId("");
+    }
+  }, [selectedFarmerId, farmersForSelectedOfficer, selectedFieldOfficerId]);
+
+  const scopePlotKey = plots.join("|");
 
   useEffect(() => {
     if (selectedPlotId) {
-      fetchAllData();
-      setPlotCoordinatesFromState(selectedPlotId); // This will now work
+      void fetchAllData();
+      showMapPlots([selectedPlotId]);
+      return;
     }
-  }, [selectedPlotId]);
+    if (selectedFieldOfficerId && plots.length > 0) {
+      showMapPlots(plots);
+      void fetchScopeAverages(plots);
+      return;
+    }
+    setMapPlots([]);
+    setPlotCoordinates([]);
+    setLineChartData([]);
+    setStressEvents([]);
+  }, [selectedPlotId, selectedFarmerId, selectedFieldOfficerId, scopePlotKey]);
 
   useEffect(() => {
     if (lineChartData.length > 0) {
@@ -588,15 +888,71 @@ const ManagerFarmDash: React.FC = () => {
     }
   };
 
+  const applyDashboardMetrics = (metrics: {
+    brix: number | null;
+    brixMin: number | null;
+    brixMax: number | null;
+    recovery: number | null;
+    area: number | null;
+    biomass: number | null;
+    biomassMax?: number | null;
+    biomassMin?: number | null;
+    totalBiomass: number | null;
+    stressCount: number | null;
+    stressTotalDays?: number | null;
+    irrigationEvents: number | null;
+    daysToHarvest: number | null;
+    growthStage: string | null;
+    soilPH: number | null;
+    organicCarbonDensity: number | null;
+    actualYield: number | null;
+    sugarYieldMean: number | null;
+    sugarYieldMax: number | null;
+    sugarYieldMin: number | null;
+    fieldScore?: number | null;
+    cci?: number | null;
+  }): void => {
+    setMetrics({
+      brix: metrics.brix,
+      brixMin: metrics.brixMin,
+      brixMax: metrics.brixMax,
+      recovery: metrics.recovery,
+      area: metrics.area,
+      biomass: metrics.biomass,
+      biomassMax: metrics.biomassMax ?? null,
+      biomassMin: metrics.biomassMin ?? null,
+      totalBiomass: metrics.totalBiomass,
+      stressCount: metrics.stressCount,
+      stressTotalDays: metrics.stressTotalDays ?? 0,
+      irrigationEvents: metrics.irrigationEvents,
+      expectedYield: metrics.sugarYieldMean,
+      daysToHarvest: metrics.daysToHarvest,
+      growthStage: metrics.growthStage,
+      soilPH: metrics.soilPH,
+      organicCarbonDensity: metrics.organicCarbonDensity,
+      actualYield: metrics.actualYield,
+      cnRatio: null,
+      sugarYieldMean: metrics.sugarYieldMean,
+      sugarYieldMax: metrics.sugarYieldMax,
+      sugarYieldMin: metrics.sugarYieldMin,
+      fieldScore: metrics.fieldScore ?? null,
+      cci: metrics.cci ?? null,
+    });
+  };
+
   // Fetch all data for selected plot — grapes bundle + indices (same as FarmerDashboard)
   const fetchAllData = async (): Promise<void> => {
     if (!selectedPlotId) return;
 
     setLoadingData(true);
     try {
-      const selectedFarmer = farmersForSelectedOfficer.find(
-        (f) => farmerId(f) === String(selectedFarmerId),
-      );
+      const selectedFarmer =
+        farmersForSelectedOfficer.find(
+          (f) => farmerId(f) === String(selectedFarmerId),
+        ) ??
+        farmersForSelectedOfficer.find((f) =>
+          farmerPlotIds(f).includes(String(selectedPlotId)),
+        );
       const managerProfile = selectedFarmer
         ? {
             plots: pickArray(
@@ -618,34 +974,30 @@ const ManagerFarmDash: React.FC = () => {
 
       setLineChartData(lineChartData);
       setStressEvents(stressEvents);
-      setMetrics({
-        brix: metrics.brix,
-        brixMin: metrics.brixMin,
-        brixMax: metrics.brixMax,
-        recovery: metrics.recovery,
-        area: metrics.area,
-        biomass: metrics.biomass,
-        biomassMax: metrics.biomassMax ?? null,
-        biomassMin: metrics.biomassMin ?? null,
-        totalBiomass: metrics.totalBiomass,
-        stressCount: metrics.stressCount,
-        stressTotalDays: metrics.stressTotalDays ?? 0,
-        irrigationEvents: metrics.irrigationEvents,
-        expectedYield: metrics.sugarYieldMean,
-        daysToHarvest: metrics.daysToHarvest,
-        growthStage: metrics.growthStage,
-        soilPH: metrics.soilPH,
-        organicCarbonDensity: metrics.organicCarbonDensity,
-        actualYield: metrics.actualYield,
-        cnRatio: null,
-        sugarYieldMean: metrics.sugarYieldMean,
-        sugarYieldMax: metrics.sugarYieldMax,
-        sugarYieldMin: metrics.sugarYieldMin,
-        fieldScore: metrics.fieldScore ?? null,
-        cci: metrics.cci ?? null,
-      });
+      applyDashboardMetrics(metrics);
     } catch (err: any) {
       console.error("ManagerFarmDash: failed to load plot data", err);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  // FO or farmer without a plot: average agroStats + yield-estimation across plots.
+  const fetchScopeAverages = async (plotIds: string[]): Promise<void> => {
+    if (!plotIds.length) return;
+    setLoadingData(true);
+    try {
+      const { metrics } = await fetchGrapesScopeDashboardData(
+        plotIds,
+        BASE_URL,
+        { get: getCache, set: setCache },
+      );
+      setLineChartData([]);
+      setStressEvents([]);
+      applyDashboardMetrics(metrics);
+      showMapPlots(plotIds);
+    } catch (err: any) {
+      console.error("ManagerFarmDash: failed to load officer/farmer averages", err);
     } finally {
       setLoadingData(false);
     }
@@ -726,11 +1078,16 @@ const ManagerFarmDash: React.FC = () => {
       if (geom) {
         const coords = geom.map(([lng, lat]: [number, number]) => [lat, lng]);
         setPlotCoordinates(coords);
-
-        // Cache the coordinates
         setPlotCoordinatesCache((prev) => new Map(prev.set(plotId, coords)));
-
-        // Calculate and set map center
+        setMapPlots((prev) => {
+          const next = prev.filter((plot) => plot.id !== plotId);
+          next.push({
+            id: plotId,
+            farmerName: selectedFarmerLabel,
+            coords,
+          });
+          return next;
+        });
         const center = calculateCenter(coords);
         setMapCenter(center);
         setMapKey((prev) => prev + 1);
@@ -930,12 +1287,33 @@ const ManagerFarmDash: React.FC = () => {
     }
   };
 
-  // Map auto-center component (from Harvest Dashboard)
-  function MapAutoCenter({ center }: { center: [number, number] }) {
+  function MapAutoCenter({
+    center,
+    plots,
+    fitKey,
+  }: {
+    center: [number, number];
+    plots: [number, number][][];
+    fitKey: string;
+  }) {
     const map = useMap();
     useEffect(() => {
-      map.setView(center, map.getZoom());
-    }, [center, map]);
+      const points = plots.flat();
+      if (points.length >= 2) {
+        map.fitBounds(points, {
+          padding: [48, 48],
+          maxZoom: plots.length > 1 ? 16 : 18,
+        });
+        return;
+      }
+      if (points.length === 1) {
+        map.setView(points[0], 17);
+        return;
+      }
+      map.setView(center, 16);
+      // plots/center are applied when fitKey changes
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [map, fitKey]);
     return null;
   }
 
@@ -1066,16 +1444,98 @@ const ManagerFarmDash: React.FC = () => {
     );
   }, [fieldOfficers, selectedFieldOfficerId]);
 
+  const selectedFarmerRecord = useMemo(
+    () =>
+      farmersForSelectedOfficer.find(
+        (farmer) => farmerId(farmer) === String(selectedFarmerId),
+      ) ?? null,
+    [farmersForSelectedOfficer, selectedFarmerId],
+  );
+
   const selectedFarmerLabel = useMemo(() => {
-    const farmer = farmersForSelectedOfficer.find(
-      (f) => farmerId(f) === String(selectedFarmerId),
-    );
+    const farmer = selectedFarmerRecord;
     return (
       `${farmer?.first_name || ""} ${farmer?.last_name || ""}`.trim() ||
       farmer?.name ||
       "—"
     );
-  }, [farmersForSelectedOfficer, selectedFarmerId]);
+  }, [selectedFarmerRecord]);
+
+  const selectedFieldSummary = useMemo(() => {
+    const farmerPlots = pickArray(
+      selectedFarmerRecord?.plots,
+      selectedFarmerRecord?.plot_list,
+      selectedFarmerRecord?.plot,
+      selectedFarmerRecord?.farms,
+    );
+    const plot = farmerPlots.find(
+      (row) => plotIdFromRow(row) === String(selectedPlotId),
+    );
+    const farms = plot ? extractFarms(plot) : [];
+    const farm = farms[0] ?? {};
+    const crop = firstNonEmptyText(
+      farm?.crop_type?.crop_type,
+      farm?.crop_type?.name,
+      farm?.crop_type,
+      farm?.crop_name,
+      farm?.crop_type_display,
+      plot?.crop_type?.crop_type,
+      plot?.crop_type?.name,
+      plot?.crop_type,
+      plot?.crop_name,
+      selectedFarmerRecord?.crop_type?.crop_type,
+      selectedFarmerRecord?.crop_type,
+    );
+    const rawVariety = firstNonEmptyText(
+      ...farms.map((row) => row?.crop_type?.crop_variety),
+      farm?.plantation?.grafted_variety,
+      farm?.grafted_variety,
+      farm?.variety_display,
+      farm?.variety,
+      farm?.crop_variety,
+      farm?.crop_type?.variety,
+      plot?.variety,
+      plot?.crop_variety,
+      plot?.grafted_variety,
+      selectedFarmerRecord?.variety_display,
+      selectedFarmerRecord?.variety,
+      selectedFarmerRecord?.crop_variety,
+      selectedFarmerRecord?.grafted_variety,
+    );
+
+    const areaAcres = farms.reduce(
+      (sum: number, row) => sum + resolveFarmAreaAcres(row, plot),
+      0,
+    );
+
+    return {
+      areaAcres: areaAcres > 0 ? areaAcres : null,
+      crop,
+      variety: rawVariety ? grapeVarietyLabel(rawVariety) : null,
+      foundationPruningDate: firstNonEmptyText(
+        farm?.foundation_pruning_date,
+        farm?.plantation?.foundation_pruning_date,
+        plot?.foundation_pruning_date,
+        selectedFarmerRecord?.foundation_pruning_date,
+      ),
+      fruitPruningDate: firstNonEmptyText(
+        farm?.fruit_pruning_date,
+        farm?.plantation?.fruit_pruning_date,
+        plot?.fruit_pruning_date,
+        selectedFarmerRecord?.fruit_pruning_date,
+      ),
+    };
+  }, [selectedFarmerRecord, selectedPlotId]);
+
+  const areaValue = metrics.area ?? selectedFieldSummary.areaAcres;
+  const summaryCrop =
+    selectedFieldSummary.crop ?? (selectedFieldOfficerId ? "Grapes" : null);
+  const foundationPruningSummaryDate =
+    savedFoundationPruningDate ?? selectedFieldSummary.foundationPruningDate;
+  const fruitPruningSummaryDate =
+    savedFruitPruningDate ??
+    selectedFieldSummary.fruitPruningDate ??
+    fruitPruningDate;
 
   const chartDataToUse =
     combinedChartData.length > 0 ? combinedChartData : aggregatedData;
@@ -1229,12 +1689,31 @@ const ManagerFarmDash: React.FC = () => {
   // Avoid blank full-page spinner after opening Farm Crop Status
 
   return (
-    <div className="min-h-screen dashboard-bg">
+    <div className="min-h-screen dashboard-bg bg-gradient-to-b from-emerald-50/40 via-slate-50 to-slate-100">
       {/* Enhanced Header */}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ">
+      <div className="mx-auto max-w-7xl space-y-5 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-700 p-5 text-white shadow-lg sm:p-7">
+          <div className="flex items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
+              <Sprout className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                Manager overview
+              </p>
+              <h1 className="mt-1 text-2xl font-bold leading-tight sm:text-3xl">
+                Farm Crop Status
+              </h1>
+              <p className="mt-1 text-sm text-emerald-50/90">
+                Select a field officer, farmer, and plot to review crop performance.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {loadingFarmers && fieldOfficers.length === 0 && (
-          <div className="mb-4 flex items-center gap-2 text-sm font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
             <Loader2 className="w-4 h-4 animate-spin" />
             Loading field officers and farms…
           </div>
@@ -1282,23 +1761,24 @@ const ManagerFarmDash: React.FC = () => {
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
           <div className="flex items-center gap-3">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full lg:w-auto">
               {hierarchyError && (
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 w-full">
+                <p className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {hierarchyError}
                 </p>
               )}
               {/* Filters */}
               <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
                 <div className="flex flex-col flex-1 sm:flex-none">
-                  <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                    <Users className="w-4 h-4" />
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <Users className="h-4 w-4 text-emerald-700" />
                     Field Officer ({fieldOfficers.length})
                   </label>
                   <select
-                    className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white shadow-sm w-full sm:w-64"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 sm:w-64"
                     value={selectedFieldOfficerId}
                     onChange={(e) => setSelectedFieldOfficerId(e.target.value)}
                     disabled={loadingFarmers}
@@ -1326,12 +1806,12 @@ const ManagerFarmDash: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col flex-1 sm:flex-none">
-                  <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                    <Users className="w-4 h-4" /> Farmers (
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <Users className="h-4 w-4 text-emerald-700" /> Farmers (
                     {farmersForSelectedOfficer.length})
                   </label>
                   <select
-                    className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white shadow-sm w-full sm:w-64"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 sm:w-64"
                     value={selectedFarmerId}
                     onChange={(e) => {
                       setSelectedFarmerId(e.target.value);
@@ -1347,7 +1827,9 @@ const ManagerFarmDash: React.FC = () => {
                       <option>No farmers found</option>
                     ) : (
                       <>
-                        <option value="">Select a farmer</option>
+                        <option value="">
+                          All farmers (avg · {farmersForSelectedOfficer.length})
+                        </option>
                         {farmersForSelectedOfficer.map((farmer) => {
                           const fid = farmerId(farmer);
                           const farmerName =
@@ -1373,12 +1855,12 @@ const ManagerFarmDash: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col flex-1 sm:flex-none">
-                  <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <MapPin className="h-4 w-4 text-emerald-700" />
                     Plots ({plots.length})
                   </label>
                   <select
-                    className="px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white shadow-sm w-full sm:w-64"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 sm:w-64"
                     value={selectedPlotId}
                     onChange={(e) => {
                       const newPlotId = e.target.value;
@@ -1388,15 +1870,17 @@ const ManagerFarmDash: React.FC = () => {
                         fetchPlotCoordinates(newPlotId);
                       }
                     }}
-                    disabled={!selectedFarmerId || plots.length === 0}
+                    disabled={!selectedFieldOfficerId || plots.length === 0}
                   >
-                    {!selectedFarmerId ? (
-                      <option value="">Select farmer first</option>
+                    {!selectedFieldOfficerId ? (
+                      <option value="">Select officer first</option>
                     ) : plots.length === 0 ? (
                       <option value="">No plots available</option>
                     ) : (
                       <>
-                        <option value="">Select a plot</option>
+                        <option value="">
+                          All plots (avg · {plots.length})
+                        </option>
                         {plots.map((plotId, index) => {
                           return (
                             <option
@@ -1414,60 +1898,157 @@ const ManagerFarmDash: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-600 bg-gradient-to-r from-gray-100 to-blue-50 px-4 py-3 rounded-lg ">
-            <Calendar className="w-4 h-4 text-blue-600" />
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <Calendar className="h-4 w-4 text-emerald-700" />
             <span className="font-medium">
               {new Date().toLocaleDateString()}
             </span>
           </div>
         </div>
+        </section>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 pb-6 sm:px-6 lg:px-8">
+        {selectedFieldOfficerId && (
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-4">
+              <h2 className="text-base font-semibold text-slate-900 sm:text-lg">
+                {selectedPlotId ? "Selected grape field" : "Officer / farmer averages"}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+                {selectedPlotId
+                  ? "Farmer, crop details, and pruning schedule."
+                  : "Field area is a total; yield, biomass, and stage use averages across the selected plots."}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              {[
+                {
+                  label: "Farmer",
+                  value: selectedFarmerId
+                    ? selectedFarmerLabel
+                    : `All farmers (${farmersForSelectedOfficer.length})`,
+                  icon: <Users className="h-5 w-5" />,
+                  tone: "bg-sky-50 text-sky-700",
+                },
+                {
+                  label: "Total plots",
+                  value: String(plots.length),
+                  icon: <MapPin className="h-5 w-5" />,
+                  tone: "bg-indigo-50 text-indigo-700",
+                },
+                {
+                  label: "Crop",
+                  value: summaryCrop || "—",
+                  icon: <Leaf className="h-5 w-5" />,
+                  tone: "bg-emerald-50 text-emerald-700",
+                },
+                {
+                  label: "Variety",
+                  value: selectedFieldSummary.variety || "—",
+                  icon: <Sprout className="h-5 w-5" />,
+                  tone: "bg-violet-50 text-violet-700",
+                },
+                {
+                  label: "Foundation pruning",
+                  value: formatSummaryDate(foundationPruningSummaryDate),
+                  icon: <Calendar className="h-5 w-5" />,
+                  tone: "bg-amber-50 text-amber-700",
+                },
+                {
+                  label: "Fruit pruning",
+                  value: formatSummaryDate(fruitPruningSummaryDate),
+                  icon: <Calendar className="h-5 w-5" />,
+                  tone: "bg-teal-50 text-teal-700",
+                },
+              ].map((item) => (
+                <article
+                  key={item.label}
+                  className="flex min-h-24 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-500">
+                      {item.label}
+                    </p>
+                    <p className="mt-1 truncate text-base font-semibold text-slate-900">
+                      {item.value}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${item.tone}`}
+                    aria-hidden="true"
+                  >
+                    {item.icon}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Top Priority Metrics - same 4 cards as sugarcane */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Fields.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {loadingData ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    metrics.area?.toFixed(2) || "-"
+                    areaValue?.toFixed(2) || "-"
                   )}
                 </div>
-                <div className="text-base font-semibold" style={{ color: '#6bb043' }}>acre</div>
+                <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                  {selectedPlotId ? "acre" : "total acres"}
+                </div>
               </div>
             </div>
             <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Field Area</p>
           </div>
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Crop Status.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 relative z-10">
-              <div className="text-right">
-                <div className="text-lg font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.growthStage || "-"
-                  )}
+              {selectedPlotId ? (
+                <CropStageValue plotId={selectedPlotId} />
+              ) : seasonStages.loading ? (
+                <Loader2 className="w-5 h-5 animate-spin ml-auto" />
+              ) : growthStageSummary.current ? (
+                <div className="text-right w-full">
+                  <div
+                    className="text-lg font-bold leading-tight"
+                    style={{ color: "#212121", fontFamily: "Inter, Poppins, sans-serif" }}
+                  >
+                    {growthStageSummary.current}
+                  </div>
+                  <div className="text-xs font-semibold mt-0.5" style={{ color: "#6bb043" }}>
+                    {growthStageSummary.rows[0]?.count}/{growthStageSummary.known} plots
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <CropStageValue plotId={null} />
+              )}
+            </div>
+            <div className="relative z-10 mt-2">
+              {selectedPlotId ? (
+                <CropStageCandles plotId={selectedPlotId} />
+              ) : growthStageSummary.rows.length > 0 ? (
+                <div className="space-y-1">
+                  {growthStageSummary.rows.map((row) => (
+                    <div
+                      key={row.stage}
+                      className="flex items-center justify-between gap-2 text-[11px] leading-snug text-slate-600"
+                    >
+                      <span className="truncate">{row.stage}</span>
+                      <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+                        {row.count}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>
-              Crop Status
+              Crop Stage
             </p>
           </div>
 
@@ -1481,32 +2062,49 @@ const ManagerFarmDash: React.FC = () => {
               style={{ color: '#5a7c3a' }}
               aria-hidden
             />
-            <div className="flex flex-col flex-1 min-h-0 relative z-10 pl-16" aria-busy={milestoneState.loading}>
-              {([
-                { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
-                { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
-              ] as const).map((row) => {
-                const showDash = milestoneState.loading || milestoneState.error;
-                const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
-                const subtleValue = showDash || dateText === "Not available";
-                return (
-                  <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
-                    <div
-                      className="text-sm font-bold tabular-nums"
-                      style={{
-                        color: subtleValue ? '#94a3b8' : '#212121',
-                        fontFamily: 'Inter, Poppins, sans-serif',
-                      }}
-                      title={subtleValue ? undefined : dateText}
-                    >
-                      {dateText}
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col items-end justify-start px-3 pt-2 text-right" aria-busy={milestoneState.loading}>
+              <div className="flex flex-col items-end">
+                {([
+                  { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
+                  { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
+                ] as const).map((row) => {
+                  const showDash = milestoneState.loading || milestoneState.error;
+                  const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
+                  const subtleValue = showDash || dateText === "Not available";
+                  return (
+                    <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
+                      <div
+                        className="text-sm font-bold tabular-nums"
+                        style={{
+                          color: subtleValue ? '#94a3b8' : '#212121',
+                          fontFamily: 'Inter, Poppins, sans-serif',
+                        }}
+                        title={subtleValue ? undefined : dateText}
+                      >
+                        {dateText}
+                      </div>
+                      <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                        {row.label}
+                      </div>
                     </div>
-                    <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
-                      {row.label}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              {(currentStageName || ripening) && (
+                <div className="absolute left-1/2 top-1/2 w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 space-y-0.5 text-center text-[11px] leading-snug text-slate-500">
+                  {currentStageName && (
+                    <p>
+                      Current stage: <span className="font-semibold text-slate-700">{currentStageName}</span>
+                    </p>
+                  )}
+                  {ripening && (
+                    <p>
+                      Ripening ({ripening.veraisonStage}) normally starts ~day {ripening.veraisonDay},{" "}
+                      {formatMilestoneDate(ripening.veraisonStart)}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <p className="text-sm font-medium mt-auto pt-0 -mt-2 relative z-10" style={{ color: '#616161' }}>
               Ripening/Harvest
@@ -1528,6 +2126,9 @@ const ManagerFarmDash: React.FC = () => {
                   <span className="text-sm font-semibold" style={{ color: '#6bb043' }}>
                     °Brix (Avg)
                   </span>
+                </div>
+                <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                  80 days
                 </div>
               </div>
             </div>
@@ -1553,18 +2154,7 @@ const ManagerFarmDash: React.FC = () => {
 
         {/* Additional Metrics — Recovery Rate row (Field Score + CCI like FO reference) */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <div className="flex items-center justify-between mb-2">
-              <Target className="w-7 h-7 text-purple-600" />
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
-                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.recovery?.toFixed(1) || "-"}
-                </div>
-                <div className="text-sm font-semibold text-purple-600">%</div>
-              </div>
-            </div>
-            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Recovery Rate</p>
-          </div>
+          <LightIntensityCard location={plotCoordinates.length > 0 ? mapCenter : null} />
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
@@ -1573,7 +2163,9 @@ const ManagerFarmDash: React.FC = () => {
                 <div className="text-2xl font-bold" style={{ color: '#212121' }}>
                   {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.fieldScore != null ? metrics.fieldScore.toFixed(1) : "-"}
                 </div>
-                <div className="text-sm font-semibold text-green-600">%</div>
+                <div className="text-sm font-semibold text-green-600">
+                  {selectedPlotId ? "%" : "avg %"}
+                </div>
               </div>
             </div>
             <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Field Score</p>
@@ -1586,7 +2178,9 @@ const ManagerFarmDash: React.FC = () => {
                 <div className="text-2xl font-bold" style={{ color: '#212121' }}>
                   {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.expectedYield?.toFixed(2) || "-"}
                 </div>
-                <div className="text-sm font-semibold text-indigo-600">T/acre</div>
+                <div className="text-sm font-semibold text-indigo-600">
+                  {selectedPlotId ? "T/acre" : "avg T/acre"}
+                </div>
               </div>
             </div>
             <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Expected Yield</p>
@@ -1635,7 +2229,9 @@ const ManagerFarmDash: React.FC = () => {
                 <div className="text-2xl font-bold" style={{ color: '#212121' }}>
                   {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.biomass?.toFixed(2) || "-"}
                 </div>
-                <div className="text-sm font-semibold text-pink-500">T/acre</div>
+                <div className="text-sm font-semibold text-pink-500">
+                  {selectedPlotId ? "T/acre" : "avg T/acre"}
+                </div>
               </div>
             </div>
             <div className="flex items-end justify-between mt-2 gap-2">
@@ -1680,15 +2276,24 @@ const ManagerFarmDash: React.FC = () => {
                 <Maximize2 className="w-4 h-4" />
               </div>
 
-              {/* Centered Growth Stage Indicator */}
+              {/* Centered Growth Stage / Total plots */}
               <div className="absolute top-10 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
                 <div className="bg-black/20 backdrop-blur-sm rounded-2xl px-6 py-4 border border-white/30 shadow-2xl">
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
                     <div className="text-center">
                       <div className="text-white font-bold text-lg drop-shadow-lg">
-                        {metrics.growthStage ?? "Loading..."}
+                        {loadingData
+                          ? "Loading..."
+                          : selectedPlotId
+                            ? (metrics.growthStage || selectedPlotId)
+                            : String(plots.length)}
                       </div>
+                      {!selectedPlotId && (
+                        <div className="text-white/90 text-xs font-semibold drop-shadow-lg">
+                          Total plots
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1708,7 +2313,17 @@ const ManagerFarmDash: React.FC = () => {
                   position: "relative",
                 }}
               >
-                <MapAutoCenter center={mapCenter} />
+                <MapAutoCenter
+                  center={mapCenter}
+                  plots={mapPlots.map((plot) =>
+                    plot.coords.length >= 3
+                      ? plot.coords
+                      : plot.center
+                        ? [plot.center]
+                        : [],
+                  )}
+                  fitKey={mapPlots.map((plot) => plot.id).join("|") || mapCenter.join(",")}
+                />
                 <TileLayer
                   url="http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
                   attribution="© Google"
@@ -1720,39 +2335,64 @@ const ManagerFarmDash: React.FC = () => {
                   updateWhenZooming={false}
                   updateWhenIdle={true}
                 />
-                {plotCoordinates.length > 0 && (
-                  <Polygon
-                    positions={plotCoordinates}
-                    pathOptions={getPlotBorderStyle()}
-                  >
+                {mapPlots.map((plot) => {
+                  const selected = plot.id === selectedPlotId || mapPlots.length === 1;
+                  const tooltip = (
                     <LeafletTooltip
                       direction="top"
                       offset={[0, -10]}
-                      opacity={0.9}
+                      opacity={0.95}
                       sticky
                     >
                       <div className="text-sm">
                         <p>
-                          <strong>Plot:</strong> {selectedPlotId}
+                          <strong>Plot:</strong> {plot.id}
                         </p>
                         <p>
-                          <strong>Farmer:</strong> {selectedFarmerLabel}
+                          <strong>Farmer:</strong> {plot.farmerName}
                         </p>
                         <p>
                           <strong>Representative:</strong> {selectedOfficerLabel}
                         </p>
-                        <p>
-                          <strong>Status:</strong>{" "}
-                          {metrics.growthStage ?? "Loading..."}
-                        </p>
-                        <p>
-                          <strong>Area:</strong> {metrics.area ?? "Loading..."}{" "}
-                          Ha
-                        </p>
                       </div>
                     </LeafletTooltip>
-                  </Polygon>
-                )}
+                  );
+                  if (plot.coords.length >= 3) {
+                    return (
+                      <Polygon
+                        key={plot.id}
+                        positions={plot.coords}
+                        pathOptions={{
+                          color: "#ffffff",
+                          fillColor: selected ? "#22c55e" : "#4ade80",
+                          weight: selected ? 4 : 3,
+                          opacity: 1,
+                          fillOpacity: selected ? 0.55 : 0.4,
+                        }}
+                      >
+                        {tooltip}
+                      </Polygon>
+                    );
+                  }
+                  if (plot.center) {
+                    return (
+                      <CircleMarker
+                        key={plot.id}
+                        center={plot.center}
+                        radius={selected ? 12 : 9}
+                        pathOptions={{
+                          color: "#ffffff",
+                          fillColor: "#22c55e",
+                          weight: 2,
+                          fillOpacity: 0.9,
+                        }}
+                      >
+                        {tooltip}
+                      </CircleMarker>
+                    );
+                  }
+                  return null;
+                })}
               </MapContainer>
             </div>
           </div>

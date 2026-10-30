@@ -1841,7 +1841,7 @@ const OwnerFarmDash: React.FC = () => {
               </div>
             </div>
             <p className="text-xs text-gray-600 font-medium mt-7">
-              Crop Status
+              Crop Stage
             </p>
           </div>
 

@@ -632,15 +632,15 @@ jobs:
         run: |
           cat > security-report.md << 'EOF'
           # Security CI Report
-          
+
           **Triggered by:** ${{ github.event_name }}
           **Branch:** ${{ github.ref_name }}
           **Commit:** ${{ github.sha }}
           **Author:** ${{ github.actor }}
           **Time:** ${{ github.event.head_commit.timestamp }}
-          
+
           ## Job Results
-          
+
           | Job | Status |
           |-----|--------|
           | Gitleaks | ${{ needs.gitleaks.result }} |
@@ -659,15 +659,15 @@ jobs:
           | Static Web | ${{ needs.static-web.result }} |
           | DB Hygiene | ${{ needs.db-hygiene.result }} |
           | Docker | ${{ needs.docker.result }} |
-          
+
           ## Summary
-          
+
           - ✅ Passed: $(echo '${{ toJSON(needs) }}' | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for v in d.values() if v['result']=='success'))")
           - ⏭️ Skipped: $(echo '${{ toJSON(needs) }}' | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for v in d.values() if v['result']=='skipped'))")
           - ❌ Failed: $(echo '${{ toJSON(needs) }}' | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for v in d.values() if v['result']=='failure'))")
-          
+
           ---
-          
+
           View full details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EOF
           cat security-report.md
@@ -709,7 +709,7 @@ jobs:
         id: verify
         run: |
           echo "Environment: ${{ github.event.inputs.environment }}"
-          
+
           # Add your deployment URL here
           if [ "${{ github.event.inputs.environment }}" = "production" ]; then
             DEPLOY_URL="${{ secrets.PROD_URL || 'https://api.yourapp.com' }}"
@@ -718,12 +718,12 @@ jobs:
           else
             DEPLOY_URL="${{ secrets.DEV_URL || 'https://dev-api.yourapp.com' }}"
           fi
-          
+
           echo "Testing: $DEPLOY_URL/health"
-          
+
           # Health check
           status=$(curl -s -o /dev/null -w "%{http_code}" "$DEPLOY_URL/health" || echo "000")
-          
+
           if [ "$status" = "200" ]; then
             echo "✅ Deployment is LIVE and responding"
             echo "status=success" >> "$GITHUB_OUTPUT"
@@ -737,11 +737,11 @@ jobs:
         if: always()
         run: |
           echo "Checking security headers..."
-          
+
           DEPLOY_URL="${{ secrets.PROD_URL || 'https://api.yourapp.com' }}"
-          
+
           headers=$(curl -s -I "$DEPLOY_URL" || echo "")
-          
+
           echo "$headers" | grep -i "X-Frame-Options" && echo "✅ X-Frame-Options present" || echo "⚠️ X-Frame-Options missing"
           echo "$headers" | grep -i "X-Content-Type-Options" && echo "✅ X-Content-Type-Options present" || echo "⚠️ X-Content-Type-Options missing"
           echo "$headers" | grep -i "Strict-Transport-Security" && echo "✅ HSTS present" || echo "⚠️ HSTS missing"
@@ -752,26 +752,26 @@ jobs:
         run: |
           cat > post-deploy-report.md << 'EOF'
           # Post-Deploy Verification Report
-          
+
           **Environment:** ${{ github.event.inputs.environment }}
           **Time:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           **Triggered by:** ${{ github.actor }}
-          
+
           ## Verification Results
-          
+
           | Check | Status |
           |-------|--------|
           | Deployment Health | ${{ steps.verify.outputs.status == 'success' && '✅ PASS' || '❌ FAIL' }} |
           | Security Headers | See details above |
-          
+
           ## Actions Taken
-          
+
           - Verified deployment endpoint is responding
           - Checked security headers configuration
           - Confirmed HTTP status codes
-          
+
           ---
-          
+
           View full log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EOF
           cat post-deploy-report.md

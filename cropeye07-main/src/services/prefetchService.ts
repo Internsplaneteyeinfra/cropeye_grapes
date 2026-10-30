@@ -147,9 +147,9 @@ export const prefetchAllData = async (
     if (!profile) {
       const profilePromise = getFarmerMyProfile()
         .then((response) => {
-          setCached('farmerProfile', response.data);
+          setCached('farmerProfile', response.data as any);
           fetchedEndpoints.push('farmerProfile');
-          return response.data;
+          return response.data as any;
         })
         .catch((err) => {
           errors.push(`Profile: ${err.message}`);
@@ -157,12 +157,12 @@ export const prefetchAllData = async (
         });
       profile = await profilePromise;
     }
-    
+
     // Determine plot name from profile if not provided
     let plotName = selectedPlotName;
     if (!plotName && profile?.plots?.length > 0) {
       const firstPlot = profile.plots[0];
-      plotName = firstPlot.fastapi_plot_id || 
+      plotName = firstPlot.fastapi_plot_id ||
                  `${firstPlot.gat_number}_${firstPlot.plot_number}` ||
                  firstPlot.plot_name;
     }
@@ -275,7 +275,7 @@ export const prefetchAllData = async (
       const plot = profile.plots[0];
       const lat = plot.coordinates.location.latitude;
       const lon = plot.coordinates.location.longitude;
-      
+
       weatherPromise = fetch(`${WEATHER_BASE_URL}/current-weather?lat=${lat}&lon=${lon}`)
         .then(async (res) => {
           if (res.ok) {

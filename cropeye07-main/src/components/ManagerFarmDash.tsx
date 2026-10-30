@@ -504,25 +504,25 @@ const ManagerFarmDash: React.FC = () => {
       // Try today, then yesterday, then 2 days ago
       const yesterday = new Date(new Date(today).setDate(new Date(today).getDate() - 1)).toISOString().slice(0, 10);
       const twoDaysAgo = new Date(new Date(today).setDate(new Date(today).getDate() - 2)).toISOString().slice(0, 10);
-      
+
       const datesToTry = [today, yesterday, twoDaysAgo];
       let successfulDate = yieldDataDate; // Default to today/yieldDataDate
 
       // Check cache first for today (primary target)
       const agroStatsCacheKey = `agroStats_v3_${yieldDataDate}`;
       let allPlotsData = getCache(agroStatsCacheKey);
-      
+
       // Also check plot-specific cache for faster retrieval
       const plotSpecificCacheKey = `plot_v3_${selectedPlotId}_${yieldDataDate}`;
       let currentPlotData = getCache(plotSpecificCacheKey);
 
       if (!allPlotsData || !currentPlotData) {
         const result = await fetchAgroStatsWithFallback(datesToTry);
-        
+
         if (result) {
            allPlotsData = result.data;
            successfulDate = result.successfulDate;
-           
+
            // Cache the result using the date that actually worked
            const successfulCacheKey = `agroStats_v3_${successfulDate}`;
            setCache(successfulCacheKey, allPlotsData);
@@ -530,7 +530,7 @@ const ManagerFarmDash: React.FC = () => {
            // Extract and cache plot-specific data
            const cleanId = selectedPlotId.replace(/"/g, "");
            const quotedId = `"${cleanId}"`;
-           
+
            currentPlotData =
              allPlotsData[cleanId] || allPlotsData[quotedId] || null;
 
@@ -548,7 +548,7 @@ const ManagerFarmDash: React.FC = () => {
         // Use cached plot data if available
         const cleanId = selectedPlotId.replace(/"/g, "");
         const quotedId = `"${cleanId}"`;
-        
+
         if (!currentPlotData && allPlotsData) {
            currentPlotData =
             allPlotsData[cleanId] ||

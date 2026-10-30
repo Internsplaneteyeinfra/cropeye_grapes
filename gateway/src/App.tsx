@@ -16,11 +16,13 @@ export default function App() {
       {/* In production, this app is mounted under /login/ (basename). */}
       <Route path="/" element={<LandingRedirect />} />
       {/* Backward compatibility */}
-      <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route
+        path="/login"
+        element={<Navigate to={{ pathname: "/", search: window.location.search }} replace />}
+      />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
-

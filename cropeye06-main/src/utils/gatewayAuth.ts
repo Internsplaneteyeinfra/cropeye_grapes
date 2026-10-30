@@ -1,11 +1,18 @@
 import { clearAllLocalStorage, getAuthToken } from "./auth";
 import { USE_MOCK_AUTH } from "../config/authConfig";
 
+const isLocalHostname = (hostname: string) =>
+  hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+
 export const GATEWAY_URL =
   (import.meta.env.VITE_GATEWAY_URL as string | undefined) ||
   (typeof window !== "undefined"
-    ? (import.meta.env.DEV ? "http://localhost:5174" : window.location.origin)
-    : "http://localhost:5174");
+    ? (!isLocalHostname(window.location.hostname)
+        ? window.location.origin
+        : import.meta.env.DEV
+          ? "http://localhost:5175"
+          : window.location.origin)
+    : "http://localhost:5175");
 
 const getGatewayOrigin = () => {
   try {
@@ -15,7 +22,7 @@ const getGatewayOrigin = () => {
   }
 };
 
-const getGatewayLoginUrl = (logout = false) => {
+export const getGatewayLoginUrl = (logout = false) => {
   const base = getGatewayOrigin().replace(/\/+$/, "");
   const url = `${base}/login/`;
   return logout ? `${url}?logout=1` : url;

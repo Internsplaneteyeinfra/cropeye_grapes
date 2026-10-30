@@ -58,9 +58,9 @@ export const FarmerList: React.FC = () => {
 
   const handleStatusChange = async (taskId: number, newStatus: 'Pending' | 'Completed') => {
     const previousTasks = tasks;
-    setTasks(prev => 
-      prev.map(task => 
-        task.id === taskId 
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
           ? { ...task, status: newStatus }
           : task
       )
@@ -123,8 +123,8 @@ export const FarmerList: React.FC = () => {
   };
 
   const getStatusColor = (status: 'Pending' | 'Completed') => {
-    return status === 'Completed' 
-      ? 'bg-green-100 text-green-800 border-green-200' 
+    return status === 'Completed'
+      ? 'bg-green-100 text-green-800 border-green-200'
       : 'bg-yellow-100 text-yellow-800 border-yellow-200';
   };
 
@@ -301,4 +301,4 @@ export const FarmerList: React.FC = () => {
       </div>
     </div>
   );
-}; 
+};

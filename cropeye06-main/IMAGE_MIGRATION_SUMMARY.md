@@ -103,9 +103,8 @@ After building (`npm run build`), all images should load correctly because:
 
 ### Benefits:
 
-✅ Images work in development and production  
-✅ Source code structure hidden (as per your vite.config.ts)  
-✅ No broken image paths after build  
-✅ Faster builds (no image processing needed)  
+✅ Images work in development and production
+✅ Source code structure hidden (as per your vite.config.ts)
+✅ No broken image paths after build
+✅ Faster builds (no image processing needed)
 ✅ Simpler deployment
-

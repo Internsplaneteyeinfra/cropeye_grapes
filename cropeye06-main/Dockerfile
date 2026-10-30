@@ -14,6 +14,7 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 # Nginx template + entrypoint to inject $PORT at runtime (Render)
+# hadolint ignore=DL3018
 RUN apk add --no-cache gettext
 
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -25,4 +26,3 @@ RUN chmod +x /docker-entrypoint.sh
 EXPOSE 10000
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-

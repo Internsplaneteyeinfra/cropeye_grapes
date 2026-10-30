@@ -7,4 +7,3 @@ set -eu
 envsubst '${PORT}' < /etc/nginx/templates/nginx.render.conf.template > /etc/nginx/conf.d/default.conf
 
 exec nginx -g 'daemon off;'
-

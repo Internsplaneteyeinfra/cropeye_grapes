@@ -88,7 +88,7 @@ const CalendarView: React.FC = () => {
         setLoadingFieldOfficers(true);
         const response = await getContactDetails();
         let fieldOfficersData: FieldOfficer[] = [];
-        
+
         if (response.data && response.data.contacts) {
           // Extract field officers from the contacts object
           if (response.data.contacts.field_officers && Array.isArray(response.data.contacts.field_officers)) {
@@ -101,7 +101,7 @@ const CalendarView: React.FC = () => {
             }));
           }
         }
-        
+
         setFieldOfficers(fieldOfficersData);
       } catch (error) {
         console.error('Failed to load Railway field officers:', error);
@@ -118,19 +118,19 @@ const CalendarView: React.FC = () => {
   const start = startOfMonth(currentDate);
   const end = endOfMonth(currentDate);
   const monthDays = eachDayOfInterval({ start, end });
-  
+
   // Create days array with empty boxes for proper calendar grid
   const days: (Date | null)[] = [];
   const firstDayOfWeek = start.getDay();
-  
+
   // Add empty boxes for days before the first day of the month
   for (let i = 0; i < firstDayOfWeek; i++) {
     days.push(null);
   }
-  
+
   // Add all days of the current month
   monthDays.forEach(day => days.push(day));
-  
+
   // Add empty boxes to complete the last week if needed
   const totalDaysInGrid = days.length;
   const remainingDaysInLastWeek = 7 - (totalDaysInGrid % 7);
@@ -153,7 +153,7 @@ const CalendarView: React.FC = () => {
   };
 
 
-  
+
   const handleAssignTask = async () => {
     const selectedOfficer = fieldOfficers.find(
       (officer) => officer.username === task.fieldOfficer,
@@ -253,16 +253,16 @@ const CalendarView: React.FC = () => {
                 </div>
               );
             }
-            
+
             const isTodayDate = isToday(day);
             const isCurrentMonth = isSameMonth(day, currentDate);
-            
+
             return (
               <button
                 key={day.toString()}
                 onClick={() => handleDateClick(day)}
                 className={`h-16 sm:h-20 lg:h-24 border-r border-b border-gray-200 last:border-r-0 flex items-center justify-center transition-colors cursor-pointer
-                  ${isTodayDate ? 'bg-blue-100 text-blue-600 font-semibold' : 
+                  ${isTodayDate ? 'bg-blue-100 text-blue-600 font-semibold' :
                     'hover:bg-gray-50 bg-white text-gray-700'}
                   ${!isCurrentMonth ? 'text-gray-400' : ''}
                 `}

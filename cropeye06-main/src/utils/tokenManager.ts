@@ -9,29 +9,9 @@ import {
 import { navigateToLogin } from "./navigation";
 import { USE_MOCK_AUTH } from "../config/authConfig";
 import axios from "axios";
+import { getBackendApiBaseUrl } from "./serviceUrls";
 
-// Get API base URL — DEV uses Vite proxy /api/backend → Railway
-const getApiBaseUrl = () => {
-  if (import.meta.env.DEV) {
-    return "/api/backend";
-  }
-  const railway = "https://cropeye-backendd.up.railway.app/api";
-  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
-  const base = raw && raw.length ? raw : railway;
-  const withoutTrailing = base.replace(/\/+$/, "");
-  const withApi = /\/api$/i.test(withoutTrailing)
-    ? withoutTrailing
-    : `${withoutTrailing}/api`;
-  if (
-    /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.|localhost|127\.0\.0\.1)/i.test(
-      withApi,
-    )
-  ) {
-    return railway;
-  }
-  return withApi;
-};
-const API_BASE_URL = getApiBaseUrl();
+const API_BASE_URL = getBackendApiBaseUrl();
 
 interface DecodedToken {
   exp: number;

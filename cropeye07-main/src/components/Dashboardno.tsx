@@ -26,7 +26,7 @@ export const DashboardNo: React.FC<DashboardNoProps> = ({ layout = 'row' }) => {
         setLoading(true);
         setError(null);
         const response = await getTotalCounts();
-        
+
         // Handle different response formats
         const data = response.data;
         setStats({
@@ -55,38 +55,38 @@ export const DashboardNo: React.FC<DashboardNoProps> = ({ layout = 'row' }) => {
   }, []);
 
   const statCards = [
-    { 
-      title: "Total Users", 
-      value: stats.total_users ?? 0, 
-      icon: Users, 
+    {
+      title: "Total Users",
+      value: stats.total_users ?? 0,
+      icon: Users,
       color: "blue",
       iconColor: "text-blue-500"
     },
-    { 
-      title: "Vendors", 
-      value: stats.vendors ?? 0, 
-      icon: Users, 
+    {
+      title: "Vendors",
+      value: stats.vendors ?? 0,
+      icon: Users,
       color: "green",
       iconColor: "text-green-500"
     },
-    { 
-      title: "Stock Items", 
-      value: stats.stock_items ?? 0, 
-      icon: ShoppingCart, 
+    {
+      title: "Stock Items",
+      value: stats.stock_items ?? 0,
+      icon: ShoppingCart,
       color: "yellow",
       iconColor: "text-yellow-500"
     },
-    { 
-      title: "Orders", 
-      value: stats.orders ?? 0, 
-      icon: ShoppingCart, 
+    {
+      title: "Orders",
+      value: stats.orders ?? 0,
+      icon: ShoppingCart,
       color: "purple",
       iconColor: "text-purple-500"
     },
-    { 
-      title: "Bookings", 
-      value: stats.bookings ?? 0, 
-      icon: ShoppingCart, 
+    {
+      title: "Bookings",
+      value: stats.bookings ?? 0,
+      icon: ShoppingCart,
       color: "teal",
       iconColor: "text-teal-500"
     },

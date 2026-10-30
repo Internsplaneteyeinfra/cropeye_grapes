@@ -51,7 +51,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
         // Call GET /api/vendors/ endpoint
         const response = await getVendors();
         const data = response?.data;
-        
+
         // Handle different response formats from API
         let vendorsList: any[] = [];
         if (Array.isArray(data)) {
@@ -67,7 +67,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
           // Wrapped in vendors key: {vendors: [...]}
           vendorsList = data.vendors;
         }
-        
+
         // Transform API response to Vendor interface
         const transformedVendors: Vendor[] = vendorsList.map((vendor: any) => ({
           id: vendor.id || vendor.vendor_id,
@@ -75,9 +75,9 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
           email: vendor.email || '',
           mobile: vendor.mobile || vendor.phone || vendor.phone_number || '',
         }));
-        
+
         setVendors(transformedVendors);
-        
+
         // Log for debugging
         if (transformedVendors.length === 0) {
           console.warn('No vendors found in API response:', data);
@@ -86,9 +86,9 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
         }
       } catch (err: any) {
         console.error('Error fetching vendors:', err);
-        const errorMessage = err?.response?.data?.detail || 
-                           err?.response?.data?.message || 
-                           err?.message || 
+        const errorMessage = err?.response?.data?.detail ||
+                           err?.response?.data?.message ||
+                           err?.message ||
                            'Failed to load vendors. Please refresh the page.';
         setError(errorMessage);
         setVendors([]); // Clear vendors on error
@@ -122,7 +122,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validate that at least one item is filled
     const validItems = items.filter(item => item.itemName.trim() !== '');
     if (validItems.length === 0) {
@@ -166,7 +166,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
       const response = await addOrder(apiData);
 
       setSuccess('Order(s) submitted successfully! The order list will be updated automatically.');
-      
+
       // Reset form fields and items
       setSelectedVendor('');
       setInvoiceDate('');
@@ -181,15 +181,15 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
           remark: ''
         }
       ]);
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccess('');
       }, 3000);
     } catch (err: any) {
-      
+
       let errorMessage = 'Failed to submit order. Please try again.';
-      
+
       if (err?.response?.status === 404) {
         errorMessage = 'API endpoint not found (404). Please check the server configuration.';
       } else if (err?.response?.status === 400) {
@@ -200,7 +200,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
             .filter(([key]) => key !== 'detail' && key !== 'message')
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('; ');
-          
+
           errorMessage = errorData.detail || errorData.message || fieldErrors || 'Invalid data format. Please check all fields.';
         } else {
           errorMessage = 'Invalid request format (400). Please check all required fields are filled.';
@@ -210,7 +210,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
       } else {
         errorMessage = err?.message || errorMessage;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -218,7 +218,7 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen dashboard-bg-bleed"
     >
       <div className="min-h-screen bg-black bg-opacity-40">
@@ -237,10 +237,10 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
             {/* Inputs */}
             <div>
               <label className="text-sm font-medium">Vendor Name *</label>
-              <select 
-                className="w-full rounded-md border p-2" 
-                value={selectedVendor} 
-                onChange={(e) => setSelectedVendor(e.target.value)} 
+              <select
+                className="w-full rounded-md border p-2"
+                value={selectedVendor}
+                onChange={(e) => setSelectedVendor(e.target.value)}
                 required
                 disabled={loadingVendors}
               >
@@ -320,21 +320,21 @@ export const Addorder: React.FC<AddOrderProps> = ({ items, setItems }) => {
 
           {/* Buttons */}
           <div className="flex justify-end gap-4 mt-6">
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
               className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Submitting...' : 'Add Order'}
             </button>
           </div>
-          
+
           {success && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
               {success}
             </div>
           )}
-          
+
           {error && (
             <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
               {error}

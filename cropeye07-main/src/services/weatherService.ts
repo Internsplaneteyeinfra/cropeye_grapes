@@ -23,7 +23,7 @@ export interface WeatherError {
 export const fetchCurrentWeather = async (lat: number, lon: number): Promise<WeatherData> => {
   try {
     const apiUrl = ` https://weather-cropeye.up.railway.app/current-weather?lat=${lat}&lon=${lon}`;
-    
+
     const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
@@ -40,18 +40,18 @@ export const fetchCurrentWeather = async (lat: number, lon: number): Promise<Wea
     }
 
     const weatherData: WeatherData = await response.json();
-    
+
     return weatherData;
   } catch (error: any) {
-    
+
     if (error.name === 'AbortError') {
       throw new Error('Weather request timed out. Please try again.');
     }
-    
+
     if (error.message.includes('Failed to fetch')) {
       throw new Error('Unable to connect to weather service. Please check your internet connection.');
     }
-    
+
     throw new Error(`Failed to fetch weather data: ${error.message}`);
   }
 };

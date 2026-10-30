@@ -100,3 +100,58 @@ export function filterRowsByIndustry<T extends Record<string, unknown>>(
   });
   return filtered.length > 0 ? filtered : rows;
 }
+
+function firstLogoUrl(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+/** Vite serves public files under BASE_URL (`/grapes/` in this app). */
+export function sahyadriFarmsLogoSrc(): string {
+  const base = String(import.meta.env.BASE_URL || "/");
+  const prefix = base.endsWith("/") ? base : `${base}/`;
+  return `${prefix}icons/sahyadri-farms.png`;
+}
+
+/**
+ * Firm / industry logo for the app header. Returns null when none is configured
+ * so the CropEye mark stays unchanged.
+ */
+export function getOwnerFirmHeaderLogo(
+  user: unknown,
+): { src: string; alt: string } | null {
+  const stored = getStoredUserIndustry();
+  const record = user && typeof user === "object" ? (user as Record<string, unknown>) : {};
+  const industry =
+    record.industry && typeof record.industry === "object"
+      ? (record.industry as Record<string, unknown>)
+      : {};
+  const alt =
+    String(
+      industry.name ||
+        industry.crop_type ||
+        stored.crop_type ||
+        "Firm logo",
+    ).trim() || "Firm logo";
+
+  const fromApi = firstLogoUrl(
+    industry.logo,
+    industry.logo_url,
+    industry.image,
+    industry.logoUrl,
+    record.firm_logo,
+    record.company_logo,
+    record.logo,
+    record.logo_url,
+  );
+  // Only use a remote logo when it is an absolute URL. Relative `/media/...`
+  // paths 404 on this Vite origin and hide the Sahyadri fallback.
+  if (fromApi && /^https?:\/\//i.test(fromApi)) {
+    return { src: fromApi, alt };
+  }
+
+  // Grapes app: public files live under BASE_URL (`/grapes/icons/...`).
+  return { src: sahyadriFarmsLogoSrc(), alt: "Sahyadri Farms" };
+}

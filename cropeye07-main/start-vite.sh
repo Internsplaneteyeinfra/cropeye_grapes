@@ -17,4 +17,3 @@ fi
 
 # Run vite dev server (uses vite.config.ts automatically)
 npm run dev
-

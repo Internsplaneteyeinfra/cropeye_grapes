@@ -1150,7 +1150,7 @@ export const registerFarmerAllInOne = async (
         (error.response?.status === 403
           ? "Access denied. Only Field Officers, Managers, and Admins can register farmers."
           : "Authentication credentials were not provided. Please login as a Field Officer or Admin to register farmers.");
-      
+
       const authError = new Error(errorMsg);
       (authError as any).response = error.response || {
         status: error.response?.status || 401,
@@ -1229,10 +1229,10 @@ export const registerFarmerAllInOneOnly = async (
         const defaultMsg = status === 403
           ? "Access denied. Only Field Officers, Managers, and Admins can register farmers."
           : "Authentication required. Please login to register farmers.";
-        
+
         (error as any).response = {
           status: status,
-          data: { 
+          data: {
             detail: defaultMsg,
             message: defaultMsg,
           },
@@ -1240,7 +1240,7 @@ export const registerFarmerAllInOneOnly = async (
         (error as any).requiresAuth = true;
       }
     }
-    
+
     // Only log non-authentication errors to console
     if (
       !error.requiresAuth &&

@@ -16,11 +16,32 @@ export default defineConfig(({ mode }) => {
     "https://cropeye-grapes-events-production.up.railway.app";
   console.info(`[vite] /api/events proxy → ${eventsTarget}`);
 
+  const grapesPublicAlias = {
+    name: "grapes-public-under-base",
+    configureServer(server: any) {
+      server.middlewares.use((req: any, res: any, next: any) => {
+        const url = req.url || "";
+        if (url === "/" || url.startsWith("/?")) {
+          const query = url.includes("?") ? url.slice(url.indexOf("?")) : "";
+          res.statusCode = 302;
+          res.setHeader("Location", `/grapes/${query}`);
+          res.end();
+          return;
+        }
+        // Hardcoded `/icons/...` in the header must still resolve under base `/grapes/`.
+        if (url.startsWith("/icons/") || url === "/icons") {
+          req.url = `/grapes${url}`;
+        }
+        next();
+      });
+    },
+  };
+
   return {
-  plugins: [react()],
+  plugins: [react(), grapesPublicAlias],
   assetsInclude: ["**/*.geojson"],
-  // When deployed behind one domain (Render + nginx), grapes app is served under /grapes/
-  base: mode === "production" ? "/grapes/" : "/",
+  // Same path as production so gateway/ngrok can reverse-proxy this Vite server.
+  base: "/grapes/",
 
   // Ensure single React instance (fixes "isElement" undefined errors with chunking)
   resolve: {
@@ -82,6 +103,12 @@ export default defineConfig(({ mode }) => {
     },
     host: '0.0.0.0', // Allow access from any IP on the network (0.0.0.0 = all interfaces)
     port: 3001, // Port 3001 for cropeye06
+    allowedHosts: [
+      "localhost",
+      ".ngrok-free.dev",
+      ".ngrok.io",
+      ".ngrok.app",
+    ],
     cors: {
       origin: '*', // Allow all origins
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
@@ -90,10 +117,6 @@ export default defineConfig(({ mode }) => {
       maxAge: 86400, // 24 hours
     },
     strictPort: false, // Allow port fallback if 5174 is busy
-    hmr: {
-      // Explicitly set HMR to use network host for WiFi access
-      port: 3001,
-    },
     // Proxy API requests to avoid CORS issues in development
     proxy: {
       // All cropeye-grapes-events-production routes (indices, stress, grapes/*, plots/*)

@@ -9,7 +9,6 @@ interface DashboardStats {
   stock_items?: number;
   orders?: number;
   bookings?: number;
-  brix?: number;
 }
 
 function readCount(value: unknown): number | undefined {
@@ -44,8 +43,6 @@ export const DashboardNo: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [alerts, setAlerts] = useState<any[]>([]);
 
   useEffect(() => {
    const fetchCounts = async () => {
@@ -82,47 +79,20 @@ export const DashboardNo: React.FC = () => {
             usersCount ??
             readCount(data.total_users) ??
             readCount(data.totalUsers) ??
-            readCount(data.users) ??
-            0,
-          vendors: data.vendors || 0,
-          stock_items: data.stock_items || data.stockItems || data.stock || 0,
-          orders: data.orders || 0,
-          bookings: data.bookings || 0,
-          brix: data.brix || 17.5,
+            readCount(data.users),
+          vendors: readCount(data.vendors),
+          stock_items:
+            readCount(data.stock_items) ??
+            readCount(data.stockItems) ??
+            readCount(data.stock),
+          orders: readCount(data.orders),
+          bookings: readCount(data.bookings),
         };
 
         setStats(currentData);
-
-        if (currentData.brix !== undefined && currentData.brix > 0 && currentData.brix < 18) {
-          const alertId = "low-brix-warning";
-          
-          setAlerts(prev => {
-            if (prev.some(a => a.id === alertId && !a.is_read)) return prev;
-
-            const brixAlert = {
-              id: alertId,
-              title: "Critical: Low Sugar Content",
-              message: `Current Brix level is ${currentData.brix}°. This is below the required 18° threshold.`,
-              severity: "high",
-              type: "ripening",
-              timestamp: new Date().toISOString(),
-              is_read: false,
-            };
-            return [brixAlert, ...prev];
-          });
-        }
-
       } catch (err: any) {
         setError('Failed to load dashboard data');
-        // Set default values on error
-        setStats({
-          total_users: 0,
-          vendors: 0,
-          stock_items: 0,
-          orders: 0,
-          bookings: 0,
-        
-        });
+        setStats({});
       } finally {
         setLoading(false);
       }
@@ -132,53 +102,48 @@ export const DashboardNo: React.FC = () => {
   }, []);
 
   const statCards = [
-    { 
-      title: "Total Users", 
-      value: stats.total_users ?? 0, 
-      icon: Users, 
-      color: "blue",
-      iconColor: "text-blue-500"
+    {
+      title: "Total Users",
+      value: stats.total_users ?? "—",
+      icon: Users,
+      tone: "bg-sky-50 text-sky-700",
     },
-    { 
-      title: "Vendors", 
-      value: stats.vendors ?? 0, 
-      icon: Users, 
-      color: "green",
-      iconColor: "text-green-500"
+    {
+      title: "Vendors",
+      value: stats.vendors ?? "—",
+      icon: Users,
+      tone: "bg-emerald-50 text-emerald-700",
     },
-    { 
-      title: "Stock Items", 
-      value: stats.stock_items ?? 0, 
-      icon: ShoppingCart, 
-      color: "yellow",
-      iconColor: "text-yellow-500"
+    {
+      title: "Stock Items",
+      value: stats.stock_items ?? "—",
+      icon: ShoppingCart,
+      tone: "bg-amber-50 text-amber-700",
     },
-    { 
-      title: "Orders", 
-      value: stats.orders ?? 0, 
-      icon: ShoppingCart, 
-      color: "purple",
-      iconColor: "text-purple-500"
+    {
+      title: "Orders",
+      value: stats.orders ?? "—",
+      icon: ShoppingCart,
+      tone: "bg-violet-50 text-violet-700",
     },
-    { 
-      title: "Bookings", 
-      value: stats.bookings ?? 0, 
-      icon: ShoppingCart, 
-      color: "teal",
-      iconColor: "text-teal-500"
+    {
+      title: "Bookings",
+      value: stats.bookings ?? "—",
+      icon: ShoppingCart,
+      tone: "bg-teal-50 text-teal-700",
     },
   ];
 
   return (
-    <div className="flex flex-row gap-4 overflow-x-auto py-2">
+    <div className="grid grid-cols-2 gap-3 py-1 sm:grid-cols-3 lg:grid-cols-5">
       {loading ? (
-        <div className="flex items-center justify-center w-full py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-          <span className="ml-2 text-gray-600">Loading dashboard data...</span>
+        <div className="col-span-full flex items-center justify-center gap-2 py-8 text-sm text-slate-600">
+          <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+          <span>Loading dashboard data...</span>
         </div>
       ) : error ? (
-        <div className="flex items-center justify-center w-full py-8">
-          <span className="text-red-600">{error}</span>
+        <div className="col-span-full flex items-center justify-center py-8 text-sm text-red-600">
+          <span>{error}</span>
         </div>
       ) : (
         statCards.map((stat) => {
@@ -186,14 +151,14 @@ export const DashboardNo: React.FC = () => {
           return (
             <div
               key={stat.title}
-              className="flex-shrink-0 bg-white rounded-lg shadow-md p-4 w-48 flex flex-col justify-between"
+              className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
             >
-              <div>
-                <p className="text-gray-500 text-sm">{stat.title}</p>
-                <h3 className="text-2xl font-bold mt-1">{stat.value}</h3>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium text-slate-500">{stat.title}</p>
+                <h3 className="mt-1 text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{stat.value}</h3>
               </div>
-              <div className="mt-2 flex justify-end">
-                <Icon className={stat.iconColor} size={28} />
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stat.tone}`}>
+                <Icon className="h-5 w-5" />
               </div>
             </div>
           );

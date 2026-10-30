@@ -202,7 +202,7 @@ export const useFarmerProfile = () => {
       // Handle authentication errors gracefully
       if (err.response?.status === 401 || err.response?.status === 403) {
         const userRole = getUserRole();
-        
+
         // Only log warning if user is actually a farmer AND it's not a silent error
         if (userRole === 'farmer' && !err.isSilent) {
           console.warn("⚠️ Authentication required to fetch farmer profile");
@@ -232,7 +232,7 @@ export const useFarmerProfile = () => {
   useEffect(() => {
     const token = getAuthToken();
     const userRole = getUserRole();
-    
+
     if (!token || !isValidToken(token) || userRole !== 'farmer') {
       setLoading(false);
       setError(null);
@@ -277,7 +277,7 @@ export const useFarmerProfile = () => {
     return profile.plots.map(plot => plot.fastapi_plot_id || '');
   };
 
-  
+
   const getPlotById = (plotId: string) => {
     if (!profile?.plots) return null;
     return profile.plots.find(plot => plot.fastapi_plot_id === plotId);

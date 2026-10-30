@@ -33,27 +33,27 @@ const TemperatureCard: React.FC<TemperatureCardProps> = ({ value, lastUpdated, m
         <Thermometer className="card-icon" size={30} />
         <h3>Temperature</h3>
       </div>
-      
+
       <div className="card-content temperature">
         <div className="temp-icon">
           <Thermometer size={85} color={getTemperatureColor()} />
         </div>
-        
+
         <div className="metric-value" style={{ color: getTemperatureColor() }}>
           <span className="value">{value}</span>
           <span className="unit">°C</span>
         </div>
-        
+
         {(typeof minTemp === 'number' && typeof maxTemp === 'number') && (
           <div className="metric-update" style={{ fontSize: '1rem', color: '#475569' }}>
             Today: <b>Min {minTemp.toFixed(1)}°C</b> / <b>Max {maxTemp.toFixed(1)}°C</b>
           </div>
         )}
-        
+
         <div className="temp-gauge">
           <div className="gauge-track">
-            <div 
-              className="gauge-indicator" 
+            <div
+              className="gauge-indicator"
               style={{ left: `${clampedPosition}%` }}
             ></div>
           </div>
@@ -62,8 +62,8 @@ const TemperatureCard: React.FC<TemperatureCardProps> = ({ value, lastUpdated, m
             <span>Max: {typeof maxTemp === 'number' ? maxTemp.toFixed(1) : '45'}°C</span>
           </div>
         </div>
-        
-        
+
+
       </div>
     </div>
   );

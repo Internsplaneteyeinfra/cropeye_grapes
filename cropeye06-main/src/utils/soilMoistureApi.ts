@@ -1,15 +1,17 @@
 /**
- * Soil moisture — same logic as sugarcane CropO SoilMoistureApi:
- *   1) GET /irrigation-and-soil-moisture/{plot_name}  (path, preferred)
- *   2) GET /soil-moisture/{plot_name}                 (legacy fallback)
+ * Soil moisture:
+ *   1) POST /soil-moisture/{plot_name}                 (grapes SEF)
+ *   2) GET /irrigation-and-soil-moisture/{plot_name}  (sugarcane-style fallback)
+ *   3) GET /soil-moisture/{plot_name}                 (legacy fallback)
  * Prefer soil_moisture_uncapped when present.
  * Uses grapes SEF base (not sugarcane sef-cropeye).
  */
-import { getPlotNameCandidates, type PlotRef } from "./plotName";
+import { getPlotNameCandidates, toBackendPlotName, type PlotRef } from "./plotName";
 import { getCache, setCache } from "./cache";
 import { getGrapesSefBaseUrl } from "./serviceUrls";
 
 const SOIL_MOISTURE_TIMEOUT_MS = 30_000;
+const SOIL_MOISTURE_POST_TIMEOUT_MS = 120_000;
 const SOIL_MOISTURE_CACHE_MS = 15 * 60 * 1000;
 
 export type SoilMoistureDay = {
@@ -48,23 +50,15 @@ function toFinite(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Prefer the selected/fastapi id as-is; try both slash and underscore forms. */
+/** SEF only resolves underscore names (`674_936`); slash forms always 404, so never send them. */
 function orderSoilMoistureCandidates(candidates: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  const push = (v: string) => {
-    const s = String(v ?? "").trim();
-    if (!s) return;
-    const key = s.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(s);
-  };
-
   for (const c of candidates) {
-    push(c);
-    if (c.includes("_")) push(c.replace(/_/g, "/"));
-    if (c.includes("/")) push(c.replace(/\//g, "_"));
+    const s = toBackendPlotName(c);
+    if (!s || seen.has(s.toLowerCase())) continue;
+    seen.add(s.toLowerCase());
+    out.push(s);
   }
   return out;
 }
@@ -185,6 +179,35 @@ async function getSoilMoistureOnce(plotName: string): Promise<any> {
 
   const base = sefBaseUrl();
   const encoded = encodeURIComponent(plotName);
+
+  // Grapes SEF only exposes POST /soil-moisture/{plot_name}; it computes on demand and can take ~60 s.
+  let postStatus: number | null = null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SOIL_MOISTURE_POST_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`${base}/soil-moisture/${encoded}`, {
+        method: "POST",
+        mode: "cors",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      postStatus = resp.status;
+      if (resp.ok) {
+        const raw = await resp.json();
+        setCache(cacheKey, raw);
+        return raw;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    /* fall through to GET variants */
+  }
+  if (postStatus === 404) {
+    throw new Error(`No soil moisture for plot "${plotName}" (404)`);
+  }
+
   const preferred = `${base}/irrigation-and-soil-moisture/${encoded}`;
   const legacy = `${base}/soil-moisture/${encoded}`;
 

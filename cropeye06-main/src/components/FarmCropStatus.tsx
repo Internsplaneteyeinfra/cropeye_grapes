@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import LightIntensityCard from "./LightIntensityCard";
+import CropStageValue from "./CropStageValue";
 import {
   Line,
   XAxis,
@@ -502,7 +504,7 @@ const OfficerDashboard: React.FC = () => {
           ripeningStartDate: milestones.ripeningStartDate,
           harvestReadyStartDate: milestones.harvestReadyStartDate,
           loading: false,
-          error: !(milestones.ripeningStartDate || milestones.harvestReadyStartDate),
+          error: false,
         });
       } catch (err) {
         if (cancelled) return;
@@ -1684,12 +1686,6 @@ const OfficerDashboard: React.FC = () => {
         {/* Top Priority Metrics - 4 Key Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/location.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
@@ -1706,25 +1702,11 @@ const OfficerDashboard: React.FC = () => {
           </div>
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Crop Status.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 relative z-10">
-              <div className="text-right">
-                <div className="text-lg font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.growthStage || "-"
-                  )}
-                </div>
-              </div>
+              <CropStageValue plotId={selectedPlotId} />
             </div>
             <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>
-              Crop Status
+              Crop Stage
             </p>
           </div>
 
@@ -1791,6 +1773,9 @@ const OfficerDashboard: React.FC = () => {
                 <div className="text-sm font-semibold" style={{ color: '#6bb043' }}>
                   °Brix
                 </div>
+                <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                  80 days
+                </div>
               </div>
             </div>
             <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Sugar Content</p>
@@ -1799,18 +1784,7 @@ const OfficerDashboard: React.FC = () => {
 
         {/* Additional Metrics — Recovery Rate, Field Score, Yield, CCI, Stress, Biomass */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <div className="flex items-center justify-between mb-2">
-              <Target className="w-7 h-7 text-purple-600" />
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
-                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.recovery?.toFixed(1) || "-"}
-                </div>
-                <div className="text-sm font-semibold text-purple-600">%</div>
-              </div>
-            </div>
-            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Recovery Rate</p>
-          </div>
+          <LightIntensityCard location={plotCoordinates.length > 0 ? mapCenter : null} />
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">

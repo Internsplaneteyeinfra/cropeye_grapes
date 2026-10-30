@@ -89,24 +89,24 @@ const fetchWithRetry = async (
   retryDelay: number = 1000
 ): Promise<Response> => {
   let lastError: any;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
+
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       // If response is ok, return it
       if (response.ok) {
         return response;
       }
-      
+
       // For 502/503/504, retry
       if ([502, 503, 504].includes(response.status) && attempt < maxRetries) {
         const delay = retryDelay * Math.pow(2, attempt);
@@ -114,15 +114,15 @@ const fetchWithRetry = async (
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      
+
       // For other errors, throw
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     } catch (error: any) {
       lastError = error;
-      
+
       // If it's a network error and we have retries left, retry
       if (
-        (error.name === 'TypeError' || 
+        (error.name === 'TypeError' ||
          error.message?.includes('Failed to fetch') ||
          error.name === 'AbortError') &&
         attempt < maxRetries
@@ -132,12 +132,12 @@ const fetchWithRetry = async (
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      
+
       // If no retries left, throw
       throw error;
     }
   }
-  
+
   throw lastError;
 };
 
@@ -189,7 +189,7 @@ export const fetchCurrentWeather = async (
   }
 
   const apiUrl = `${WEATHER_API_BASE.replace(/\/+$/, "")}/current-weather?lat=${lat}&lon=${lon}`;
-  
+
   console.log(`🌤️ Weather API Request:`, {
     url: apiUrl,
     lat,
@@ -219,25 +219,25 @@ export const fetchCurrentWeather = async (
         statusText: response.statusText,
         errorText,
       });
-      
+
       const errorMsg = `Weather API error: ${response.status} ${response.statusText}`;
-      
+
       if (useFallback) {
         console.warn('🌤️ Using fallback weather data due to API error');
         return { ...DEFAULT_WEATHER_DATA, latitude: lat, longitude: lon };
       }
-      
+
       throw new Error(errorMsg);
     }
 
     const weatherData: WeatherData = await response.json();
-    
+
     console.log(`🌤️ Weather API Success:`, {
       location: weatherData.location,
       temperature: weatherData.temperature_c,
       humidity: weatherData.humidity,
     });
-    
+
     return weatherData;
   } catch (error: any) {
     console.error(`🌤️ Weather API Exception:`, {
@@ -246,24 +246,24 @@ export const fetchCurrentWeather = async (
       stack: error.stack,
       url: apiUrl,
     });
-    
+
     if (useFallback) {
       console.warn('🌤️ Using fallback weather data due to exception');
       return { ...DEFAULT_WEATHER_DATA, latitude: lat, longitude: lon };
     }
-    
+
     if (error.name === 'AbortError') {
       throw new Error('Weather request timed out. Please try again.');
     }
-    
+
     if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
       throw new Error('Unable to connect to weather service. Please check your internet connection.');
     }
-    
+
     if (error.message?.includes('CORS') || error.message?.includes('cors')) {
       throw new Error('Weather service CORS error. Please check your internet connection.');
     }
-    
+
     throw new Error(`Failed to fetch weather data: ${error.message || 'Unknown error'}`);
   }
 };

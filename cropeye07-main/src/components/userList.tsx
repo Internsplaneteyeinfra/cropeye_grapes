@@ -43,7 +43,7 @@
 
 //   const handleSave = () => {
 //     if (editId === null) return;
-//     setUsers(users.map(user => 
+//     setUsers(users.map(user =>
 //       user.id === editId ? { ...user, ...editFormData } : user
 //     ));
 //     setEditId(null);
@@ -503,7 +503,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUserId, currentUserRo
     try {
       // Try to get all users first
       let usersData: any[] = [];
-      
+
       try {
         const response = await getUsers();
         usersData = response.data.results || response.data || [];
@@ -611,7 +611,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUserId, currentUserRo
       // Update user if there are changes
       if (Object.keys(updateData).length > 0) {
         await updateUser(editId.toString(), updateData);
-        
+
         // Refresh the data
         await fetchUsers();
       }
@@ -629,7 +629,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUserId, currentUserRo
     if (window.confirm('Are you sure you want to delete this field officer?')) {
       // TODO: Add API call to delete field officer
       // await deleteUser(id);
-      
+
       setUsers(users.filter(user => user.id !== id));
     }
   };
@@ -638,12 +638,12 @@ export const UserList: React.FC<UserListProps> = ({ currentUserId, currentUserRo
     const csv = [
       ['Username', 'First Name', 'Last Name', 'Email', 'Phone Number', 'Address', 'Role'],
       ...users.map(({ username, first_name, last_name, email, phone_number, phone, address, role }) => [
-        username || '', 
-        first_name || '', 
-        last_name || '', 
-        email || '', 
-        phone_number || phone || '', 
-        address || '', 
+        username || '',
+        first_name || '',
+        last_name || '',
+        email || '',
+        phone_number || phone || '',
+        address || '',
         role || ''
       ])
     ]
@@ -787,7 +787,7 @@ export const UserList: React.FC<UserListProps> = ({ currentUserId, currentUserRo
   );
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`

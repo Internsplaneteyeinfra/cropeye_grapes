@@ -57,9 +57,9 @@ interface WeatherForecastProps {
   lon?: number;
 }
 
-const WeatherForecast: React.FC<WeatherForecastProps> = ({ 
-  lat: propLat, 
-  lon: propLon 
+const WeatherForecast: React.FC<WeatherForecastProps> = ({
+  lat: propLat,
+  lon: propLon
 }) => {
   const { appState, setAppState, getCached, setCached, selectedPlotName } = useAppContext();
   const { profile } = useFarmerProfile();
@@ -119,17 +119,17 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
         // Get coordinates from the selected plot (or first plot if no selection)
         let selectedPlot = null;
         if (selectedPlotName) {
-          selectedPlot = profile.plots.find((p: any) => 
+          selectedPlot = profile.plots.find((p: any) =>
             p.fastapi_plot_id === selectedPlotName ||
             `${p.gat_number}_${p.plot_number}` === selectedPlotName
           );
         }
-        
+
         // Fallback to first plot if selected plot not found
         if (!selectedPlot) {
           selectedPlot = profile.plots[0];
         }
-        
+
         if (selectedPlot?.coordinates?.location) {
           const loc = selectedPlot.coordinates.location;
           const plotLat = Number(loc.latitude);
@@ -234,7 +234,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
 
 
 
-  
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -387,7 +387,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "rainfall"
                   ? "bg-blue-700 ring-2 ring-blue-400 text-white"
@@ -414,7 +414,7 @@ const WeatherForecast: React.FC<WeatherForecastProps> = ({
             </div>
           </div>
           <div
-            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg 
+            className={`p-4 sm:p-8 min-h-[100px] sm:min-h-[120px] rounded-2xl cursor-pointer transition-all duration-300 shadow-lg hover:shadow-xl text-lg
               ${
                 selectedMetric === "wind"
                   ? "bg-green-700 ring-2 ring-green-400 text-white"

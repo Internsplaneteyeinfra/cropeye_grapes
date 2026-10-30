@@ -47,16 +47,16 @@
 </head>
 <body>
     <h1>Plot Data Generation Test</h1>
-    
+
     <div class="test-section">
         <h3>Test Plot-Specific Data Generation</h3>
         <p>This test verifies that different plots generate different soil moisture values.</p>
-        
+
         <button onclick="testPlotData()">Generate Data for All Plots</button>
         <button onclick="testSinglePlot('294724')">Test Plot 294724</button>
         <button onclick="testSinglePlot('289138')">Test Plot 289138</button>
         <button onclick="testSinglePlot('294725')">Test Plot 294725</button>
-        
+
         <div id="results"></div>
     </div>
 
@@ -64,12 +64,12 @@
         function generatePlotData(plotName) {
             const plotSeed = plotName ? plotName.charCodeAt(0) + plotName.charCodeAt(plotName.length - 1) : 0;
             const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            
+
             return days.map((day, index) => {
                 const baseValue = 40 + (plotSeed % 30);
                 const variation = Math.sin(index + plotSeed) * 10;
                 const value = Math.max(30, Math.min(80, baseValue + variation));
-                
+
                 return {
                     day: day,
                     value: Math.round(value),
@@ -77,51 +77,51 @@
                 };
             });
         }
-        
+
         function testPlotData() {
             const plots = ['294724', '289138', '294725'];
             const resultsDiv = document.getElementById('results');
-            
+
             let html = '<h4>Generated Data for All Plots:</h4>';
-            
+
             plots.forEach(plot => {
                 const data = generatePlotData(plot);
                 html += `<div class="plot-data">
                     <h5>Plot: ${plot} (Seed: ${data[0].plotSeed})</h5>
                     <div>`;
-                
+
                 data.forEach(point => {
                     html += `<span class="data-point">${point.day}: ${point.value}%</span>`;
                 });
-                
+
                 html += '</div></div>';
             });
-            
+
             resultsDiv.innerHTML = html;
         }
-        
+
         function testSinglePlot(plotName) {
             const data = generatePlotData(plotName);
             const resultsDiv = document.getElementById('results');
-            
+
             let html = `<h4>Generated Data for Plot: ${plotName}</h4>
                 <div class="plot-data">
                     <p><strong>Plot Seed:</strong> ${data[0].plotSeed}</p>
                     <div>`;
-            
+
             data.forEach(point => {
                 html += `<span class="data-point">${point.day}: ${point.value}%</span>`;
             });
-            
+
             html += '</div></div>';
-            
+
             resultsDiv.innerHTML = html;
         }
-        
+
         // Auto-run test on page load
         window.onload = function() {
             testPlotData();
         };
     </script>
 </body>
-</html> 
+</html>

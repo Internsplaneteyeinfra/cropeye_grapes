@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import CropStageValue from "./CropStageValue";
 import {
   Line,
   XAxis,
@@ -51,6 +52,7 @@ import { useAppContext } from "../context/AppContext";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import {
   extractBrixTimeSeriesFromPayload,
+  describeBrixTimeSeriesPayload,
   emptyGrapesDashboardMetrics,
   fetchGrapesEventsBundleForPlot,
   collectPlotApiIds,
@@ -73,8 +75,6 @@ import {
   formatMilestoneDate,
 } from "../utils/ripeningMilestones";
 import { HoverInfoTooltip } from "./HoverInfoTooltip";
-import IrrigationSchedule from "./IrrigationSchedule";
-
 // Register Chart.js components
 ChartJS.register(
   CategoryScale,
@@ -632,24 +632,6 @@ function readMetricNumber(...values: unknown[]): number | null {
   return null;
 }
 
-const unavailableSinglePlotMetrics: Partial<Metrics> = {
-  brix: null,
-  brixMin: null,
-  brixMax: null,
-  recovery: null,
-  area: null,
-  biomass: null,
-  totalBiomass: null,
-  sugarYieldMean: null,
-  sugarYieldMin: null,
-  sugarYieldMax: null,
-  actualYield: null,
-  daysToHarvest: null,
-  growthStage: null,
-  soilPH: null,
-  organicCarbonDensity: null,
-};
-
 // Overlay Component for chart states
 interface OverlayProps {
   message: string;
@@ -676,16 +658,67 @@ const Overlay: React.FC<OverlayProps> = ({ message }) => (
   </div>
 );
 
+/** Why the acidity & sugar chart has nothing to plot. Only `error` means the request failed. */
+type BrixIssue = { kind: "empty" | "missing" | "error"; message: string };
+
+const BRIX_EMPTY_MESSAGE =
+  "Acidity and sugar data is currently unavailable. No satellite readings have been recorded for this plot yet.";
+const BRIX_MISSING_MESSAGE =
+  "Acidity and sugar data is currently unavailable for this plot.";
+
+function brixIssueFromError(err: any): BrixIssue {
+  const status: number | undefined = err?.response?.status;
+  let message: string;
+  if (err?.code === "ECONNABORTED" || /timeout/i.test(String(err?.message ?? ""))) {
+    message = "The acidity and sugar service took too long to respond. Please try again.";
+  } else if (status) {
+    message = `Couldn't load acidity and sugar data (server error ${status}). Please try again.`;
+  } else {
+    message = "Couldn't reach the acidity and sugar service. Check your connection and try again.";
+  }
+  return { kind: "error", message };
+}
+
+const BrixNotice: React.FC<{ issue: BrixIssue; onRetry?: () => void }> = ({ issue, onRetry }) => {
+  const isError = issue.kind === "error";
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80 p-4"
+      role={isError ? "alert" : "status"}
+    >
+      <div
+        className={`max-w-md rounded-lg border px-4 py-3 text-center text-sm ${
+          isError
+            ? "border-red-200 bg-red-50 text-red-800"
+            : "border-gray-200 bg-gray-50 text-gray-700"
+        }`}
+      >
+        <p className="font-semibold">{issue.message}</p>
+        {isError && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 rounded-md bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Brix Time Series Chart Component
 interface BrixTimeSeriesChartProps {
   data: Array<{
     date: string;
-    brix: number;
-    ph: number;
-    ta: number;
+    brix: number | null;
+    ph: number | null;
+    ta: number | null;
   }>;
   isLoading?: boolean;
-  error?: string | null;
+  error?: BrixIssue | null;
+  onRetry?: () => void;
   /** If true, renders a floating pill with latest values inside the chart area. */
   showLatestValuesInChart?: boolean;
 }
@@ -694,8 +727,14 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
   data,
   isLoading,
   error,
+  onRetry,
   showLatestValuesInChart = false,
 }) => {
+  const hasAcidity = useMemo(
+    () => (data ?? []).some((p) => p.ph != null || p.ta != null),
+    [data]
+  );
+  const hasSugar = useMemo(() => (data ?? []).some((p) => p.brix != null), [data]);
   const latest = useMemo(() => {
     if (!data || data.length === 0) return null;
     // Latest point = last item (API is expected to be chronological)
@@ -725,8 +764,9 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
     });
 
     const toNum = (v: any) => {
+      if (v == null) return null;
       const n = typeof v === "number" ? v : Number(v);
-      return Number.isFinite(n) ? n : 0;
+      return Number.isFinite(n) ? n : null;
     };
 
     return {
@@ -765,13 +805,14 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
           pointRadius: 3,
           pointHoverRadius: 5,
         },
-      ],
+      ].filter((ds) => ds.data.some((v) => v != null)),
     };
   }, [data]);
 
   const options = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    spanGaps: true,
     animations: {
       y: {
         easing: 'easeInOutElastic' as const,
@@ -829,7 +870,31 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
     },
   } as any), []);
 
+  const hasData = !!data && data.length > 0;
+  const issue: BrixIssue | null =
+    error ?? (hasData ? null : { kind: "missing", message: BRIX_MISSING_MESSAGE });
+  const partialNotes =
+    !isLoading && !issue
+      ? [
+          !hasAcidity && "Acidity data is currently unavailable",
+          !hasSugar && "Sugar data is currently unavailable",
+        ].filter((s): s is string => !!s)
+      : [];
+
   return (
+    <>
+    {partialNotes.length > 0 && (
+      <div className="mb-2 flex flex-wrap gap-2" role="status">
+        {partialNotes.map((note) => (
+          <span
+            key={note}
+            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800"
+          >
+            {note}
+          </span>
+        ))}
+      </div>
+    )}
     <div style={{ height: '320px', position: 'relative' }}>
       {/* Latest values (top-center) */}
       {showLatestValuesInChart && latest && !isLoading && !error && (
@@ -893,11 +958,9 @@ const BrixTimeSeriesChart: React.FC<BrixTimeSeriesChartProps> = ({
       <ChartLine data={chartData} options={options} />
 
       {isLoading && <Overlay message="Loading data..." />}
-      {error && !isLoading && <Overlay message={`Failed to load data: ${error}`} />}
-      {!isLoading && !error && (!data || data.length === 0) && (
-        <Overlay message="No data available" />
-      )}
+      {!isLoading && issue && <BrixNotice issue={issue} onRetry={onRetry} />}
     </div>
+    </>
   );
 };
 
@@ -1012,7 +1075,7 @@ const FarmerDashboard: React.FC = () => {
   const [showNDREEvents, setShowNDREEvents] = useState<boolean>(false);
   const [brixTimeSeriesData, setBrixTimeSeriesData] = useState<any[]>([]);
   const [brixTimeSeriesLoading, setBrixTimeSeriesLoading] = useState<boolean>(false);
-  const [brixTimeSeriesError, setBrixTimeSeriesError] = useState<string | null>(null);
+  const [brixTimeSeriesError, setBrixTimeSeriesError] = useState<BrixIssue | null>(null);
   /** Bumped when dashboard bundle fetch finishes so the chart can read cache without a duplicate API call. */
   const [brixChartTick, setBrixChartTick] = useState(0);
 
@@ -1145,12 +1208,9 @@ const FarmerDashboard: React.FC = () => {
         profileRef.current?.plots,
       );
       if (!plot) {
-        setSinglePlotMetrics(unavailableSinglePlotMetrics);
-        setMetrics((previous) => ({
-          ...previous,
-          ...unavailableSinglePlotMetrics,
-        }));
-        return;
+        // Keep whatever the other loaders (grapes bundle, soil) already filled in.
+        setSinglePlotMetrics({});
+        return false;
       }
 
       const brixSugar = plot.brix_sugar ?? plot.brixSugar ?? {};
@@ -1223,30 +1283,52 @@ const FarmerDashboard: React.FC = () => {
       );
 
       setSinglePlotMetrics(patch);
-      setMetrics((previous) => ({ ...previous, ...patch }));
+      setMetrics((previous) => mergeDashboardMetrics(previous, patch));
+      return true;
+    };
+
+    // /plots/analyzeSinglePlot is not deployed on every events service; the
+    // /plots/agroStats batch carries the same per-plot row (shared cache with soil loader).
+    const loadFromAgroStatsBatch = async (): Promise<unknown> => {
+      const batchKey = `agroStats_v3_${endDate}`;
+      const cachedBatch = getCache(batchKey);
+      if (cachedBatch) return cachedBatch;
+      const res = await axios.get(`${BASE_URL}/plots/agroStats`, {
+        params: { end_date: endDate },
+        timeout: 60_000,
+        headers: { Accept: "application/json" },
+      });
+      setCache(batchKey, res.data);
+      return res.data;
     };
 
     const cached = getCache(cacheKey);
     if (cached) {
       applySinglePlotMetrics(cached);
     } else {
-      void getSinglePlotAgroStats(currentPlotId)
-        .then((payload) => {
+      void (async () => {
+        try {
+          const payload = await getSinglePlotAgroStats(currentPlotId);
           setCache(cacheKey, payload);
-          if (!cancelled) applySinglePlotMetrics(payload);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          setSinglePlotMetrics(unavailableSinglePlotMetrics);
-          setMetrics((previous) => ({
-            ...previous,
-            ...unavailableSinglePlotMetrics,
-          }));
+          if (!cancelled && applySinglePlotMetrics(payload)) return;
+        } catch (error) {
           console.warn(
-            `FarmerDashboard: single-plot agro stats unavailable for ${currentPlotId} on ${endDate}`,
+            `FarmerDashboard: analyzeSinglePlot unavailable for ${currentPlotId}; using /plots/agroStats`,
             error,
           );
-        });
+        }
+        try {
+          const batch = await loadFromAgroStatsBatch();
+          if (!cancelled) applySinglePlotMetrics(batch);
+        } catch (error) {
+          if (cancelled) return;
+          setSinglePlotMetrics({});
+          console.warn(
+            `FarmerDashboard: agro stats unavailable for ${currentPlotId} on ${endDate}`,
+            error,
+          );
+        }
+      })();
     }
 
     return () => {
@@ -2054,11 +2136,17 @@ const FarmerDashboard: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
 
-    const applySeries = (series: ReturnType<typeof extractBrixTimeSeriesFromPayload>) => {
+    const applySeries = ({ status, series }: ReturnType<typeof describeBrixTimeSeriesPayload>) => {
       if (cancelled) return;
       setBrixTimeSeriesData(series);
       setBrixTimeSeriesLoading(false);
-      setBrixTimeSeriesError(series.length > 0 ? null : "No acidity or sugar history for this plot yet.");
+      setBrixTimeSeriesError(
+        status === "ok"
+          ? null
+          : status === "empty"
+            ? { kind: "empty", message: BRIX_EMPTY_MESSAGE }
+            : { kind: "missing", message: BRIX_MISSING_MESSAGE }
+      );
     };
 
     const cacheBrixPayload = (payload: unknown) => {
@@ -2082,10 +2170,10 @@ const FarmerDashboard: React.FC = () => {
         endDate,
         getApiDataRef.current
       );
-      const cachedSeries = extractBrixTimeSeriesFromPayload(cachedPayload);
-      if (cachedSeries.length > 0) {
+      const cached = describeBrixTimeSeriesPayload(cachedPayload);
+      if (cached.status !== "missing") {
         console.log("✅ Acidity & sugar chart: using cached grapes/brix data");
-        applySeries(cachedSeries);
+        applySeries(cached);
         return;
       }
 
@@ -2104,20 +2192,15 @@ const FarmerDashboard: React.FC = () => {
         const data = await getBrixTimeSeries(currentPlotId);
         if (cancelled) return;
 
-        const series = extractBrixTimeSeriesFromPayload(data);
-        applySeries(series);
-        if (data) {
+        const described = describeBrixTimeSeriesPayload(data);
+        applySeries(described);
+        if (described.status !== "missing") {
           cacheBrixPayload(data);
         }
       } catch (error: any) {
         if (cancelled) return;
         console.error("❌ Error fetching brix time series:", error);
-        const msg = error?.message || "Failed to load data";
-        setBrixTimeSeriesError(
-          msg.includes("timeout")
-            ? "Chart data is taking too long. Metrics may still load from the dashboard bundle."
-            : msg
-        );
+        setBrixTimeSeriesError(brixIssueFromError(error));
         setBrixTimeSeriesData([]);
         setBrixTimeSeriesLoading(false);
       }
@@ -2373,7 +2456,7 @@ const FarmerDashboard: React.FC = () => {
     </div>
   );
 
-  const dashboardMetrics = { ...metrics, ...singlePlotMetrics };
+  const dashboardMetrics = mergeDashboardMetrics(metrics, singlePlotMetrics);
   const currentBiomass = dashboardMetrics.biomass || 0;
   const totalBiomass = dashboardMetrics.totalBiomass || 0;
 
@@ -2430,7 +2513,7 @@ const FarmerDashboard: React.FC = () => {
   // Wait for profile before deciding "no plots" — avoids blank flash on open
   if (profileLoading && !currentPlotId) {
     return (
-      <div className="min-h-screen dashboard-bg p-3 flex items-center justify-center">
+      <div className="min-h-screen dashboard-bg farmer-dashboard-bg p-3 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-emerald-700">
           <Loader2 className="w-8 h-8 animate-spin" />
           <p className="text-sm font-medium">Loading farm crop status...</p>
@@ -2441,7 +2524,7 @@ const FarmerDashboard: React.FC = () => {
 
   if (!currentPlotId && !profileLoading) {
     return (
-      <div className="min-h-screen dashboard-bg p-3 flex items-center justify-center">
+      <div className="min-h-screen dashboard-bg farmer-dashboard-bg p-3 flex items-center justify-center">
         <div className="text-center bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-8 max-w-md">
           <MapPin className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-800 mb-2">
@@ -2457,7 +2540,7 @@ const FarmerDashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen dashboard-bg p-3" style={{
+    <div className="min-h-screen dashboard-bg farmer-dashboard-bg p-3" style={{
       width: '100%',
       maxWidth: '100vw',
       overflowX: 'hidden',
@@ -2677,16 +2760,9 @@ const FarmerDashboard: React.FC = () => {
               style={{ maxWidth: '100%', height: 'auto' }}
             />
             <div className="flex items-center justify-end mb-2 pt-3 relative z-10">
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {metricOrLoader(dashboardMetrics.growthStage, !dashboardMetrics.growthStage)}
-                </div>
-                <div className="text-sm font-semibold" style={{ color: '#6bb043', visibility: 'hidden' }}>
-                  &nbsp;
-                </div>
-              </div>
+              <CropStageValue plotId={currentPlotId} className="text-xl" />
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Crop Status</p>
+            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161', lineHeight: '1.2' }}>Crop Stage</p>
           </div>
 
           <div className="rounded-xl p-4 hover:shadow-md transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)', width: '100%', maxWidth: '100%', boxSizing: 'border-box', backgroundColor: '#f3f5e9' }}>
@@ -3121,12 +3197,12 @@ const FarmerDashboard: React.FC = () => {
         {/* Grapes daily graph */}
         <div className="mt-4 w-full">
           <div className="irrigation-schedule-card min-w-0 bg-white rounded-lg overflow-hidden shadow flex flex-col">
-            <div className="bg-green-600 text-white px-2 py-1.5 flex flex-col items-center justify-center shrink-0 gap-0.5">
-              {/* <h3 className="text-xs font-semibold text-center leading-tight"> */}
-              {/* Grapes Daily Graph */}
-              {/* </h3> */}
+            <div className="bg-green-600 text-white px-3 py-1.5 flex flex-col items-start justify-center shrink-0 gap-0.5">
+              <h3 className="text-sm font-semibold text-left leading-tight">
+                Acidity &amp; Sugar Analysis
+              </h3>
               {latestAciditySugar && !brixTimeSeriesLoading && !brixTimeSeriesError && (
-                <p className="text-[9px] text-green-100 leading-tight text-center">
+                <p className="text-[9px] text-green-100 leading-tight text-left">
                   pH {latestAciditySugar.ph?.toFixed(2) ?? "—"} · Brix {latestAciditySugar.brix?.toFixed(2) ?? "—"} · TA {latestAciditySugar.ta?.toFixed(2) ?? "—"}
                 </p>
               )}
@@ -3137,6 +3213,7 @@ const FarmerDashboard: React.FC = () => {
                 data={brixTimeSeriesData}
                 isLoading={brixTimeSeriesLoading}
                 error={brixTimeSeriesError}
+                onRetry={() => setBrixChartTick((t) => t + 1)}
                 showLatestValuesInChart={false}
               />
             </div>

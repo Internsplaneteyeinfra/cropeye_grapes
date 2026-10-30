@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import budData from "../components/bud.json";
 import {
   getOrFetchWeatherChartDays,
   irrigationRainfallFromChartDays,
@@ -8,8 +7,9 @@ import {
   weatherTodayRainCacheKey,
 } from "../services/weatherForecastService";
 import { useAppContext } from "../context/AppContext";
-import { getGrapesSefBaseUrl } from "../utils/serviceUrls";
-import { findPlotRef } from "../utils/plotName";
+import { getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
+import { findPlotRef, toBackendPlotName } from "../utils/plotName";
+import { budKcFromDates, type GrapesKcInfo } from "../utils/grapesCropCoefficient";
 import { useFarmerProfile } from "./useFarmerProfile";
 
 export type ETRange = "Low" | "Medium" | "High";
@@ -39,8 +39,6 @@ export interface ScheduleTotals {
 }
 
 const ET_API_BASE = getGrapesSefBaseUrl();
-
-const DEFAULT_ET = 2.5;
 
 export interface IrrigationPlotConfig {
   irrigationTypeCode: string;
@@ -121,70 +119,59 @@ const calcIrrigationTime = (waterRequired: number, cfg: IrrigationPlotConfig) =>
   return formatTimeHrsMins(waterRequired / flowRateLitersPerHour);
 };
 
-const generateAdjustedET = (baseEt: number, plotName: string) => {
-  const effectiveBaseEt = baseEt > 0 ? baseEt : 2.5;
-  let seed = 0;
-  for (let j = 0; j < plotName.length; j++) seed += plotName.charCodeAt(j);
-  seed += new Date().getDate();
-
-  let randomSeed = seed;
-  const seededRandom = () => {
-    randomSeed = (randomSeed * 9301 + 49297) % 233280;
-    return randomSeed / 233280;
+/** Pruning dates from grapes-admin `/grapes-schedule/{plot}` (same source as the Fertilizer schedule). */
+async function fetchSchedulePruningDates(
+  plotId: string,
+): Promise<{ foundation: string | null; fruit: string | null } | null> {
+  const res = await fetch(
+    `${getGrapesAdminBaseUrl().replace(/\/+$/, "")}/grapes-schedule/${encodeURIComponent(toBackendPlotName(plotId))}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!res.ok) return null;
+  const body = await res.json();
+  return {
+    foundation: typeof body?.foundation_pruning_date === "string" ? body.foundation_pruning_date : null,
+    fruit: typeof body?.fruit_pruning_date === "string" ? body.fruit_pruning_date : null,
   };
+}
 
-  const predictions: number[] = [];
-  const mediumDays: number[] = [];
-  const candidateDays = [0, 1, 2, 3, 4, 5];
-  const numMediumDays = 2 + Math.floor(seededRandom() * 2);
-
-  for (let k = 0; k < numMediumDays; k++) {
-    const randomIdx = Math.floor(seededRandom() * candidateDays.length);
-    mediumDays.push(candidateDays[randomIdx]);
-    candidateDays.splice(randomIdx, 1);
-  }
-
-  for (let i = 0; i < 6; i++) {
-    let predictedET: number;
-    const isMediumDay = mediumDays.includes(i);
-
-    if (effectiveBaseEt <= 3.0) {
-      predictedET = isMediumDay ? 3.2 + seededRandom() * 1.8 : 2.0 + seededRandom() * 0.9;
-    } else if (effectiveBaseEt <= 5.5) {
-      predictedET = isMediumDay ? 3.5 + seededRandom() * 1.5 : 2.3 + seededRandom() * 0.7;
-    } else if (isMediumDay && seededRandom() > 0.6) {
-      predictedET = 5.5 + seededRandom() * 1.0;
-    } else if (isMediumDay) {
-      predictedET = 3.8 + seededRandom() * 1.5;
-    } else {
-      predictedET = 3.0 + seededRandom() * 0.8;
-    }
-
-    predictedET = Math.max(predictedET * (0.95 + seededRandom() * 0.1), 1.5);
-    predictions.push(Number(predictedET.toFixed(1)));
-  }
-
-  return predictions;
-};
+/** Open-Meteo daily FAO-56 reference ET forecast for the next 6 days (index 0 = tomorrow). */
+async function fetchForecastEt0(lat: number, lon: number): Promise<(number | null)[]> {
+  const qs = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    forecast_days: "7",
+    daily: "et0_fao_evapotranspiration",
+    timezone: "Asia/Kolkata",
+  });
+  const resp = await fetch(`https://api.open-meteo.com/v1/forecast?${qs}`);
+  if (!resp.ok) throw new Error(`ET forecast ${resp.status}`);
+  const data = await resp.json();
+  const values: unknown[] = data?.daily?.et0_fao_evapotranspiration ?? [];
+  return values.slice(1, 7).map((v) => {
+    const n = Number(v);
+    return v != null && Number.isFinite(n) ? n : null;
+  });
+}
 
 export const buildIrrigationSchedule = (
-  etValue: number,
+  etValue: number | null,
   rainfallMm: number,
   forecastRainfall: number[],
+  forecastEt: (number | null)[],
   kc: number,
-  plotName: string,
   plotConfig: IrrigationPlotConfig
 ): IrrigationScheduleRow[] => {
   const scheduleData: IrrigationScheduleRow[] = [];
   const today = new Date();
-  const next6Et = generateAdjustedET(etValue, plotName);
 
   for (let i = 0; i < 7; i++) {
     const date = new Date(today);
     date.setDate(today.getDate() + i);
 
     const isToday = i === 0;
-    const etForDay = isToday ? etValue : next6Et[i - 1];
+    const etForDay = isToday ? etValue : forecastEt[i - 1] ?? null;
+    if (etForDay == null || !Number.isFinite(etForDay)) continue;
     const rainfall = isToday ? rainfallMm : (forecastRainfall[i - 1] ?? 0);
     const netEt = calculateNetET(etForDay, rainfall);
     const waterRequired = waterFromNetET(netEt, kc);
@@ -212,11 +199,15 @@ export function useIrrigationSchedule(syncToAppState = false) {
   const { profile, loading: profileLoading } = useFarmerProfile();
 
   const [plotName, setPlotName] = useState("");
-  const [etValue, setEtValue] = useState<number>(appState?.etValue ?? DEFAULT_ET);
+  const [etValue, setEtValue] = useState<number | null>(
+    Number(appState?.etValue) > 0 ? Number(appState.etValue) : null,
+  );
+  const [forecastEt, setForecastEt] = useState<(number | null)[]>([]);
   const [rainfallMm, setRainfallMm] = useState<number | null>(null);
   const [forecastRainfall, setForecastRainfall] = useState<number[] | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
-  const [kc, setKc] = useState(0.3);
+  const [kc, setKc] = useState<number | null>(null);
+  const [pruningKc, setPruningKc] = useState<GrapesKcInfo | null>(null);
   const [plotConfig, setPlotConfig] = useState<IrrigationPlotConfig>({
     irrigationTypeCode: "flood",
     irrigationType: "Flood",
@@ -264,6 +255,23 @@ export function useIrrigationSchedule(syncToAppState = false) {
     setWeatherLoading(true);
     setError(null);
 
+    const et0Key = `et0Forecast_${lat}_${lon}_${localIsoDate(new Date())}`;
+    const cachedEt0 = getCached(et0Key);
+    if (Array.isArray(cachedEt0)) {
+      setForecastEt(cachedEt0);
+    } else {
+      setForecastEt([]);
+      fetchForecastEt0(lat, lon)
+        .then((values) => {
+          if (cancelled) return;
+          setForecastEt(values);
+          setCached(et0Key, values);
+        })
+        .catch(() => {
+          if (!cancelled) setForecastEt([]);
+        });
+    }
+
     void (async () => {
       try {
         const { chartDays, todayRainfall } = await getOrFetchWeatherChartDays(
@@ -294,29 +302,20 @@ export function useIrrigationSchedule(syncToAppState = false) {
       }
     })();
 
-    const firstFarm = selectedPlot?.farms?.[0];
-    if (firstFarm?.plantation_date) {
-      const plantationDate = new Date(firstFarm.plantation_date);
-      const days = Math.floor((Date.now() - plantationDate.getTime()) / (1000 * 60 * 60 * 24));
-      let derivedStage = "Germination";
-      if (days > 210) derivedStage = "Maturity & Ripening";
-      else if (days > 90) derivedStage = "Grand Growth";
-      else if (days > 30) derivedStage = "Tillering";
-
-      let kcValue = 0.3;
-      try {
-        for (const method of (budData as any).fertilizer_schedule || []) {
-          for (const st of method.stages || []) {
-            if (st.stage === derivedStage && st.kc !== undefined) {
-              kcValue = Number(st.kc) || kcValue;
-            }
-          }
-        }
-      } catch {
-        /* keep default kc */
-      }
-      setKc(kcValue);
-    }
+    const firstFarm = selectedPlot?.farms?.[0] as Record<string, any> | undefined;
+    const applyPruning = (foundation: unknown, fruit: unknown) => {
+      const info = budKcFromDates(foundation, fruit, firstFarm?.plantation_date);
+      if (cancelled) return;
+      setPruningKc(info);
+      setKc(info?.kc ?? null);
+    };
+    // Farm record first for an instant value; grapes-schedule is authoritative after a Fertilizer-page edit.
+    applyPruning(firstFarm?.foundation_pruning_date, firstFarm?.fruit_pruning_date);
+    fetchSchedulePruningDates(plotId)
+      .then((dates) => {
+        if (dates && (dates.foundation || dates.fruit)) applyPruning(dates.foundation, dates.fruit);
+      })
+      .catch(() => undefined);
 
     if (firstFarm) {
       const firstIrrigation = firstFarm.irrigations?.[0];
@@ -365,9 +364,8 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
     const cacheKey = `etData_${plotName}`;
     const cached = getCached(cacheKey);
-    if (cached?.etValue) {
-      const value = Number(cached.etValue);
-      setEtValue(value > 0 ? value : DEFAULT_ET);
+    if (Number(cached?.etValue) > 0) {
+      setEtValue(Number(cached.etValue));
       setEtLoading(false);
       return;
     }
@@ -386,7 +384,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       try {
-        const apiUrl = `${ET_API_BASE}/plots/${encodeURIComponent(plotName)}/compute-et/`;
+        const apiUrl = `${ET_API_BASE}/plots/${encodeURIComponent(toBackendPlotName(plotName))}/compute-et/`;
         const response = await fetch(apiUrl, {
           method: "POST",
           mode: "cors",
@@ -400,11 +398,11 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
         if (!response.ok) throw new Error(`ET API ${response.status}`);
         const data = await response.json();
-        const et = data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et ?? 0;
-        const finalEt = Number(et) > 0 ? Number(et) : DEFAULT_ET;
+        const et = Number(data.et_24hr ?? data.ET_mean_mm_per_day ?? data.et);
+        if (!(et > 0)) throw new Error("ET API returned no ET value for this plot");
         if (!cancelled) {
-          setEtValue(finalEt);
-          setCached(cacheKey, { etValue: finalEt });
+          setEtValue(et);
+          setCached(cacheKey, { etValue: et });
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -429,21 +427,21 @@ export function useIrrigationSchedule(syncToAppState = false) {
 
   const schedule = useMemo(
     () =>
-      plotName && rainfallReady
+      plotName && rainfallReady && kc != null
         ? buildIrrigationSchedule(
             etValue,
             rainfallMm,
             forecastRainfall,
+            forecastEt,
             kc,
-            plotName,
             plotConfig
           )
         : [],
-    [plotName, etValue, rainfallMm, forecastRainfall, rainfallReady, kc, plotConfig]
+    [plotName, etValue, rainfallMm, forecastRainfall, forecastEt, rainfallReady, kc, plotConfig]
   );
 
   const totals = useMemo((): ScheduleTotals | null => {
-    if (!schedule.length) return null;
+    if (!schedule.length || kc == null) return null;
 
     const effectiveFlow =
       plotConfig.flowRateLph && plotConfig.flowRateLph > 0 ? plotConfig.flowRateLph : 4;
@@ -481,6 +479,7 @@ export function useIrrigationSchedule(syncToAppState = false) {
     error,
     plotName,
     kc,
+    pruningKc,
     plotConfig,
     irrigationType: plotConfig.irrigationType,
     getETRangeColor: (range: ETRange) => {

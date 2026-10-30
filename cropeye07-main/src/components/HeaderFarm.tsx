@@ -7,11 +7,11 @@ interface HeaderFarmProps {}
 export const Header: React.FC<HeaderFarmProps> = () => {
   const { profile, loading: profileLoading } = useFarmerProfile();
   const { lang, setLanguage, t } = useI18nLite();
-  
+
   // Note: Profile is automatically fetched by useFarmerProfile hook using the new my-profile endpoint
 
 
-  
+
   // Format current date to display like "27 May 2025"
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-GB', {
@@ -81,12 +81,12 @@ export default Header;
 
 
 
- {/* Left: Farmer Name 
+ {/* Left: Farmer Name
         <div className="flex items-center">
           <h2 className="font-semibold mr-2">Ajay Dhale</h2>
           <span className="bg-green-600 px-2 py-0.5 rounded">(2.48 acres)</span>
         </div> */}
- {/* Right: Total Fields 
+ {/* Right: Total Fields
         <div className="text-right">
           Total Fields: 2
         </div> */}

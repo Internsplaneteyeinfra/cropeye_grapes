@@ -19,7 +19,7 @@ export interface WeatherForecastDay {
 export const fetchWeatherForecast = async (lat: number, lon: number): Promise<WeatherForecastData> => {
   try {
     const apiUrl = ` https://weather-cropeye.up.railway.app/forecast?lat=${lat}&lon=${lon}`;
-    
+
     const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
@@ -37,19 +37,19 @@ export const fetchWeatherForecast = async (lat: number, lon: number): Promise<We
     }
 
     const forecastData: WeatherForecastData = await response.json();
-    
+
     return forecastData;
   } catch (error: any) {
     console.error('🌤️ Failed to fetch weather forecast:', error);
-    
+
     if (error.name === 'AbortError') {
       throw new Error('Weather forecast request timed out. Please try again.');
     }
-    
+
     if (error.message.includes('Failed to fetch')) {
       throw new Error('Unable to connect to weather forecast service. Please check your internet connection.');
     }
-    
+
     throw new Error(`Failed to fetch weather forecast: ${error.message}`);
   }
 };
@@ -86,7 +86,7 @@ export const formatPrecipitation = (precip: string): string => {
 export const getWeatherIcon = (precipitation: string, tempMax: string): string => {
   const precipValue = parseFloat(precipitation.replace(' mm', ''));
   const tempValue = parseFloat(tempMax.replace(' DegreeCel', ''));
-  
+
   if (precipValue > 5) {
     return '🌧️'; // Heavy rain
   } else if (precipValue > 1) {
@@ -104,7 +104,7 @@ export const getWeatherIcon = (precipitation: string, tempMax: string): string =
 export const getWeatherCondition = (precipitation: string, tempMax: string): string => {
   const precipValue = parseFloat(precipitation.replace(' mm', ''));
   const tempValue = parseFloat(tempMax.replace(' DegreeCel', ''));
-  
+
   if (precipValue > 5) {
     return 'Heavy Rain';
   } else if (precipValue > 1) {
@@ -121,7 +121,7 @@ export const getWeatherCondition = (precipitation: string, tempMax: string): str
 // Extract numeric value from API response (removes units)
 export const extractNumericValue = (value: string): number => {
   if (!value) return 0;
-  
+
   let cleanValue = value;
   // Remove common units and suffixes
   cleanValue = cleanValue.replace(/ DegreeCel/gi, '');
@@ -129,17 +129,17 @@ export const extractNumericValue = (value: string): number => {
   cleanValue = cleanValue.replace(/ km\/h/gi, '');
   cleanValue = cleanValue.replace(/ %/gi, '');
   cleanValue = cleanValue.replace(/[^\d.+-]/g, "");
-  
+
   return parseFloat(cleanValue) || 0;
 };
 
 // Format date for display
 export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-IN', { 
-    weekday: 'short', 
-    month: 'short', 
-    day: 'numeric' 
+  return date.toLocaleDateString('en-IN', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
   });
 };
 

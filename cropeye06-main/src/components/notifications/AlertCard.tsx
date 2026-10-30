@@ -57,7 +57,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({ alert, onRead }) => {
               {severity}
             </span>
             {!is_read && onRead && (
-              <button 
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onRead(alert.id);

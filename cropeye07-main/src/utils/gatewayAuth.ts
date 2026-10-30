@@ -1,10 +1,17 @@
 import { clearAllLocalStorage, getAuthToken } from "./auth";
 
+const isLocalHostname = (hostname: string) =>
+  hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+
 export const GATEWAY_URL =
   (import.meta.env.VITE_GATEWAY_URL as string | undefined) ||
   (typeof window !== "undefined"
-    ? (import.meta.env.DEV ? "http://localhost:5173" : window.location.origin)
-    : "http://localhost:5173");
+    ? (!isLocalHostname(window.location.hostname)
+        ? window.location.origin
+        : import.meta.env.DEV
+          ? "http://localhost:5175"
+          : window.location.origin)
+    : "http://localhost:5175");
 
 const getGatewayOrigin = () => {
   try {

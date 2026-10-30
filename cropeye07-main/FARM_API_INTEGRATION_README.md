@@ -80,24 +80,24 @@ interface FarmerData {
   variety: string;
   plantation_Type: string;
   plantation_Date: string;
-  
+
   // New Fields
   irrigation_Type: string;
   soil_Type: string;
   crop_Type: string;
-  
+
   // Drip Irrigation Fields
   plants_Per_Acre: string;
   spacing_A: string;
   spacing_B: string;
   flow_Rate: string;
   emitters: string;
-  
+
   // Flood Irrigation Fields
   motor_Horsepower: string;
   pipe_Width: string;
   distance_From_Motor: string;
-  
+
   // Location & Files
   documents: FileList | null;
   geometry: string; // GeoJSON
@@ -237,7 +237,7 @@ src/
   },
   {
     "id": 2,
-    "name": "Sandy Soil", 
+    "name": "Sandy Soil",
     "description": "Light soil with good drainage"
   }
 ]
@@ -300,4 +300,4 @@ All requested API endpoints have been implemented and integrated into the Add Fa
 - ✅ All form fields optional
 - ✅ Error handling and user feedback
 
-The farm data will be stored in your database with all the requested fields and image data! 
+The farm data will be stored in your database with all the requested fields and image data!

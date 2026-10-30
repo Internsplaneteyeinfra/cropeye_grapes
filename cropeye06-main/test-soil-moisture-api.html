@@ -66,17 +66,17 @@
 </head>
 <body>
     <h1>Soil Moisture API Test</h1>
-    
+
     <div class="test-section">
         <h3>Test Soil Moisture API Endpoint</h3>
         <p>API URL: <code>http://192.168.41.120:1002/soil-moisture</code></p>
-        
+
         <div>
             <label for="plotName">Plot Name:</label>
             <input type="text" id="plotName" value="294724" placeholder="Enter plot name">
             <button onclick="testSoilMoistureAPI()">Test API</button>
         </div>
-        
+
         <div id="result" class="result" style="display: none;"></div>
     </div>
 
@@ -93,7 +93,7 @@
     <div class="test-section">
         <h3>Expected API Response Format</h3>
         <p>The API should return 7 days of soil moisture data in one of these formats:</p>
-        
+
         <h4>Format 1: Array of data points</h4>
         <pre>
 {
@@ -108,7 +108,7 @@
   ]
 }
         </pre>
-        
+
         <h4>Format 2: Object with date keys</h4>
         <pre>
 {
@@ -134,22 +134,22 @@
         async function testSoilMoistureAPI() {
             const plotName = document.getElementById('plotName').value;
             const resultDiv = document.getElementById('result');
-            
+
             if (!plotName) {
                 showResult('Please enter a plot name', 'error');
                 return;
             }
-            
+
             // Calculate date range for last 7 days
             const endDate = new Date();
             const startDate = new Date();
             startDate.setDate(endDate.getDate() - 6);
-            
+
             const url = `http://192.168.41.120:1002/soil-moisture?plot_name=${plotName}&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`;
-            
+
             try {
                 showResult('Testing soil moisture API...', '');
-                
+
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: {
@@ -158,37 +158,37 @@
                     },
                     mode: 'cors',
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
+
                 const data = await response.json();
                 showResult(`Success! Received soil moisture data for plot ${plotName}:`, 'success');
                 showResult(JSON.stringify(data, null, 2), 'success');
-                
+
                 // Show chart preview
                 showChartPreview(data);
-                
+
             } catch (error) {
                 showResult(`Error: ${error.message}`, 'error');
                 console.error('Soil Moisture API Test Error:', error);
             }
         }
-        
+
         function showResult(message, type) {
             const resultDiv = document.getElementById('result');
             resultDiv.style.display = 'block';
             resultDiv.className = `result ${type}`;
             resultDiv.innerHTML = `<pre>${message}</pre>`;
         }
-        
+
         function showChartPreview(apiData) {
             const chartPreview = document.getElementById('chartPreview');
             const dataPoints = document.getElementById('dataPoints');
-            
+
             let transformedData = [];
-            
+
             if (apiData.data && Array.isArray(apiData.data)) {
                 transformedData = apiData.data.map((item, index) => ({
                     date: item.date || item.timestamp,
@@ -202,9 +202,9 @@
                     day: new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
                 }));
             }
-            
+
             if (transformedData.length > 0) {
-                dataPoints.innerHTML = transformedData.map(point => 
+                dataPoints.innerHTML = transformedData.map(point =>
                     `<div class="data-point">${point.day}: ${point.value}%</div>`
                 ).join('');
                 chartPreview.style.display = 'block';
@@ -212,4 +212,4 @@
         }
     </script>
 </body>
-</html> 
+</html>

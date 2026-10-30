@@ -24,4 +24,3 @@ export function logout(): void {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(INDUSTRY_KEY);
 }
-

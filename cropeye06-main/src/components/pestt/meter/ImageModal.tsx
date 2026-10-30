@@ -21,7 +21,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({ isOpen, imageUrl, pestNa
         >
           <X className="w-6 h-6 xs:w-8 xs:h-8" />
         </button>
-        
+
         <div className="flex-1 flex items-center justify-center min-h-0 w-full">
         <img
           src={imageUrl}
@@ -30,7 +30,7 @@ export const ImageModal: React.FC<ImageModalProps> = ({ isOpen, imageUrl, pestNa
             style={{ maxHeight: '85vh', maxWidth: '100%' }}
         />
         </div>
-        
+
         <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-2 xs:p-3 sm:p-4 rounded-b-lg">
           <h3 className="text-base xs:text-lg sm:text-xl font-semibold text-center break-words">{pestName}</h3>
         </div>

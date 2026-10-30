@@ -41,10 +41,10 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
     try {
       let response;
       let data;
-      
+
       response = await getstock();
       data = response?.data;
-      
+
       // Handle different response formats
       let stockItems: any[] = [];
       if (Array.isArray(data)) {
@@ -58,7 +58,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
       } else if (data?.stocks && Array.isArray(data.stocks)) {
         stockItems = data.stocks;
       }
-      
+
       // Transform API response to match Stock interface
       const transformedStocks: Stock[] = stockItems.map((stock: any) => {
         const transformed = {
@@ -73,7 +73,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
         };
         return transformed;
       });
-      
+
       setStocks(transformedStocks);
     } catch (err: any) {
       console.error('❌ Failed to fetch stock:', err);
@@ -132,43 +132,43 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
     try {
       console.log('💾 Saving stock ID:', id);
       console.log('💾 Edited stock data:', editedStock);
-      
+
       // Prepare data for API (convert frontend field names to backend field names)
       const apiData: any = {};
-      
+
       // Only include fields that have actual values (not empty strings, undefined, or null)
       if (editedStock.itemName !== undefined && editedStock.itemName !== null && editedStock.itemName !== '') {
         apiData.item_name = editedStock.itemName;
       } else if (editedStock.item_name !== undefined && editedStock.item_name !== null && editedStock.item_name !== '') {
         apiData.item_name = editedStock.item_name;
       }
-      
+
       if (editedStock.itemType !== undefined && editedStock.itemType !== null && editedStock.itemType !== '') {
         apiData.item_type = editedStock.itemType;
       } else if (editedStock.item_type !== undefined && editedStock.item_type !== null && editedStock.item_type !== '') {
         apiData.item_type = editedStock.item_type;
       }
-      
+
       if (editedStock.make !== undefined && editedStock.make !== null && editedStock.make !== '') {
         apiData.make = editedStock.make;
       }
-      
+
       if (editedStock.yearOfMake !== undefined && editedStock.yearOfMake !== null && editedStock.yearOfMake !== '') {
         apiData.year_of_make = editedStock.yearOfMake;
       } else if (editedStock.year_of_make !== undefined && editedStock.year_of_make !== null && editedStock.year_of_make !== '') {
         apiData.year_of_make = editedStock.year_of_make;
       }
-      
+
       if (editedStock.estimateCost !== undefined && editedStock.estimateCost !== null && editedStock.estimateCost !== '') {
         apiData.estimate_cost = editedStock.estimateCost;
       } else if (editedStock.estimate_cost !== undefined && editedStock.estimate_cost !== null && editedStock.estimate_cost !== '') {
         apiData.estimate_cost = editedStock.estimate_cost;
       }
-      
+
       if (editedStock.status !== undefined && editedStock.status !== null && editedStock.status !== '') {
         apiData.status = editedStock.status;
       }
-      
+
       if (editedStock.remark !== undefined && editedStock.remark !== null && editedStock.remark !== '') {
         apiData.remark = editedStock.remark;
       }
@@ -185,10 +185,10 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
 
       const response = await patchStock(id, apiData);
       console.log('✅ Stock updated successfully:', response.data);
-      
+
       // Refresh data from API to ensure consistency
       await fetchStock();
-      
+
       // Update local state as fallback
       setStocks((stocks || []).map((stock) => (stock.id === id ? { ...stock, ...editedStock } : stock)));
       setEditingId(null);
@@ -198,7 +198,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
       console.error('❌ Error response:', err?.response);
       console.error('❌ Error data:', err?.response?.data);
       console.error('❌ Error status:', err?.response?.status);
-      
+
       // Extract detailed error message
       let errorMessage = 'Failed to update stock';
       if (err?.response?.data) {
@@ -224,7 +224,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
       } else if (err?.message) {
         errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
     } finally {
       setSaving(false);
@@ -240,10 +240,10 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
     setError(null);
     try {
       await deleteStock(id);
-      
+
       // Refresh data from API to ensure consistency
       await fetchStock();
-      
+
       // Update local state as fallback
       setStocks((stocks || []).filter((stock) => stock.id !== id));
     } catch (err: any) {
@@ -282,7 +282,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
   const paginatedData = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -303,7 +303,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
-            {/* <button 
+            {/* <button
               onClick={fetchStock}
               disabled={loading}
               className="text-blue-600 hover:text-blue-800 flex items-center justify-center py-2 px-4 border border-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
@@ -312,11 +312,11 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
               {/* {loading ? <Loader2 className="w-5 h-5 mr-1 animate-spin" /> : <Search className="w-5 h-5 mr-1" />}
               <span className="hidden sm:inline">Refresh</span> */}
             {/* </button> */}
-            <button 
-              onClick={handleDownload} 
+            <button
+              onClick={handleDownload}
               className="text-green-600 hover:text-green-800 flex items-center justify-center py-2 px-4 border border-green-600 rounded hover:bg-green-50"
             >
-              <Download className="w-5 h-5 mr-1" /> 
+              <Download className="w-5 h-5 mr-1" />
             </button>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-gray-400 h-4 w-4" />
@@ -512,7 +512,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
                     {stock.status}
                   </span>
                 </div>
-                
+
                 <div className="space-y-2 text-sm text-gray-600">
                   <div className="flex items-center">
                     <span className="font-medium w-20">Type:</span>
@@ -537,7 +537,7 @@ export const StockList: React.FC<StockListProps> = ({ stocks, setStocks }) => {
                     </div>
                   )}
                 </div>
-                
+
                 {editingId === stock.id ? (
                   <div className="space-y-3 mt-3">
                     <div>

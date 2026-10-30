@@ -278,7 +278,7 @@ const MyList: React.FC = () => {
   );
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -299,7 +299,7 @@ const MyList: React.FC = () => {
             {/* Header */}
             <div className="p-4 sm:p-6 border-b border-gray-200">
               <div className="flex flex-col space-y-4">
-            
+
             {/* Search and Export */}
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
               <div className="relative flex-1 sm:max-w-md">
@@ -312,7 +312,7 @@ const MyList: React.FC = () => {
                 />
                 <Search className="absolute right-3 top-3.5 w-4 h-4 text-gray-400" />
               </div>
-              
+
               <button
                 onClick={handleExportCSV}
                 className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
@@ -479,7 +479,7 @@ const MyList: React.FC = () => {
                 Showing {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredTasks.length)} to{' '}
                 {Math.min(currentPage * ITEMS_PER_PAGE, filteredTasks.length)} of {filteredTasks.length} results
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
@@ -488,11 +488,11 @@ const MyList: React.FC = () => {
                 >
                   Previous
                 </button>
-                
+
                 <span className="text-sm text-gray-700 px-3">
                   Page {currentPage} of {totalPages}
                 </span>
-                
+
                 <button
                   onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}

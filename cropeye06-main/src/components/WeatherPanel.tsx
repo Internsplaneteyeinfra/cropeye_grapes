@@ -41,7 +41,7 @@ const WeatherPanel: React.FC<WeatherPanelProps> = ({ weather, isLoading }) => {
             <p className="text-xl font-semibold">{weather.temperature}°C</p>
           </div>
         </div>
-        
+
         <div className="flex items-center p-3 bg-blue-50 rounded-lg">
           <Droplets size={24} className="text-blue-500 mr-3" />
           <div>

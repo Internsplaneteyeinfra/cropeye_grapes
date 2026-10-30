@@ -28,36 +28,36 @@ const fetchWithRetry = async (
   retryDelay: number = 1000
 ): Promise<Response> => {
   let lastError: any;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
+
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         return response;
       }
-      
+
       if ([502, 503, 504].includes(response.status) && attempt < maxRetries) {
         const delay = retryDelay * Math.pow(2, attempt);
         console.log(`🌤️ Weather Forecast API retrying (attempt ${attempt + 1}/${maxRetries}) after ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      
+
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     } catch (error: any) {
       lastError = error;
-      
+
       if (
-        (error.name === 'TypeError' || 
+        (error.name === 'TypeError' ||
          error.message?.includes('Failed to fetch') ||
          error.name === 'AbortError') &&
         attempt < maxRetries
@@ -67,11 +67,11 @@ const fetchWithRetry = async (
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      
+
       throw error;
     }
   }
-  
+
   throw lastError;
 };
 
@@ -99,7 +99,7 @@ export const fetchWeatherForecast = async (
   }
 
   const apiUrl = `${WEATHER_API_BASE}/forecast?lat=${lat}&lon=${lon}`;
-    
+
   console.log(`🌤️ Weather Forecast API Request:`, {
     url: apiUrl,
     lat,
@@ -129,24 +129,24 @@ export const fetchWeatherForecast = async (
         statusText: response.statusText,
         errorText,
       });
-      
+
       const errorMsg = `Weather Forecast API error: ${response.status} ${response.statusText}`;
-      
+
       if (useFallback) {
         console.warn('🌤️ Using fallback forecast data due to API error');
         return { source: 'fallback', data: [] };
       }
-      
+
       throw new Error(errorMsg);
     }
 
     const forecastData: WeatherForecastData = await response.json();
-    
+
     console.log(`🌤️ Weather Forecast API Success:`, {
       source: forecastData.source,
       daysCount: forecastData.data?.length || 0,
     });
-    
+
     return forecastData;
   } catch (error: any) {
     console.error(`🌤️ Weather Forecast API Exception:`, {
@@ -155,24 +155,24 @@ export const fetchWeatherForecast = async (
       stack: error.stack,
       url: apiUrl,
     });
-    
+
     if (useFallback) {
       console.warn('🌤️ Using fallback forecast data due to exception');
       return { source: 'fallback', data: [] };
     }
-    
+
     if (error.name === 'AbortError') {
       throw new Error('Weather forecast request timed out. Please try again.');
     }
-    
+
     if (error.message?.includes('Failed to fetch') || error.name === 'TypeError') {
       throw new Error('Unable to connect to weather forecast service. Please check your internet connection.');
     }
-    
+
     if (error.message?.includes('CORS') || error.message?.includes('cors')) {
       throw new Error('Weather forecast service CORS error. Please check your internet connection.');
     }
-    
+
     throw new Error(`Failed to fetch weather forecast: ${error.message || 'Unknown error'}`);
   }
 };
@@ -207,7 +207,7 @@ export const formatPrecipitation = (precip: string): string => {
 export const getWeatherIcon = (precipitation: string, tempMax: string): string => {
   const precipValue = extractNumericValue(precipitation);
   const tempValue = extractNumericValue(tempMax);
-  
+
   if (precipValue > 5) {
     return '🌧️'; // Heavy rain
   } else if (precipValue > 1) {
@@ -225,7 +225,7 @@ export const getWeatherIcon = (precipitation: string, tempMax: string): string =
 export const getWeatherCondition = (precipitation: string, tempMax: string): string => {
   const precipValue = extractNumericValue(precipitation);
   const tempValue = extractNumericValue(tempMax);
-  
+
   if (precipValue > 5) {
     return 'Heavy Rain';
   } else if (precipValue > 1) {
@@ -242,7 +242,7 @@ export const getWeatherCondition = (precipitation: string, tempMax: string): str
 // Extract numeric value from API response (removes units)
 export const extractNumericValue = (value: string): number => {
   if (!value) return 0;
-  
+
   let cleanValue = value;
   // Remove common units and suffixes
   cleanValue = cleanValue.replace(/ DegreeCel/gi, '');
@@ -250,17 +250,17 @@ export const extractNumericValue = (value: string): number => {
   cleanValue = cleanValue.replace(/ km\/h/gi, '');
   cleanValue = cleanValue.replace(/ %/gi, '');
   cleanValue = cleanValue.replace(/[^\d.+-]/g, "");
-  
+
   return parseFloat(cleanValue) || 0;
 };
 
 // Format date for display
 export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-IN', { 
-    weekday: 'short', 
-    month: 'short', 
-    day: 'numeric' 
+  return date.toLocaleDateString('en-IN', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
   });
 };
 

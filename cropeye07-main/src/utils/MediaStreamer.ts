@@ -95,7 +95,7 @@ export class MediaStreamer {
       return this.screenStream;
     } catch (error: any) {
       this.isCapturing = false;
-      
+
       if (error.name === 'NotAllowedError') {
         throw new Error(
           'Screen capture permission denied. Please allow screen sharing to use this feature.'

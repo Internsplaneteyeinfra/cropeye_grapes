@@ -4,6 +4,7 @@ import { Leaf, Lock, Satellite } from "lucide-react";
 import axios from "axios";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
+import LoginBrand from "../components/LoginBrand";
 
 function isStrongEnough(pw: string): boolean {
   return pw.trim().length >= 6;
@@ -81,14 +82,7 @@ export default function ResetPasswordPage() {
         }}
         className="absolute inset-0"
       />
-      <div className="absolute top-0 left-0 w-full flex justify-center items-center p-2 md:p-4 z-20">
-        <img
-          src="/icons/cropw.png"
-          alt="SmartCropLogo"
-          className="w-56 h-48 md:w-72 md:h-60 object-contain max-w-[60vw] md:max-w-[288px]"
-          style={{ maxWidth: "60vw", height: "auto" }}
-        />
-      </div>
+      <LoginBrand />
 
       <div className="relative min-h-screen flex flex-col md:flex-row items-center justify-center p-1 sm:p-2 md:p-4 overflow-hidden pt-25">
         <motion.div
@@ -224,4 +218,3 @@ export default function ResetPasswordPage() {
     </div>
   );
 }
-

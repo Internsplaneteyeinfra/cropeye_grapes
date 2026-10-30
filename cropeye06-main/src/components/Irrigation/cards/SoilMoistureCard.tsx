@@ -125,6 +125,11 @@ function remainKl(remainLiters: number): number {
   return (Number(remainLiters) || 0) / 1000;
 }
 
+/** Below zero is a shortfall: show it as "deficit" rather than a negative "remain". */
+function remainLabel(kl: number): string {
+  return `${Math.abs(kl).toFixed(1)} kL ${kl < -0.05 ? "deficit" : "remain"}`;
+}
+
 function buildTubesFromWaterRemain(
   days: WaterRemainDay[],
   moistureByDate: Map<string, number>,
@@ -724,7 +729,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
 
         {loading && !tubeDays.length ? (
           <p className="text-xs text-gray-400 text-center py-4">
-            Loading Soil Moisture 
+            Loading Soil Moisture
           </p>
         ) : (
           <>
@@ -867,7 +872,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                             />
                             <YAxis
                               tick={{ fontSize: 10, fill: "#475569" }}
-                              tickFormatter={(v) => `${Number(v).toFixed(1)} kL`}
+                              tickFormatter={(v) => `${Math.abs(Number(v)).toFixed(1)} kL`}
                               width={54}
                               tickLine={false}
                               axisLine={false}
@@ -898,7 +903,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                                       {row?.clock ?? "—"}
                                     </div>
                                     <div className="moisture-hourly-tooltip-value">
-                                      {remain.toFixed(1)} kL remain
+                                      {remainLabel(remain)}
                                     </div>
                                     <div className="moisture-hourly-tooltip-need">
                                       {need > 0
@@ -986,7 +991,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                           height: "100%",
                         }}
                         onClick={() => setSelDay(fullIdx)}
-                        title={`${day.shortDate}: ${rKl.toFixed(1)} kL remain · need ${needKl.toFixed(1)} kL`}
+                        title={`${day.shortDate}: ${remainLabel(rKl)} · need ${needKl.toFixed(1)} kL`}
                       >
                         {isSel ? (
                           <span
@@ -1075,8 +1080,7 @@ const SoilMoistureCard: React.FC<SoilMoistureCardProps> = ({
                           fontWeight: 700,
                         }}
                       >
-                        {remainKl(selected.waterRemainLiters).toFixed(1)} kL
-                        remain
+                        {remainLabel(remainKl(selected.waterRemainLiters))}
                       </span>
                       <span
                         className="water-balance-day-footer-need"

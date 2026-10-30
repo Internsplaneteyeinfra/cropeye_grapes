@@ -42,19 +42,21 @@ export function getLocalDateIso(): string {
 }
 
 export function grapesBundleCacheKey(plotId: string, endDate?: string): string {
-  return `farmerDashGrapes_v2_${plotId}_${endDate ?? getLocalDateIso()}`;
+  return `farmerDashGrapes_v3_${plotId}_${endDate ?? getLocalDateIso()}`;
 }
 
+/** A missing reading stays null so charts show a gap instead of a false zero. */
 export type BrixTimeSeriesPoint = {
   date: string;
-  ph: number;
-  brix: number;
-  ta: number;
+  ph: number | null;
+  brix: number | null;
+  ta: number | null;
 };
 
-function toSeriesNumber(v: unknown): number {
+function toSeriesNumber(v: unknown): number | null {
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
   const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Normalize one API row (handles `pH` vs `ph`, etc.). */
@@ -67,45 +69,56 @@ export function normalizeBrixTimeSeriesPoint(raw: unknown): BrixTimeSeriesPoint 
     (typeof row.timestamp === "string" && row.timestamp) ||
     null;
   if (!date) return null;
-  const ph = row.ph ?? row.pH ?? row.PH;
-  const brix = row.brix ?? row.Brix ?? row.brix_value;
-  const ta = row.ta ?? row.TA ?? row.titratable_acidity;
-  return {
-    date,
-    ph: toSeriesNumber(ph),
-    brix: toSeriesNumber(brix),
-    ta: toSeriesNumber(ta),
-  };
+  const ph = toSeriesNumber(row.ph ?? row.pH ?? row.PH);
+  const brix = toSeriesNumber(row.brix ?? row.Brix ?? row.brix_value);
+  const ta = toSeriesNumber(row.ta ?? row.TA ?? row.titratable_acidity);
+  if (ph == null && brix == null && ta == null) return null;
+  return { date, ph, brix, ta };
+}
+
+/** Raw `time_series` rows, or null when the payload carries no series at all. */
+function findRawBrixSeries(payload: unknown): unknown[] | null {
+  if (!payload) return null;
+  if (Array.isArray(payload)) return payload;
+  if (typeof payload !== "object") return null;
+
+  const root = payload as Record<string, unknown>;
+  if (isGrapesBundlePayload(payload)) {
+    const brix = (payload as GrapesBundlePayload).brix;
+    if (Array.isArray(brix?.time_series)) return brix.time_series;
+    if (Array.isArray(brix)) return brix;
+    return null;
+  }
+  if (Array.isArray(root.time_series)) return root.time_series;
+  if (root.brix && typeof root.brix === "object") {
+    const nested = (root.brix as Record<string, unknown>).time_series;
+    if (Array.isArray(nested)) return nested;
+  }
+  return null;
 }
 
 /** Read `time_series` from a grapes bundle, standalone brix response, or raw array. */
 export function extractBrixTimeSeriesFromPayload(payload: unknown): BrixTimeSeriesPoint[] {
-  if (!payload) return [];
-  if (Array.isArray(payload)) {
-    return payload
-      .map(normalizeBrixTimeSeriesPoint)
-      .filter((p): p is BrixTimeSeriesPoint => p != null);
-  }
-  if (typeof payload !== "object") return [];
-
-  const root = payload as Record<string, unknown>;
-  let rawSeries: unknown[] | undefined;
-
-  if (isGrapesBundlePayload(payload)) {
-    const brix = (payload as GrapesBundlePayload).brix;
-    if (Array.isArray(brix?.time_series)) rawSeries = brix.time_series;
-    else if (Array.isArray(brix)) rawSeries = brix;
-  } else if (Array.isArray(root.time_series)) {
-    rawSeries = root.time_series;
-  } else if (root.brix && typeof root.brix === "object") {
-    const nested = (root.brix as Record<string, unknown>).time_series;
-    if (Array.isArray(nested)) rawSeries = nested;
-  }
-
-  if (!rawSeries?.length) return [];
-  return rawSeries
+  return (findRawBrixSeries(payload) ?? [])
     .map(normalizeBrixTimeSeriesPoint)
     .filter((p): p is BrixTimeSeriesPoint => p != null);
+}
+
+/**
+ * - ok: at least one usable reading
+ * - empty: the endpoint answered with a series that has no usable readings
+ * - missing: no response, or a response without any time_series
+ */
+export type BrixSeriesStatus = "ok" | "empty" | "missing";
+
+export function describeBrixTimeSeriesPayload(payload: unknown): {
+  status: BrixSeriesStatus;
+  series: BrixTimeSeriesPoint[];
+} {
+  const raw = findRawBrixSeries(payload);
+  if (raw == null) return { status: "missing", series: [] };
+  const series = extractBrixTimeSeriesFromPayload(raw);
+  return { status: series.length > 0 ? "ok" : "empty", series };
 }
 
 /** FastAPI grapes routes expect `plot_name` as multipart form field, not query string. */
@@ -224,11 +237,15 @@ export function findPlotInFarmerProfile(profile: any, plotId: string): any | nul
     plots.find((p: any) => {
       const gatPlot =
         p.gat_number && p.plot_number ? `${p.gat_number}_${p.plot_number}` : null;
+      const farmFastapi = p.farms?.[0]?.fastapi_plot_id;
       return (
         p.fastapi_plot_id === target ||
+        farmFastapi === target ||
+        String(farmFastapi ?? "") === target ||
         gatPlot === target ||
         p.plot_name === target ||
-        String(p.id) === target
+        String(p.id) === target ||
+        String(p.plot_id ?? "") === target
       );
     }) ?? null
   );
@@ -246,12 +263,16 @@ export function getPlotAreaAcresFromProfile(profile: any, plotId: string): numbe
   if (!plot) return null;
 
   const plotAcres = parsePositiveNumber(
-    plot.area_acres ?? plot.area_in_acres ?? plot.area_size_acres
+    plot.area_acres ??
+      plot.area_in_acres ??
+      plot.area_size_acres ??
+      plot.plot_area ??
+      plot.total_area_acres
   );
   if (plotAcres != null) return plotAcres;
 
   const plotHectares = parsePositiveNumber(
-    plot.area_size_numeric ?? plot.area_size
+    plot.area_hectares ?? plot.area_size_numeric ?? plot.area_size
   );
   if (plotHectares != null) return plotHectares * HECTARES_PER_ACRE;
 
@@ -259,11 +280,17 @@ export function getPlotAreaAcresFromProfile(profile: any, plotId: string): numbe
   if (!farm) return null;
 
   const farmAcres = parsePositiveNumber(
-    farm.area_acres ?? farm.area_in_acres ?? farm.area_size_acres
+    farm.area_acres ??
+      farm.area_in_acres ??
+      farm.area_size_acres ??
+      farm.plot_area ??
+      farm.total_area_acres
   );
   if (farmAcres != null) return farmAcres;
 
-  const ha = parsePositiveNumber(farm.area_size_numeric ?? farm.area_size);
+  const ha = parsePositiveNumber(
+    farm.area_hectares ?? farm.area_size_numeric ?? farm.area_size
+  );
   if (ha != null) return ha * HECTARES_PER_ACRE;
 
   return null;
@@ -347,6 +374,13 @@ function extractRipeningAnalysis(payload: unknown): Record<string, unknown> {
 function extractBrixSummary(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== "object") return {};
   const root = payload as Record<string, unknown>;
+  // With no readings the API still sends brix_summary {mean:0,min:0,max:0}; those zeros are placeholders.
+  if (
+    Array.isArray(root.time_series) &&
+    !extractBrixTimeSeriesFromPayload(root.time_series).some((p) => p.brix != null)
+  ) {
+    return {};
+  }
   const nested = root.brix_summary ?? root.brixSummary;
   if (nested && typeof nested === "object" && !Array.isArray(nested)) {
     return nested as Record<string, unknown>;
@@ -574,6 +608,7 @@ export function resolveBrixDaysForDashboard(
 }
 
 function parseSoilMetricNumber(v: unknown): number | null {
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -607,6 +642,38 @@ export type DashboardSoilCache = {
   get: (key: string) => unknown;
   set: (key: string, value: unknown) => void;
 };
+
+export function agroStatsCacheKey(endDate: string): string {
+  return `agroStats_v3_${endDate}`;
+}
+
+/** GET /plots/agroStats — field area, biomass mean, sugar-yield fallback. */
+export async function fetchAgroStatsPayload(
+  eventsBaseUrl: string,
+  endDate: string,
+  cache: DashboardSoilCache,
+  timeoutMs: number = 20_000,
+): Promise<unknown | null> {
+  const globalKey = agroStatsCacheKey(endDate);
+  const cached = cache.get(globalKey);
+  if (cached) return cached;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(
+      `${eventsBaseUrl.replace(/\/+$/, "")}/plots/agroStats?end_date=${encodeURIComponent(endDate)}`,
+      { headers: { Accept: "application/json" }, signal: controller.signal },
+    );
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const allPlots = await res.json();
+    cache.set(globalKey, allPlots);
+    return allPlots;
+  } catch (e) {
+    console.warn("agroStats failed:", e);
+    return null;
+  }
+}
 
 /**
  * Load soil pH + organic carbon for dashboard cards.
@@ -676,25 +743,8 @@ export async function fetchDashboardSoilMetrics(
   };
 
   const fromAgroStats = async () => {
-    const globalKey = `agroStats_v3_${endDate}`;
-    let allPlots: any = cache.get(globalKey);
-    if (!allPlots) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 20_000);
-        const res = await fetch(
-          `${eventsBaseUrl.replace(/\/+$/, "")}/plots/agroStats?end_date=${encodeURIComponent(endDate)}`,
-          { headers: { Accept: "application/json" }, signal: controller.signal }
-        );
-        clearTimeout(timer);
-        if (!res.ok) return empty;
-        allPlots = await res.json();
-        cache.set(globalKey, allPlots);
-      } catch (e) {
-        console.warn("agroStats soil metrics failed:", e);
-        return empty;
-      }
-    }
+    const allPlots = await fetchAgroStatsPayload(eventsBaseUrl, endDate, cache);
+    if (!allPlots) return empty;
     const plotIds = collectPlotApiIds(profile, plotId);
     for (const id of plotIds) {
       const row = extractAgroStatsPlotRow(allPlots, id, profile);
@@ -706,12 +756,21 @@ export async function fetchDashboardSoilMetrics(
     return empty;
   };
 
-  const [npk, agro] = await Promise.all([fromAnalyzeNpk(), fromAgroStats()]);
-  if (npk.soilPH != null || npk.organicCarbonDensity != null) return npk;
-  if (agro.soilPH != null || agro.organicCarbonDensity != null) {
-    return agro;
-  }
-  return empty;
+  // analyze-npk can hang until its timeout; take whichever source answers with soil values first.
+  const hasSoil = (m: typeof empty) => m.soilPH != null || m.organicCarbonDensity != null;
+  return new Promise((resolve) => {
+    let remaining = 2;
+    const settle = (m: typeof empty) => {
+      if (hasSoil(m)) {
+        resolve(m);
+        return;
+      }
+      remaining -= 1;
+      if (remaining === 0) resolve(empty);
+    };
+    fromAnalyzeNpk().then(settle, () => settle(empty));
+    fromAgroStats().then(settle, () => settle(empty));
+  });
 }
 
 /** Resolve one plot row from agroStats payload (keys may be fastapi id or gat_plot). */
@@ -721,13 +780,7 @@ export function extractAgroStatsPlotRow(
   profile: any
 ): any | null {
   if (!allPlotsData || !plotId) return null;
-  const plot = findPlotInFarmerProfile(profile, plotId);
-  const ids = new Set([plotId.trim()]);
-  if (plot?.gat_number && plot?.plot_number) {
-    ids.add(`${plot.gat_number}_${plot.plot_number}`);
-  }
-  if (plot?.plot_name) ids.add(String(plot.plot_name));
-  if (plot?.fastapi_plot_id) ids.add(String(plot.fastapi_plot_id));
+  const ids = new Set(collectPlotApiIds(profile, plotId));
 
   const rowMatches = (row: any): boolean =>
     row != null &&
@@ -866,43 +919,77 @@ export function stressTotalDaysFromPayload(stressData: any): number {
   return Number.isFinite(eventsCount) ? eventsCount : 0;
 }
 
-async function fetchFieldScoreForPlot(
+/** Read Field Score from SEF GET /analyze (`field_score` or `overall_health`). */
+export function fieldScoreFromAnalyzePayload(data: unknown, plotId?: string): number | null {
+  if (data == null) return null;
+  let fieldData: any = null;
+  if (Array.isArray(data)) {
+    const match = plotId
+      ? data.find((item: any) => {
+          const name = String(item?.plot_name || item?.plot || item?.name || "");
+          return name === plotId;
+        })
+      : null;
+    fieldData = match ?? data[0] ?? null;
+  } else if (typeof data === "object") {
+    fieldData = data;
+  }
+  if (!fieldData || typeof fieldData !== "object") return null;
+  const stats = (fieldData as { statistics?: Record<string, unknown> }).statistics ?? {};
+  const score = Number(
+    fieldData.field_score ??
+      fieldData.overall_health ??
+      fieldData.health_score ??
+      stats.field_score ??
+      stats.mean,
+  );
+  return Number.isFinite(score) ? score : null;
+}
+
+export async function fetchFieldScoreForPlot(
   plotId: string,
   endDate: string,
-  requestTimeoutMs: number
+  requestTimeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<number | null> {
   try {
     const baseUrl = getGrapesSefBaseUrl().replace(/\/+$/, "");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-    const res = await fetch(
+    const res = await fetchImpl(
       `${baseUrl}/analyze?plot_name=${encodeURIComponent(plotId)}&end_date=${encodeURIComponent(endDate)}&days_back=7`,
       {
         method: "GET",
         headers: { Accept: "application/json" },
         signal: controller.signal,
-      }
+      },
     );
     clearTimeout(timer);
     if (!res.ok) return null;
-    const data = await res.json();
-    let fieldData: any = null;
-    if (Array.isArray(data)) {
-      const match = data.find((item: any) => {
-        const name = String(item?.plot_name || item?.plot || item?.name || "");
-        return name === plotId;
-      });
-      fieldData = match ?? data[0] ?? null;
-    } else if (data && typeof data === "object") {
-      fieldData = data;
-    }
-    const score = Number(
-      fieldData?.overall_health ?? fieldData?.health_score ?? fieldData?.field_score
-    );
-    return Number.isFinite(score) ? score : null;
+    return fieldScoreFromAnalyzePayload(await res.json(), plotId);
   } catch {
     return null;
   }
+}
+
+/** Average SEF /analyze field_score across FO / all-farmer plots. */
+export async function fetchFieldScoreAveragesForPlots(
+  plotIds: string[],
+  requestTimeoutMs: number = 20_000,
+  fetchImpl: typeof fetch = fetch,
+  limit: number = 15,
+): Promise<Partial<ReturnType<typeof emptyGrapesDashboardMetrics>>> {
+  const ids = [...new Set(plotIds.map((id) => String(id || "").trim()).filter(Boolean))].slice(
+    0,
+    limit,
+  );
+  if (!ids.length) return {};
+  const endDate = getLocalDateIso();
+  const scores = await Promise.all(
+    ids.map((id) => fetchFieldScoreForPlot(id, endDate, requestTimeoutMs, fetchImpl)),
+  );
+  const avg = meanNumber(scores);
+  return { fieldScore: avg != null ? Number(avg.toFixed(1)) : null };
 }
 
 function pickNumber(obj: Record<string, unknown>, ...keys: string[]): number | null {
@@ -920,6 +1007,361 @@ function pickString(obj: Record<string, unknown>, ...keys: string[]): string | n
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
+}
+
+function unwrapAgroPlotRow(plotRow: unknown): Record<string, unknown> | null {
+  if (!plotRow || typeof plotRow !== "object") return null;
+  const row = plotRow as Record<string, unknown>;
+  if (row.soil != null || row.brix_sugar != null || row.area_acres != null || row.biomass != null) {
+    return row;
+  }
+  if (row.properties && typeof row.properties === "object") {
+    return row.properties as Record<string, unknown>;
+  }
+  return row;
+}
+
+function nestedStats(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** Map GET /plots/agroStats plot row onto dashboard cards (area, biomass avg, yield fallback). */
+export function metricsFromAgroStatsRow(
+  plotRow: unknown,
+): Partial<ReturnType<typeof emptyGrapesDashboardMetrics>> {
+  const row = unwrapAgroPlotRow(plotRow);
+  if (!row) return {};
+  const biomass = nestedStats(row.biomass);
+  const sugar = nestedStats(nestedStats(row.brix_sugar).sugar_yield);
+  const sugarMean = pickNumber(sugar, "mean");
+  const sugarMin = pickNumber(sugar, "min");
+  const sugarMax = pickNumber(sugar, "max");
+  const acres =
+    parsePositiveNumber(row.area_acres) ??
+    parsePositiveNumber(nestedStats(row.soil).area_acres);
+  const hectares = parsePositiveNumber(row.area_hectares);
+  return {
+    area: acres ?? (hectares != null ? hectares * HECTARES_PER_ACRE : null),
+    // Mean only — agroStats min/max are a different scale than yield-estimation T/acre.
+    biomass: pickNumber(biomass, "mean"),
+    totalBiomass: pickNumber(biomass, "total"),
+    sugarYieldMean: sugarMean != null && sugarMean > 0 ? sugarMean : null,
+    sugarYieldMin: sugarMin != null && sugarMin > 0 ? sugarMin : null,
+    sugarYieldMax: sugarMax != null && sugarMax > 0 ? sugarMax : null,
+    growthStage: pickString(row, "current_growth_stage", "growth_stage"),
+    daysToHarvest: pickNumber(row, "days_to_harvest"),
+  };
+}
+
+function finiteNumbers(values: Array<number | null | undefined>): number[] {
+  return values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+}
+
+export function meanNumber(values: Array<number | null | undefined>): number | null {
+  const valid = finiteNumbers(values);
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+export function sumNumber(values: Array<number | null | undefined>): number | null {
+  const valid = finiteNumbers(values);
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0);
+}
+
+function mostCommonString(values: Array<string | null | undefined>): string | null {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
+ * Average /plots/agroStats across a FO or farmer plot list.
+ * Field area is a total (sum); yield, biomass, and days are means.
+ */
+export function averageAgroStatsForPlots(
+  agroPayload: unknown,
+  plotIds: string[],
+): ReturnType<typeof emptyGrapesDashboardMetrics> {
+  const ids = [...new Set(plotIds.map((id) => String(id || "").trim()).filter(Boolean))];
+  const mapped = ids.map((id) =>
+    metricsFromAgroStatsRow(extractAgroStatsPlotRow(agroPayload, id, null)),
+  );
+  const yieldMean = meanNumber(mapped.map((row) => row.sugarYieldMean ?? null));
+  const area = sumNumber(mapped.map((row) => row.area ?? null));
+  const biomassMean = meanNumber(mapped.map((row) => row.biomass ?? null));
+  return {
+    ...emptyGrapesDashboardMetrics(),
+    area: area != null ? Number(area.toFixed(2)) : null,
+    biomass: biomassMean != null ? Number(biomassMean.toFixed(2)) : null,
+    totalBiomass: sumNumber(mapped.map((row) => row.totalBiomass ?? null)),
+    sugarYieldMean: yieldMean != null ? Number(yieldMean.toFixed(2)) : null,
+    actualYield: yieldMean != null ? Number(yieldMean.toFixed(2)) : null,
+    sugarYieldMin: meanNumber(mapped.map((row) => row.sugarYieldMin ?? null)),
+    sugarYieldMax: meanNumber(mapped.map((row) => row.sugarYieldMax ?? null)),
+    daysToHarvest: meanNumber(mapped.map((row) => row.daysToHarvest ?? null)),
+    growthStage: mostCommonString(mapped.map((row) => row.growthStage ?? null)),
+    stressCount: null,
+    stressTotalDays: null,
+  };
+}
+
+function yieldPayloadToPartial(
+  payload: unknown,
+): Partial<ReturnType<typeof emptyGrapesDashboardMetrics>> {
+  if (!payload || typeof payload !== "object") return {};
+  const y = payload as Record<string, unknown>;
+  const yieldValue = pickNumber(
+    y,
+    "expected_yield_ton_per_acre",
+    "expected_yield_ton_per_ha",
+    "expected_yield",
+    "yield",
+  );
+  return {
+    sugarYieldMean: yieldValue,
+    actualYield: yieldValue,
+    biomass: pickNumber(y, "underground_biomass_tons", "underground_biomass"),
+    totalBiomass: pickNumber(y, "total_biomass_tons", "total_biomass"),
+  };
+}
+
+/** Average POST /grapes/yield-estimation across plots (skips failures). */
+export async function fetchYieldAveragesForPlots(
+  baseUrl: string,
+  plotIds: string[],
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = 20_000,
+  limit: number = 15,
+): Promise<Partial<ReturnType<typeof emptyGrapesDashboardMetrics>>> {
+  const ids = [...new Set(plotIds.map((id) => String(id || "").trim()).filter(Boolean))].slice(
+    0,
+    limit,
+  );
+  if (!ids.length) return {};
+  const settled = await Promise.allSettled(
+    ids.map((id) =>
+      postGrapesPlotEndpoint(baseUrl, "/grapes/yield-estimation", id, fetchImpl, timeoutMs),
+    ),
+  );
+  const parts = settled
+    .filter((result): result is PromiseFulfilledResult<unknown> => result.status === "fulfilled")
+    .map((result) => yieldPayloadToPartial(result.value));
+  const yieldMean = meanNumber(parts.map((row) => row.sugarYieldMean ?? null));
+  const biomassMean = meanNumber(parts.map((row) => row.biomass ?? null));
+  return {
+    sugarYieldMean: yieldMean != null ? Number(yieldMean.toFixed(2)) : null,
+    actualYield: yieldMean != null ? Number(yieldMean.toFixed(2)) : null,
+    biomass: biomassMean != null ? Number(biomassMean.toFixed(2)) : null,
+    totalBiomass: sumNumber(parts.map((row) => row.totalBiomass ?? null)),
+  };
+}
+
+/**
+ * FO / all-farmers card metrics: agroStats + averaged yield-estimation +
+ * averaged SEF /analyze field_score.
+ */
+export async function fetchGrapesScopeDashboardData(
+  plotIds: string[],
+  eventsBaseUrl: string,
+  cache: DashboardSoilCache,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ metrics: ReturnType<typeof emptyGrapesDashboardMetrics> }> {
+  const ids = [...new Set(plotIds.map((id) => String(id || "").trim()).filter(Boolean))];
+  const endDate = getLocalDateIso();
+  const [agroPayload, yieldAvg, fieldScoreAvg] = await Promise.all([
+    fetchAgroStatsPayload(eventsBaseUrl, endDate, cache),
+    fetchYieldAveragesForPlots(eventsBaseUrl, ids, fetchImpl),
+    fetchFieldScoreAveragesForPlots(ids, 20_000, fetchImpl),
+  ]);
+  return {
+    metrics: mergeDashboardMetrics(
+      averageAgroStatsForPlots(agroPayload, ids),
+      yieldAvg,
+      fieldScoreAvg,
+    ),
+  };
+}
+
+/**
+ * Map GET/POST /grapes/summary when the route exists.
+ * Missing keys stay unset so other sources can fill them.
+ */
+export function metricsFromGrapesSummary(
+  payload: unknown,
+): Partial<ReturnType<typeof emptyGrapesDashboardMetrics>> {
+  if (!payload || typeof payload !== "object") return {};
+  const root = payload as Record<string, unknown>;
+  const nested =
+    root.summary && typeof root.summary === "object" && !Array.isArray(root.summary)
+      ? (root.summary as Record<string, unknown>)
+      : root;
+  const biomass = nestedStats(nested.biomass);
+  const acres =
+    parsePositiveNumber(nested.total_field_area) ??
+    parsePositiveNumber(nested.field_area) ??
+    parsePositiveNumber(nested.area_acres) ??
+    parsePositiveNumber(nested.area);
+  const hectares = parsePositiveNumber(nested.area_hectares);
+  const yieldValue =
+    pickNumber(
+      nested,
+      "expected_yield_ton_per_acre",
+      "expected_yield_ton_per_ha",
+      "expected_yield",
+      "avg_expected_yield",
+      "yield",
+    ) ?? pickNumber(nestedStats(nested.expected_yield), "mean", "value");
+  const cci =
+    pickNumber(nested, "cci", "crop_condition_index", "cropConditionIndex", "ndvi") ??
+    pickNumber(nestedStats(nested.cci), "mean", "value");
+  const stressDays =
+    pickNumber(nested, "stress_total_days", "total_days", "stress_days") ??
+    pickNumber(nestedStats(nested.stress), "total_days", "days");
+  const stressCount =
+    pickNumber(nested, "stress_events", "stress_count", "total_events") ??
+    pickNumber(nestedStats(nested.stress), "total_events", "count");
+  return {
+    area: acres ?? (hectares != null ? hectares * HECTARES_PER_ACRE : null),
+    biomass:
+      pickNumber(nested, "avg_biomass", "average_biomass", "underground_biomass_tons") ??
+      pickNumber(biomass, "mean", "average"),
+    biomassMin: pickNumber(nested, "biomass_min") ?? pickNumber(biomass, "min"),
+    biomassMax: pickNumber(nested, "biomass_max") ?? pickNumber(biomass, "max"),
+    totalBiomass:
+      pickNumber(nested, "total_biomass_tons", "total_biomass") ??
+      pickNumber(biomass, "total"),
+    sugarYieldMean: yieldValue,
+    actualYield: yieldValue,
+    fieldScore: pickNumber(nested, "field_score", "overall_health", "health_score"),
+    cci,
+    stressTotalDays: stressDays,
+    stressCount,
+    growthStage: pickString(
+      nested,
+      "average_crop_stage",
+      "avg_crop_stage",
+      "crop_stage",
+      "current_growth_stage",
+      "crop_status",
+    ),
+  };
+}
+
+/** Prefer /grapes/summary; 404 means the route is not deployed yet. */
+export async function fetchGrapesSummary(
+  baseUrl: string,
+  plotName: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = 8_000,
+): Promise<unknown | null> {
+  const base = baseUrl.replace(/\/+$/, "");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const getRes = await fetchImpl(
+      `${base}/grapes/summary?plot_name=${encodeURIComponent(plotName)}`,
+      { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal },
+    );
+    if (getRes.ok) return getRes.json();
+    // Route is not deployed (404). Do not POST the same missing path.
+    if (getRes.status === 404) return null;
+    if (getRes.status !== 405) return null;
+  } catch {
+    /* try POST */
+  } finally {
+    clearTimeout(timer);
+  }
+
+  try {
+    return await postGrapesPlotEndpoint(baseUrl, "/grapes/summary", plotName, fetchImpl, timeoutMs);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Manager dashboard card merge order:
+ * agroStats (area / yield fallback) → yield-estimation bundle → SEF/NDVI/stress → /grapes/summary.
+ * Later sources win when they actually have a value. `/grapes/summary` is optional (often 404).
+ */
+export function mergeManagerDashboardCardMetrics(args: {
+  agroRow?: unknown;
+  grapesBundle?: GrapesBundlePayload | null;
+  profile?: any;
+  plotId: string;
+  stressData?: any;
+  irrigationData?: any;
+  grapesSummary?: unknown;
+  fieldScore?: number | null;
+  cci?: number | null;
+  soilPayload?: unknown;
+}): ReturnType<typeof emptyGrapesDashboardMetrics> {
+  const {
+    agroRow,
+    grapesBundle,
+    profile,
+    plotId,
+    stressData,
+    irrigationData,
+    grapesSummary,
+    fieldScore,
+    cci,
+    soilPayload,
+  } = args;
+  const agroCardMetrics = metricsFromAgroStatsRow(agroRow);
+  const summaryMetrics = metricsFromGrapesSummary(grapesSummary);
+  const overlay = {
+    fieldScore: fieldScore ?? null,
+    cci: cci ?? null,
+    stressTotalDays: stressData ? stressTotalDaysFromPayload(stressData) : null,
+  };
+
+  if (grapesBundle) {
+    return mergeDashboardMetrics(
+      emptyGrapesDashboardMetrics(),
+      agroCardMetrics,
+      metricsFromGrapesBundle(
+        grapesBundle,
+        profile,
+        plotId,
+        stressData,
+        irrigationData,
+        agroRow,
+        soilPayload,
+      ),
+      overlay,
+      summaryMetrics,
+    );
+  }
+
+  return mergeDashboardMetrics(
+    {
+      ...emptyGrapesDashboardMetrics(),
+      stressCount: stressData ? stressData.total_events ?? null : null,
+      stressTotalDays: stressData ? stressTotalDaysFromPayload(stressData) : null,
+      irrigationEvents: irrigationData?.total_events ?? null,
+      fieldScore: fieldScore ?? null,
+      cci: cci ?? null,
+    },
+    metricsFromFarmerProfile(profile, plotId),
+    agroCardMetrics,
+    overlay,
+    summaryMetrics,
+  );
 }
 
 /** Maps bundle + stress/irrigation to FarmerDashboard `Metrics` shape. */
@@ -945,8 +1387,8 @@ export function metricsFromGrapesBundle(
   return mergeDashboardMetrics(
     {
       ...emptyGrapesDashboardMetrics(),
-      stressCount: stressData?.total_events ?? 0,
-      stressTotalDays: stressTotalDaysFromPayload(stressData),
+      stressCount: stressData ? stressData.total_events ?? null : null,
+      stressTotalDays: stressData ? stressTotalDaysFromPayload(stressData) : null,
       irrigationEvents: irrigationData?.total_events ?? null,
     },
     profileMetrics,
@@ -983,8 +1425,20 @@ export function metricsFromGrapesBundle(
       soilPH: soil.soilPH ?? profileMetrics.soilPH ?? null,
       organicCarbonDensity:
         soil.organicCarbonDensity ?? profileMetrics.organicCarbonDensity ?? null,
-      actualYield: pickNumber(y, "expected_yield_ton_per_ha", "expected_yield", "yield"),
-      sugarYieldMean: pickNumber(y, "expected_yield_ton_per_ha", "expected_yield", "yield"),
+      actualYield: pickNumber(
+        y,
+        "expected_yield_ton_per_acre",
+        "expected_yield_ton_per_ha",
+        "expected_yield",
+        "yield",
+      ),
+      sugarYieldMean: pickNumber(
+        y,
+        "expected_yield_ton_per_acre",
+        "expected_yield_ton_per_ha",
+        "expected_yield",
+        "yield",
+      ),
     }
   );
 }
@@ -1021,11 +1475,12 @@ export async function fetchGrapesPlotDashboardData(
   metrics: ReturnType<typeof metricsFromGrapesBundle>;
   lineChartData: GrapesLineChartPoint[];
   stressEvents: any[];
+  brixSeries: ReturnType<typeof describeBrixTimeSeriesPayload>;
 }> {
   const tzOffsetMs = new Date().getTimezoneOffset() * 60000;
   const endDate = new Date(Date.now() - tzOffsetMs).toISOString().slice(0, 10);
   const plotIds = collectPlotApiIds(profile, plotId);
-  const grapesBundleCacheKey = `farmerDashGrapes_v2_${plotId}_${endDate}`;
+  const grapesBundleCacheKeyName = grapesBundleCacheKey(plotId, endDate);
   const indicesCacheKey = `indices_${plotId}`;
   const stressCacheKey = `stress_${plotId}_NDRE_0.15`;
   const irrigationCacheKey = `irrigation_${plotId}`;
@@ -1080,7 +1535,7 @@ export async function fetchGrapesPlotDashboardData(
         /* try next plot id */
       }
     }
-    return { total_events: 0, events: [] };
+    return null;
   };
 
   const fetchIrrigation = async (): Promise<any> => {
@@ -1107,11 +1562,11 @@ export async function fetchGrapesPlotDashboardData(
   };
 
   const fetchGrapesBundle = async (): Promise<GrapesBundlePayload | null> => {
-    const cached = cache.get(grapesBundleCacheKey);
+    const cached = cache.get(grapesBundleCacheKeyName);
     if (cached && isGrapesBundlePayload(cached)) return cached;
     try {
       const { bundle } = await fetchGrapesEventsBundleForPlot(eventsBaseUrl, plotIds);
-      cache.set(grapesBundleCacheKey, bundle);
+      cache.set(grapesBundleCacheKeyName, bundle);
       return bundle;
     } catch (err) {
       console.error("fetchGrapesPlotDashboardData: grapes bundle failed", err);
@@ -1119,7 +1574,15 @@ export async function fetchGrapesPlotDashboardData(
     }
   };
 
-  const [rawIndices, stressData, irrigationData, grapesBundle, soilOnly, fieldScore] =
+  const fetchSummary = async (): Promise<unknown | null> => {
+    for (const id of plotIds) {
+      const summary = await fetchGrapesSummary(eventsBaseUrl, id, fetch, 8_000);
+      if (summary) return summary;
+    }
+    return null;
+  };
+
+  const [rawIndices, stressData, irrigationData, grapesBundle, soilOnly, fieldScore, grapesSummary, agroStatsPayload] =
     await Promise.all([
       fetchIndices(),
       fetchStress(),
@@ -1127,6 +1590,8 @@ export async function fetchGrapesPlotDashboardData(
       fetchGrapesBundle(),
       fetchDashboardSoilMetrics(plotId, profile, endDate, eventsBaseUrl, cache, getApiData),
       fetchFieldScoreForPlot(plotId, endDate, requestTimeoutMs),
+      fetchSummary(),
+      fetchAgroStatsPayload(eventsBaseUrl, endDate, cache),
     ]);
 
   const lastIndex = rawIndices.length > 0 ? rawIndices[rawIndices.length - 1] : null;
@@ -1141,39 +1606,24 @@ export async function fetchGrapesPlotDashboardData(
       ? Math.max(0, Math.min(100, Number((cciFromNdvi * 100).toFixed(1))))
       : null);
 
-  const agroRow = soilMetricsToAgroRow(soilOnly);
-  const metrics = grapesBundle
-    ? mergeDashboardMetrics(
-        metricsFromGrapesBundle(
-          grapesBundle,
-          profile,
-          plotId,
-          stressData,
-          irrigationData,
-          agroRow,
-          soilOnly.soilPayload
-        ),
-        {
-          fieldScore: fieldScoreResolved,
-          cci: cciFromNdvi,
-          stressTotalDays: stressTotalDaysFromPayload(stressData),
-        }
-      )
-    : mergeDashboardMetrics(
-        {
-          ...emptyGrapesDashboardMetrics(),
-          stressCount: stressData?.total_events ?? 0,
-          stressTotalDays: stressTotalDaysFromPayload(stressData),
-          irrigationEvents: irrigationData?.total_events ?? null,
-          fieldScore: fieldScoreResolved,
-          cci: cciFromNdvi,
-        },
-        metricsFromFarmerProfile(profile, plotId)
-      );
+  const agroStatsRow = extractAgroStatsPlotRow(agroStatsPayload, plotId, profile);
+  const metrics = mergeManagerDashboardCardMetrics({
+    agroRow: agroStatsRow,
+    grapesBundle,
+    profile,
+    plotId,
+    stressData,
+    irrigationData,
+    grapesSummary,
+    fieldScore: fieldScoreResolved,
+    cci: cciFromNdvi,
+    soilPayload: soilOnly.soilPayload,
+  });
 
   return {
     metrics,
     lineChartData: rawIndices,
     stressEvents: stressData?.events ?? [],
+    brixSeries: describeBrixTimeSeriesPayload(grapesBundle),
   };
 }

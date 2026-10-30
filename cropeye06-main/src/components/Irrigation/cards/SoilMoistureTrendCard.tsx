@@ -265,7 +265,8 @@ const SoilMoistureTrendCard: React.FC<SoilMoistureTrendCardProps> = ({
       try {
         const { getGrapesSefBaseUrl } = await import("../../../utils/serviceUrls");
         const base = getGrapesSefBaseUrl().replace(/\/+$/, "");
-        const url = `${base}/soil-moisture/${encodeURIComponent(plotName)}`;
+        const { toBackendPlotName } = await import("../../../utils/plotName");
+        const url = `${base}/soil-moisture/${encodeURIComponent(toBackendPlotName(plotName))}`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 45_000);
         const resp = await fetch(url, {

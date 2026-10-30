@@ -11,7 +11,7 @@ import { buildForecastChartDays, fetchWeatherForecast } from './weatherForecastS
 import { getGrapesMainBaseUrl, getEventsBaseUrl, getGrapesSefBaseUrl } from '../utils/serviceUrls';
 import { grapesPlotFormBody } from '../utils/grapesEventsBundle';
 import { normalizeNpkFromApi } from '../utils/npkNormalize';
-import { fieldScoreCacheKey } from '../utils/plotName';
+import { fieldScoreCacheKey, toBackendPlotName } from '../utils/plotName';
 
 // Import context - will be passed as parameter to avoid circular dependencies
 interface AppContextType {
@@ -113,7 +113,7 @@ const fetchGrowthData = async (
 
     const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
     const url = `${baseUrl}/analyze_Growth?plot_name=${encodeURIComponent(plotName)}&end_date=${endDate}&days_back=7`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       mode: 'cors',
@@ -151,8 +151,8 @@ const fetchWaterUptakeData = async (
     if (getCache(cacheKey)) return; // Already cached
 
     const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
-    const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(plotName)}&end_date=${endDate}&days_back=7`;
-    
+    const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(toBackendPlotName(plotName))}&end_date=${endDate}&days_back=7`;
+
     const response = await fetch(url, {
       method: 'POST',
       mode: 'cors',
@@ -190,7 +190,7 @@ const fetchSoilMoistureData = async (
 
     const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
     const url = `${baseUrl}/SoilMoisture?plot_name=${encodeURIComponent(plotName)}&end_date=${endDate}&days_back=7`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       mode: 'cors',
@@ -228,11 +228,11 @@ const fetchPestData = async (
 
     const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
     const url = `${baseUrl}/pest-detection?plot_name=${encodeURIComponent(plotName)}`;
-    
+
     // Create AbortController with 5 minute timeout to prevent session timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -245,7 +245,7 @@ const fetchPestData = async (
         },
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
 
       if (response.ok) {
@@ -255,7 +255,7 @@ const fetchPestData = async (
         if (context) {
           context.setApiData('pest', plotName, data);
         }
-        
+
         // Also cache pest detection data for Pest & Disease page
         const pestDetectionCacheKey = `pestDetectionData_${plotName}`;
         const pixelSummary = data.pixel_summary || {};
@@ -269,7 +269,7 @@ const fetchPestData = async (
       }
     } catch (error: any) {
       clearTimeout(timeoutId);
-      
+
       // Handle timeout errors gracefully
       if (error.name === 'AbortError' || error.message?.includes('aborted')) {
         console.warn(`⚠️ Pest data preload timed out after 5 minutes for ${plotName}`);
@@ -296,7 +296,7 @@ const fetchBrixData = async (
 
     const baseUrl = 'https://cropeye-grapes-admin-production.up.railway.app';
     const url = `${baseUrl}/grapes/brix-grid-values?plot_name=${encodeURIComponent(plotName)}`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       mode: 'cors',
@@ -364,7 +364,7 @@ const fetchFarmerDashboardData = async (
 ): Promise<void> => {
   const { getEventsBaseUrl } = await import("../utils/serviceUrls");
   const BASE_URL = getEventsBaseUrl();
-  
+
   try {
     const endDate = getCurrentEndDate();
     const indicesCacheKey = `indices_${plotName}`;
@@ -479,7 +479,7 @@ const fetchFertilizerData = async (
 ): Promise<void> => {
   const BASE_URL = getGrapesMainBaseUrl();
   const currentDate = getCurrentEndDate();
-  
+
   try {
     // Fetch required-n
     const npkCacheKey = `npkData_${plotName}`;
@@ -548,7 +548,7 @@ const fetchIrrigationData = async (
     const etCacheKey = `etData_${plotName}`;
     if (!getCache(etCacheKey)) {
       try {
-        const response = await fetch(`https://cropeye-grapes-sef-production.up.railway.app/plots/${encodeURIComponent(plotName)}/compute-et/`, {
+        const response = await fetch(`https://cropeye-grapes-sef-production.up.railway.app/plots/${encodeURIComponent(toBackendPlotName(plotName))}/compute-et/`, {
           method: 'POST',
           mode: 'cors',
           cache: 'default',
@@ -561,10 +561,17 @@ const fetchIrrigationData = async (
         });
         if (response.ok) {
           const data = await response.json();
-          const etData = { etValue: data.ET_mean_mm_per_day || 2.5, trendData: [], hourlyData: data.hourly_records_et || [] };
-          cacheData(etCacheKey, etData);
-          if (context) {
-            context.setApiData('et', plotName, etData);
+          const etValue = Number(data.ET_mean_mm_per_day);
+          if (Number.isFinite(etValue)) {
+            const hourlyData = (Array.isArray(data.hourly_records_et) ? data.hourly_records_et : [])
+              .map((r: any) => ({ time: r?.time || '', value: Number(r?.et0_fao_evapotranspiration) }))
+              .filter((r: { value: number }) => Number.isFinite(r.value))
+              .slice(0, 24);
+            const etData = { etValue, trendData: hourlyData.map((r: { value: number }) => r.value), hourlyData };
+            cacheData(etCacheKey, etData);
+            if (context) {
+              context.setApiData('et', plotName, etData);
+            }
           }
         }
       } catch (err) {
@@ -576,7 +583,7 @@ const fetchIrrigationData = async (
     const soilMoistureCacheKey = `soilMoistureTrend_${plotName}`;
     if (!getCache(soilMoistureCacheKey)) {
       try {
-        const response = await fetch(`https://cropeye-grapes-sef-production.up.railway.app/soil-moisture/${encodeURIComponent(plotName)}`, {
+        const response = await fetch(`https://cropeye-grapes-sef-production.up.railway.app/soil-moisture/${encodeURIComponent(toBackendPlotName(plotName))}`, {
           method: 'POST',
           mode: 'cors',
           cache: 'default',
@@ -615,7 +622,7 @@ const fetchWaterUptakeEfficiencyData = async (plotName: string): Promise<void> =
     const cacheKey = `waterUptakeEfficiency_${plotName}_${endDate}`;
     if (getCache(cacheKey)) return;
 
-    const url = `https://cropeye-grapes-sef-production.up.railway.app/wateruptake?plot_name=${encodeURIComponent(plotName)}&end_date=${endDate}&days_back=7`;
+    const url = `https://cropeye-grapes-sef-production.up.railway.app/wateruptake?plot_name=${encodeURIComponent(toBackendPlotName(plotName))}&end_date=${endDate}&days_back=7`;
     const response = await fetch(url, {
       method: 'POST',
       mode: 'cors',

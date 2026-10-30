@@ -33,8 +33,23 @@ import {
   getCropTypes,
   registerFarmerAllInOneOnly,
   refreshApiEndpoints,
+  addSoilReport,
   uploadGrapesReport,
 } from "../api";
+import {
+  GRAPE_REGISTRATION_OCR_DRAFT_KEY,
+  parseGrapeRegistrationOcrDraft,
+  type GrapeRegistrationOcrDraft,
+} from "../utils/grapeRegistrationOcr";
+import {
+  mergeSoilDetailsFromOcr,
+  saveFarmerSoilOcrRecord,
+} from "../utils/soilAnalysisOcr";
+import {
+  createSoilReportPayload,
+  registeredFarmId,
+} from "../utils/soilReportPayload";
+import SoilAnalysisOcrPanel from "./SoilAnalysisOcrPanel";
 // Fix default marker icons for Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -490,6 +505,54 @@ function AddFarm() {
 
   // Multiple plots state
   const [plots, setPlots] = useState<Plot[]>([]);
+  const [pendingOcrPlotDraft, setPendingOcrPlotDraft] =
+    useState<GrapeRegistrationOcrDraft["plot"] | null>(null);
+  const [ocrSupplementalDetails, setOcrSupplementalDetails] =
+    useState<GrapeRegistrationOcrDraft["supplemental"] | null>(null);
+  const [ocrPrefillMessage, setOcrPrefillMessage] = useState<string | null>(
+    null,
+  );
+  const [soilOcrSourceName, setSoilOcrSourceName] = useState<string | null>(null);
+  useEffect(() => {
+    let rawDraft: string | null;
+    try {
+      rawDraft = sessionStorage.getItem(GRAPE_REGISTRATION_OCR_DRAFT_KEY);
+      if (!rawDraft) return;
+      sessionStorage.removeItem(GRAPE_REGISTRATION_OCR_DRAFT_KEY);
+    } catch (error) {
+      console.error("Unable to read reviewed OCR registration details", error);
+      setOcrPrefillMessage(
+        "The reviewed OCR details could not be loaded. Please enter the details manually.",
+      );
+      return;
+    }
+
+    try {
+      const draft = parseGrapeRegistrationOcrDraft(JSON.parse(rawDraft));
+      if (!draft) {
+        setOcrPrefillMessage(
+          "The reviewed OCR details were invalid. Please enter the details manually.",
+        );
+        return;
+      }
+      setFormData((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          Object.entries(draft.profile).filter(([, value]) => value.trim()),
+        ),
+      }));
+      setPendingOcrPlotDraft(draft.plot);
+      setOcrSupplementalDetails(draft.supplemental);
+      setOcrPrefillMessage(
+        "Reviewed OCR details were added where the registration form has matching fields. Check every value, enter missing account details, and draw the plot boundary on the map. Plot area is calculated from that boundary; reported acreage is shown below for comparison.",
+      );
+    } catch (error) {
+      console.error("Unable to parse reviewed OCR registration details", error);
+      setOcrPrefillMessage(
+        "The reviewed OCR details could not be read. Please enter the details manually.",
+      );
+    }
+  }, []);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [isEditModeReady, setIsEditModeReady] = useState(false);
@@ -555,33 +618,33 @@ function AddFarm() {
       console.warn(`⚠️ No file selected for ${fieldName}`);
       return;
     }
-    
+
     const file = fileInput.files[0];
     if (!file) {
       console.warn(`⚠️ File is null for ${fieldName}`);
       return;
     }
-    
+
     // Validate it's a real File object
     if (!(file instanceof File)) {
       console.error(`❌ Invalid file type for ${fieldName}:`, typeof file);
       return;
     }
-    
+
     // Validate file size
     if (file.size === 0) {
       console.warn(`⚠️ File is empty (size: 0) for ${fieldName}`);
       alert(`The selected file is empty. Please select a valid file.`);
       return;
     }
-    
+
     console.log(`✅ File selected for ${fieldName}:`, {
       name: file.name,
       size: file.size,
       type: file.type,
       lastModified: file.lastModified
     });
-    
+
       setFormData((prev) => ({
         ...prev,
       [fieldName]: file, // Store the actual File object
@@ -1099,16 +1162,22 @@ function AddFarm() {
           acres: areaMetrics.acres,
         },
         layer: layer,
-        Group_Gat_No: "",
-        Gat_No_Id: "",
-        village: "",
-        pin_code: "",
+        Group_Gat_No: pendingOcrPlotDraft?.gatNumber ?? "",
+        Gat_No_Id: pendingOcrPlotDraft?.plotNumber ?? "",
+        village: pendingOcrPlotDraft?.village ?? "",
+        pin_code: pendingOcrPlotDraft?.pinCode ?? "",
         crop_type: "2", // Fixed crop type ID for sugarcane
-        crop_variety: "",
+        crop_variety: pendingOcrPlotDraft?.variety ?? "",
         plantation_Type: "",
         plantation_Method: "",
         plantation_Date: "",
-        irrigation_Type: "",
+        irrigation_Type: /\bdrip\b/i.test(pendingOcrPlotDraft?.irrigationDetails ?? "") &&
+          !/\bflood\b/i.test(pendingOcrPlotDraft?.irrigationDetails ?? "")
+          ? "drip"
+          : /\bflood\b/i.test(pendingOcrPlotDraft?.irrigationDetails ?? "") &&
+              !/\bdrip\b/i.test(pendingOcrPlotDraft?.irrigationDetails ?? "")
+            ? "flood"
+            : "",
         spacing_A: "",
         spacing_B: "",
         flow_Rate: "",
@@ -1116,7 +1185,11 @@ function AddFarm() {
         motor_Horsepower: "",
         pipe_Width: "",
         distance_From_Motor: "",
-        PlantAge: "",
+        PlantAge: /\b0\s*(?:to|-)\s*3\b/i.test(pendingOcrPlotDraft?.plotAge ?? "")
+          ? "0 to 3 years"
+          : /\b3\s*(?:to|-)\s*13\b/i.test(pendingOcrPlotDraft?.plotAge ?? "")
+            ? "3 to 13 years"
+            : "",
         grapes_type: "",
         grapes_season: "",
       };
@@ -1155,7 +1228,11 @@ function AddFarm() {
 
         return updated;
       });
-      
+
+      if (pendingOcrPlotDraft) {
+        setPendingOcrPlotDraft(null);
+      }
+
       setIsDrawingMode(false);
     }
   };
@@ -1173,14 +1250,14 @@ function AddFarm() {
       layers.eachLayer((layer: L.Layer) => {
         try {
           const geoJson = (layer as any)?.toGeoJSON?.();
-          
+
           if (!geoJson || !geoJson.geometry || geoJson.geometry.type !== "Polygon") {
             return;
           }
 
           // Find the plot that corresponds to this layer
           const plotIndex = plots.findIndex((plot) => plot.layer === layer);
-          
+
           if (plotIndex === -1) {
             console.warn("Plot not found for edited layer");
             return;
@@ -1671,11 +1748,34 @@ function AddFarm() {
     }
     setPruningErrors({});
 
-    // Final clean of pin_codes for all plots before submission
-    const cleanedPlots = plots.map(plot => ({
-      ...plot,
-      pin_code: plot.pin_code.replace(/\D/g, "").slice(0, 6)
-    }));
+    // Final clean of pin_codes + sync registration-page irrigation fields onto each plot
+    // so convertToAllInOneFormat persists drip flow/emitters (API reads plot.*, not form drip fields).
+    const cleanedPlots = plots.map((plot) => {
+      const irrigationFromForm = String(formData.irrigation_method || "")
+        .trim()
+        .toLowerCase();
+      const resolvedIrrigation =
+        plot.irrigation_Type ||
+        (irrigationFromForm.includes("flood")
+          ? "flood"
+          : irrigationFromForm.includes("drip")
+            ? "drip"
+            : plot.irrigation_Type);
+      return {
+        ...plot,
+        pin_code: plot.pin_code.replace(/\D/g, "").slice(0, 6),
+        irrigation_Type: resolvedIrrigation,
+        flow_Rate: plot.flow_Rate || formData.flow_rate || plot.flow_Rate,
+        emitters: plot.emitters || formData.dripper_per_plant || plot.emitters,
+        spacing_A: plot.spacing_A || formData.row_spacing || plot.spacing_A,
+        spacing_B: plot.spacing_B || formData.plant_spacing || plot.spacing_B,
+        crop_variety:
+          plot.crop_variety ||
+          formData.variety ||
+          formData.grafted_variety ||
+          plot.crop_variety,
+      };
+    });
 
     // ============================================
     // SUBMISSION PROCESS
@@ -1693,6 +1793,55 @@ function AddFarm() {
         formData,
         cleanedPlots
       );
+
+      const postRegistrationWarnings: string[] = [];
+
+      // Create a persistent soil report for each registered farm when enabled.
+      // The soil report endpoint links reports by farm ID, not plot ID.
+      const persistedSoilFarmIds: number[] = [];
+      if (formData.soil_report) {
+        const savedFarmIds = new Set<number>();
+        for (const response of results) {
+          const responseData = response.data || {};
+          const farmId = registeredFarmId(responseData);
+          if (farmId == null) {
+            postRegistrationWarnings.push(
+              "Soil report was not saved because the registration response did not include a farm ID.",
+            );
+            continue;
+          }
+          if (savedFarmIds.has(farmId)) continue;
+          savedFarmIds.add(farmId);
+
+          try {
+            const reportPayload = createSoilReportPayload(
+              farmId,
+              formData.soil_details,
+            );
+            if (!reportPayload) {
+              postRegistrationWarnings.push(
+                `Soil report was not saved for farm ${farmId} because no soil values were entered.`,
+              );
+              continue;
+            }
+            await addSoilReport(reportPayload);
+            persistedSoilFarmIds.push(farmId);
+          } catch (soilReportError: any) {
+            console.error(
+              `Failed to save soil report for farm ${farmId}:`,
+              soilReportError,
+            );
+            const detail =
+              soilReportError?.response?.data?.detail ||
+              soilReportError?.response?.data?.message ||
+              soilReportError?.message ||
+              "The soil report endpoint rejected the request.";
+            postRegistrationWarnings.push(
+              `Soil report could not be saved for farm ${farmId}: ${detail}`,
+            );
+          }
+        }
+      }
 
       // After successful registration, upload files for each plot if they exist
       // Since plot_photo and residue_reported are in formData, they apply to all plots in this batch
@@ -1736,7 +1885,7 @@ function AddFarm() {
                 // TODO: Store uploadResponse.file (image URL) and uploadResponse.id (report ID) if needed for preview/tracking
               }
             }
-            
+
             // Validate and upload residue report
             if (formData.residue_reported) {
               // CRITICAL: Ensure it's a real File object from the input, not an empty object
@@ -1769,7 +1918,9 @@ function AddFarm() {
             console.error(`Error details:`, errorMessage);
             console.error(`Full error response:`, fileError?.response?.data);
             // We don't fail the whole process if photo upload fails, but log the error
-            setSubmitMessage(prev => prev + `\n⚠️ Warning: File upload failed for plot ${plotId}: ${errorMessage}`);
+            postRegistrationWarnings.push(
+              `File upload failed for plot ${plotId}: ${errorMessage}`,
+            );
           }
         } else {
           console.warn(`⚠️ No plot_id found in registration response for one of the plots.`, responseData);
@@ -1780,6 +1931,34 @@ function AddFarm() {
       const savedFruitPruning = formData.fruit_pruning_date;
       const savedFarmerName = `${formData.first_name} ${formData.last_name}`.trim();
 
+      // Persist FO soil values locally (phone-keyed) so Owner can show them even before API hierarchy refresh
+      const soil = formData.soil_details;
+      const hasSoilOcr =
+        !!soil &&
+        Object.values(soil).some((v) => String(v ?? "").trim());
+      if (hasSoilOcr && formData.phone_number) {
+        saveFarmerSoilOcrRecord({
+          phone: formData.phone_number,
+          farmerName: savedFarmerName,
+          village: plots[0]?.village || undefined,
+          gatNumber: plots[0]?.Group_Gat_No || undefined,
+          farmIds: persistedSoilFarmIds,
+          soil: {
+            nitrogen: soil!.nitrogen || "",
+            phosphorus: soil!.phosphorus || "",
+            potassium: soil!.potassium || "",
+            soil_ph: soil!.soil_ph || "",
+            cec: soil!.cec || "",
+            organic_carbon: soil!.organic_carbon || "",
+            bulk_density: soil!.bulk_density || "",
+            fe: soil!.fe || "",
+            soil_organic_carbon: soil!.soil_organic_carbon || "",
+          },
+          sourceName: soilOcrSourceName || "Soil analysis report",
+          scannedAt: new Date().toISOString(),
+        });
+      }
+
       // SUCCESS: Registration completed
       setSubmitStatus("success");
 
@@ -1788,7 +1967,11 @@ function AddFarm() {
           ? `\n\n📅 Pruning dates saved:\n• Foundation: ${formatPruningDisplayDate(savedFoundationPruning)}\n• Fruit: ${formatPruningDisplayDate(savedFruitPruning)}`
           : "";
 
-      setSubmitMessage(`🎉 Farmer Registration Completed Successfully!${pruningLines}
+      const warningLines =
+        postRegistrationWarnings.length > 0
+          ? `\n\n⚠️ Follow-up warnings:\n${postRegistrationWarnings.map((warning) => `• ${warning}`).join("\n")}`
+          : "";
+      setSubmitMessage(`🎉 Farmer Registration Completed Successfully!${pruningLines}${warningLines}
 
 🎯 Next Steps:
 The farmer can now login with Email credentials to access the dashboard and monitor their crops!`);
@@ -1851,6 +2034,17 @@ The farmer can now login with Email credentials to access the dashboard and moni
         plot_photo: null,
         residue_reported: null,
         soil_report: false,
+        soil_details: {
+          nitrogen: "",
+          phosphorus: "",
+          potassium: "",
+          soil_ph: "",
+          cec: "",
+          organic_carbon: "",
+          bulk_density: "",
+          fe: "",
+          soil_organic_carbon: "",
+        },
         state: "",
         district: "",
         documents: null,
@@ -1859,6 +2053,10 @@ The farmer can now login with Email credentials to access the dashboard and moni
 
       // Clear plots and map
       setPlots([]);
+      setPendingOcrPlotDraft(null);
+      setOcrSupplementalDetails(null);
+      setOcrPrefillMessage(null);
+      setSoilOcrSourceName(null);
       if (featureGroupRef.current) {
         featureGroupRef.current.clearLayers();
       }
@@ -3046,7 +3244,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
   );
 
   return (
-    <div 
+    <div
       className="min-h-screen py-4 sm:py-8 px-2 sm:px-4 lg:px-8 dashboard-bg-bleed"
     >
       <div className="max-w-6xl mx-auto">
@@ -3062,6 +3260,55 @@ The farmer can now login with Email credentials to access the dashboard and moni
           </div>
 
           {/* Status Messages */}
+          {ocrPrefillMessage && (
+            <div
+              className={`m-2 sm:m-6 rounded-md border p-3 sm:p-4 ${
+                ocrPrefillMessage.startsWith("Reviewed")
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-amber-200 bg-amber-50"
+              }`}
+              role="status"
+            >
+              <p
+                className={`text-sm ${
+                  ocrPrefillMessage.startsWith("Reviewed")
+                    ? "text-emerald-900"
+                    : "text-amber-900"
+                }`}
+              >
+                {ocrPrefillMessage}
+              </p>
+            </div>
+          )}
+
+          {ocrSupplementalDetails &&
+            Object.values(ocrSupplementalDetails).some((value) => value.trim()) && (
+              <section className="m-2 rounded-md border border-sky-200 bg-sky-50 p-3 sm:m-6 sm:p-4">
+                <h2 className="text-sm font-semibold text-sky-950">
+                  Other details read from the uploaded form
+                </h2>
+                <p className="mt-1 text-xs text-sky-900">
+                  These values have no matching field in the current registration
+                  request, so they are shown for reference and are not submitted.
+                </p>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["Father's / husband's name", ocrSupplementalDetails.relativeName],
+                    ["Farm / plot location", ocrSupplementalDetails.plotLocation],
+                    ["Area under variety (acres)", ocrSupplementalDetails.areaAcres],
+                    ["Pruning cycles", ocrSupplementalDetails.pruningCycles],
+                  ]
+                    .filter(([, value]) => value.trim())
+                    .map(([label, value]) => (
+                      <div key={label} className="rounded-lg bg-white/80 px-3 py-2">
+                        <dt className="text-xs font-medium text-sky-800">{label}</dt>
+                        <dd className="mt-0.5 break-words text-sm text-slate-900">{value}</dd>
+                      </div>
+                    ))}
+                </dl>
+              </section>
+            )}
+
           {showPlotSavedMessage && (
             <div className="m-2 sm:m-6 p-3 sm:p-4 bg-green-50 border border-green-200 rounded-md">
               <p className="text-sm sm:text-base text-green-800">
@@ -3129,6 +3376,48 @@ The farmer can now login with Email credentials to access the dashboard and moni
                   User Profile
                 </h2>
               </div>
+              <SoilAnalysisOcrPanel
+                className="mb-4 sm:mb-6"
+                onApplied={({ soil, farmerName, mobile, village, gatNumber, sourceName }) => {
+                  setSoilOcrSourceName(sourceName);
+                  const nameParts = (farmerName || "").trim().split(/\s+/).filter(Boolean);
+                  const phoneDigits = (mobile || "").replace(/\D/g, "").slice(-10);
+                  setFormData((prev) => {
+                    const next = {
+                      ...prev,
+                      soil_report: true,
+                      soil_details: mergeSoilDetailsFromOcr(prev.soil_details, soil),
+                    };
+                    // Autofill profile only when OCR found a value (never wipe filled fields with blanks)
+                    if (phoneDigits.length === 10) {
+                      next.phone_number = phoneDigits;
+                      if (!prev.username?.trim()) next.username = phoneDigits;
+                    }
+                    if (nameParts.length >= 2) {
+                      next.first_name = nameParts[0];
+                      next.last_name = nameParts.slice(1).join(" ");
+                    } else if (nameParts.length === 1) {
+                      if (!prev.first_name?.trim()) next.first_name = nameParts[0];
+                    }
+                    return next;
+                  });
+                  if (village || gatNumber) {
+                    setPlots((prevPlots) => {
+                      if (prevPlots.length === 0) return prevPlots;
+                      return prevPlots.map((plot, index) =>
+                        index === 0
+                          ? {
+                              ...plot,
+                              village: village || plot.village,
+                              Group_Gat_No: gatNumber || plot.Group_Gat_No,
+                            }
+                          : plot,
+                      );
+                    });
+                  }
+                  setShowSoilModal(true);
+                }}
+              />
               <div className="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2">
                 {userProfileFields.map((field) =>
                   renderFormField(
@@ -3558,7 +3847,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      
+
                       // Prevent rapid clicking
                       if (isEditModeReady && !isEditingMode) {
                         return; // Still initializing
@@ -3583,7 +3872,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
                             setAreaError("Plots are not ready for editing. Please try again.");
                             return;
                           }
-                          
+
                           // Set editing mode first, then let useEffect handle initialization
                           setIsEditingMode(true);
                           setIsDrawingMode(false);
@@ -3731,7 +4020,7 @@ The farmer can now login with Email credentials to access the dashboard and moni
 
                             setPlots((prev) => {
                               const updated = prev.filter((plot) => !layersToRemove.includes(plot.layer));
-                              
+
                               setTimeout(() => {
                                 if (featureGroupRef.current) {
                                   featureGroupRef.current.eachLayer((l) => {

@@ -3,6 +3,7 @@ import { getFarmerProfile, getFarmerMyProfile } from '../api';
 import { getAuthToken, isValidToken, getUserRole } from '../utils/auth';
 import { useAppContext } from '../context/AppContext';
 import { getBackendApiBaseUrl } from '../utils/serviceUrls';
+import { getGatewayLoginUrl } from '../utils/gatewayAuth';
 
 interface FarmerProfile {
   success?: boolean;
@@ -53,6 +54,16 @@ interface FarmerProfile {
     plot_id?: string | number;
     gat_number?: string;
     plot_number?: string;
+    plot_name?: string;
+    crop_variety?: string;
+    crop_type?: {
+      crop_type?: string;
+      crop_variety?: string;
+    };
+    boundary?: {
+      type?: string;
+      coordinates?: number[][][];
+    };
     address?: {
       village?: string;
       taluka?: string;
@@ -114,6 +125,7 @@ interface FarmerProfile {
       spacing_a?: number;
       spacing_b?: number;
       plants_in_field?: number;
+      crop_variety?: string;
       soil_type?: {
         id?: number;
         name?: string;
@@ -159,6 +171,7 @@ interface FarmerProfile {
     farms_count?: number;
   }>;
   farms?: Array<any>;
+  farms_count?: number;
   fastapi_integration?: {
     plot_ids_format?: string;
     compatible_services?: string[];
@@ -422,7 +435,7 @@ async function loadFarmerMyProfile(
         error:
           err.message ||
           (userRole === 'farmer'
-            ? 'Session expired or missing token. Log in again at http://localhost:5174'
+            ? `Session expired or missing token. Log in again at ${getGatewayLoginUrl()}`
             : 'Log in again via gateway'),
       });
       return;

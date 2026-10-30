@@ -145,4 +145,4 @@ To integrate with your main backend API:
 1. Update the `API_BASE_URL` in `src/api.ts`
 2. Ensure your backend supports multipart/form-data
 3. Handle file uploads on the backend
-4. Update the `addFarm` function to match your API structure 
+4. Update the `addFarm` function to match your API structure

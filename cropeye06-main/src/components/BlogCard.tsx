@@ -48,7 +48,7 @@ const Card: React.FC<CardProps> = ({ title, icon, content, images }) => {
 
       <div className="relative mb-12">
         <div className="overflow-hidden rounded-xl relative shadow-lg">
-          <div 
+          <div
             className="flex transition-transform duration-500 ease-in-out"
             style={{ transform: `translateX(-${currentImage * 100}%)` }}
           >
@@ -61,14 +61,14 @@ const Card: React.FC<CardProps> = ({ title, icon, content, images }) => {
               />
             ))}
           </div>
-          
+
           <button
             onClick={prevImage}
             className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-sm p-3 rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-200"
           >
             <ChevronLeft className="w-6 h-6 text-gray-700" />
           </button>
-          
+
           <button
             onClick={nextImage}
             className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/90 backdrop-blur-sm p-3 rounded-full shadow-lg hover:bg-white hover:scale-110 transition-all duration-200"
@@ -76,14 +76,14 @@ const Card: React.FC<CardProps> = ({ title, icon, content, images }) => {
             <ChevronRight className="w-6 h-6 text-gray-700" />
           </button>
         </div>
-        
+
         <div className="flex justify-center mt-6 gap-3">
           {images.map((_, index) => (
             <button
               key={index}
               className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                currentImage === index 
-                  ? 'bg-green-600 scale-125' 
+                currentImage === index
+                  ? 'bg-green-600 scale-125'
                   : 'bg-gray-300 hover:bg-gray-400'
               }`}
               onClick={() => setCurrentImage(index)}
@@ -279,14 +279,14 @@ const BlogCard: React.FC = () => {
     const checkDate = () => {
       const startDate = localStorage.getItem('blogStartDate');
       const now = new Date().getTime();
-      
+
       if (!startDate) {
         localStorage.setItem('blogStartDate', now.toString());
         return;
       }
-      
+
       const daysPassed = Math.floor((now - parseInt(startDate)) / (1000 * 60 * 60 * 24));
-      
+
       if (daysPassed >= 1 && currentDataSet === 0) {
         setCurrentDataSet(1);
         setCurrentSlide(0);
@@ -295,7 +295,7 @@ const BlogCard: React.FC = () => {
 
     checkDate();
     const interval = setInterval(checkDate, 1000 * 60 * 60); // Check every hour
-    
+
     return () => clearInterval(interval);
   }, [currentDataSet]);
 
@@ -353,8 +353,8 @@ const BlogCard: React.FC = () => {
             <button
               key={index}
               className={`w-5 h-5 rounded-full transition-all duration-300 ${
-                currentSlide === index 
-                  ? 'bg-green-600 scale-125 shadow-lg' 
+                currentSlide === index
+                  ? 'bg-green-600 scale-125 shadow-lg'
                   : 'bg-gray-300 hover:bg-gray-400'
               }`}
               onClick={() => setCurrentSlide(index)}

@@ -47,10 +47,10 @@ const Calendar: React.FC<CalendarProps> = ({ currentUserId, currentUserRole }) =
     const checkIsMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    
+
     checkIsMobile();
     window.addEventListener('resize', checkIsMobile);
-    
+
     return () => window.removeEventListener('resize', checkIsMobile);
   }, []);
 
@@ -68,15 +68,15 @@ const Calendar: React.FC<CalendarProps> = ({ currentUserId, currentUserRole }) =
     try {
       console.log('Fetching tasks for farmer ID:', currentUserId);
       const response = await getTasksForUser(currentUserId);
-      
-      const tasksData = response.data.results 
-        ? response.data.results 
+
+      const tasksData = response.data.results
+        ? response.data.results
         : (Array.isArray(response.data) ? response.data : []);
-      
+
       const filteredTasks = tasksData.filter((task: any) =>
         task.assigned_to && task.assigned_to.id === currentUserId
       );
-      
+
       console.log('Tasks loaded for farmer calendar:', filteredTasks.length);
       setTasks(filteredTasks);
     } catch (error) {
@@ -111,9 +111,9 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
   console.log('Task ID:', taskId);
   console.log('New Status:', newStatus);
   console.log('Token:', localStorage.getItem('token')?.substring(0, 20) + '...');
-  
+
   const previousTasks = [...tasks];
-  
+
   setTasks(prev =>
     prev.map(task =>
       task.id === taskId ? { ...task, status: newStatus } : task
@@ -130,7 +130,7 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
     console.error('Response:', error.response);
     console.error('Status code:', error.response?.status);
     console.error('Error data:', error.response?.data);
-    
+
     setTasks(previousTasks);
     alert(`Failed: ${error.response?.data?.detail || error.message}`);
   }
@@ -168,10 +168,10 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
 
   const getTasksForDate = (date: Date, day: number): Task[] => {
     const dateString = formatDate(date, day);
-    
+
     return tasks.filter((task) => {
       if (!task.due_date) return false;
-      
+
       try {
         const taskDate = task.due_date.split('T')[0];
         return taskDate === dateString;
@@ -217,24 +217,24 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
           key={day}
           onClick={() => setSelectedDate({date: currentDate, day})}
           className={`
-            ${isMobile ? 'h-12 sm:h-16' : 'h-24 sm:h-32'} 
+            ${isMobile ? 'h-12 sm:h-16' : 'h-24 sm:h-32'}
             p-1 sm:p-2 border rounded-lg transition-colors relative cursor-pointer
-            ${todayFlag 
-              ? 'bg-blue-50 border-blue-300 shadow-sm' 
-              : hasTasksFlag 
+            ${todayFlag
+              ? 'bg-blue-50 border-blue-300 shadow-sm'
+              : hasTasksFlag
                 ? 'bg-green-50 border-green-200'  // Green background for dates with tasks
                 : 'hover:bg-gray-50 border-gray-200'
             }
-            ${selectedDate && selectedDate.day === day && 
-              selectedDate.date.getMonth() === currentDate.getMonth() && 
+            ${selectedDate && selectedDate.day === day &&
+              selectedDate.date.getMonth() === currentDate.getMonth() &&
               selectedDate.date.getFullYear() === currentDate.getFullYear()
-              ? 'ring-2 ring-blue-400' 
+              ? 'ring-2 ring-blue-400'
               : ''
             }
           `}
         >
           <div className={`
-            ${isMobile ? 'text-xs' : 'text-sm'} 
+            ${isMobile ? 'text-xs' : 'text-sm'}
             font-semibold mb-1
             ${todayFlag ? 'text-blue-600' : hasTasksFlag ? 'text-green-700' : 'text-gray-700'}
           `}>
@@ -258,10 +258,10 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
 
     return days;
   };
-  
+
   const renderTaskIndicator = (tasksForDay: Task[]) => {
     if (tasksForDay.length === 0) return null;
-    
+
     if (isMobile) {
       return (
         <div className="flex flex-wrap gap-0.5 mt-1">
@@ -269,8 +269,8 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             <div
               key={index}
               className={`w-1.5 h-1.5 rounded-full ${
-                task.priority === 'high' ? 'bg-red-400' : 
-                task.priority === 'medium' ? 'bg-yellow-400' : 
+                task.priority === 'high' ? 'bg-red-400' :
+                task.priority === 'medium' ? 'bg-yellow-400' :
                 'bg-green-400'
               }`}
             />
@@ -306,8 +306,8 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
       <div className="max-w-7xl mx-auto bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center justify-between">
-            <button 
-              onClick={handlePrevMonth} 
+            <button
+              onClick={handlePrevMonth}
               className="p-1 sm:p-2 hover:bg-gray-100 rounded-full transition-colors"
             >
               <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
@@ -315,8 +315,8 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
               {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
             </h2>
-            <button 
-              onClick={handleNextMonth} 
+            <button
+              onClick={handleNextMonth}
               className="p-1 sm:p-2 hover:bg-gray-100 rounded-full transition-colors"
             >
               <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
@@ -334,8 +334,8 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             <>
               <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-1 sm:mb-2">
                 {(isMobile ? weekDaysMobile : weekDays).map((day) => (
-                  <div 
-                    key={day} 
+                  <div
+                    key={day}
                     className="text-center font-medium text-gray-600 py-1 sm:py-2 text-xs sm:text-sm"
                   >
                     {day}
@@ -354,19 +354,19 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
         {selectedDate && (
           <div className="border-t border-gray-200 px-4 py-3">
             <div className="text-sm font-medium text-gray-800 mb-2">
-              Tasks for {selectedDate.date.toLocaleDateString('en-US', { 
-                month: 'long', 
+              Tasks for {selectedDate.date.toLocaleDateString('en-US', {
+                month: 'long',
                 day: 'numeric',
-                year: 'numeric' 
+                year: 'numeric'
               })}
             </div>
             {(() => {
               const selectedTasks = getTasksForDate(selectedDate.date, selectedDate.day);
-              
+
               if (selectedTasks.length === 0) {
                 return <div className="text-xs text-gray-500">No tasks scheduled for this date</div>;
               }
-              
+
               return (
                 <div className="space-y-3">
                   {selectedTasks.map((task) => (
@@ -379,35 +379,35 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
                           )}
                         </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ml-2
-                          ${task.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' : 
+                          ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-gray-100 text-gray-800'}`}>
-                          {task.status === 'in_progress' ? 'In Progress' : 
+                          {task.status === 'in_progress' ? 'In Progress' :
                            task.status.charAt(0).toUpperCase() + task.status.slice(1)}
                         </span>
                       </div>
-                      
+
                       <div className="flex items-center gap-4 mt-3 flex-wrap">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium
-                          ${task.priority === 'high' ? 'bg-red-100 text-red-700' : 
-                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' : 
+                          ${task.priority === 'high' ? 'bg-red-100 text-red-700' :
+                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-green-100 text-green-700'}`}>
                           Priority: {task.priority}
                         </span>
-                        
+
                         {task.created_at && (
                           <span className="text-xs text-gray-500">
                             Assigned: {new Date(task.created_at).toLocaleString()}
                           </span>
                         )}
-                        
+
                         {task.created_by && (
                           <span className="text-xs text-gray-500">
                             By: {task.created_by.first_name} {task.created_by.last_name}
                           </span>
                         )}
                       </div>
-                      
+
                       {/* Status Dropdown - NEW */}
                       <div className="mt-3 pt-3 border-t border-gray-200">
                         <label className="text-xs font-medium text-gray-700 mr-2">Update Status:</label>
@@ -436,11 +436,11 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
             {(() => {
               const today = new Date();
               const todayTasks = getTasksForDate(today, today.getDate());
-              
+
               if (todayTasks.length === 0) {
                 return <div className="text-xs text-gray-500">No tasks scheduled for today</div>;
               }
-              
+
               return (
                 <div className="space-y-3">
                   {todayTasks.map((task) => (
@@ -449,13 +449,13 @@ const handleStatusChange = async (taskId: number, newStatus: string) => {
                       <div className="text-gray-600 text-xs mb-2">{task.description}</div>
                       <div className="mb-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium
-                          ${task.priority === 'high' ? 'bg-red-100 text-red-700' : 
-                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' : 
+                          ${task.priority === 'high' ? 'bg-red-100 text-red-700' :
+                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-green-100 text-green-700'}`}>
                           {task.priority} priority
                         </span>
                       </div>
-                      
+
                       {/* Status Dropdown for Mobile */}
                       <div className="mt-2 pt-2 border-t border-gray-200">
                         <select

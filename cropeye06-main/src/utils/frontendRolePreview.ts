@@ -12,7 +12,8 @@ const PREVIEW_TOKEN =
 export const isFrontendRolePreview = (): boolean => {
   if (!ALLOW_FRONTEND_ROLE_DASHBOARDS) return false;
   try {
-    return !!sessionStorage.getItem(FRONTEND_ROLE_PREVIEW_KEY);
+    const role = sessionStorage.getItem(FRONTEND_ROLE_PREVIEW_KEY);
+    return role === "manager" || role === "owner" || role === "fieldofficer";
   } catch {
     return false;
   }

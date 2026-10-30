@@ -44,7 +44,7 @@ function isLocalhostUrl(url: string): boolean {
 }
 
 function useDevApiProxy(): boolean {
-  return false;
+  return String(import.meta.env.VITE_USE_API_PROXY ?? "").toLowerCase() === "true";
 }
 
 /** Dev default: direct Railway URL. Opt-in proxy via VITE_USE_API_PROXY=true. */
@@ -140,14 +140,14 @@ export function getGrapesSefBaseUrl(): string {
 }
 
 /** Backend REST API.
- * Dev: same-origin Vite proxy `/api/backend` → Railway (shows as /api/backend/login/ in Network).
+ * Dev: direct Railway URL like the other services (Railway allows any origin);
+ * VITE_USE_API_PROXY=true switches back to the Vite `/api/backend` proxy.
  * Prod: Railway (or nginx /api/backend). LAN Django IPs are never used.
  */
 export function getBackendApiBaseUrl(): string {
   const railway = BACKEND_API_PROD;
 
-  // Dev: always use Vite proxy so browser Network shows /api/backend/* and CORS is avoided
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV && useDevApiProxy()) {
     return PROXY.backend;
   }
 
@@ -168,7 +168,7 @@ export function getBackendApiBaseUrl(): string {
     return withApi;
   }
 
-  return PROXY.backend;
+  return import.meta.env.DEV ? railway : PROXY.backend;
 }
 
 export function getNotificationsBaseUrl(): string {

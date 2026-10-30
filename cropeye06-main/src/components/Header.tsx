@@ -30,11 +30,16 @@ import { resolveFarmerPlotId, useFarmerProfile } from "../hooks/useFarmerProfile
 import { calculateProfileCompletion } from "../utils/profileCompletion";
 import { getGrapesAdminBaseUrl } from "../utils/serviceUrls";
 import GoogleTranslateWidget from "./GoogleTranslateWidget";
+import { getOwnerFirmHeaderLogo, sahyadriFarmsLogoSrc } from "../utils/userIndustry";
 
 interface HeaderProps {
   toggleSidebar: () => void;
   isSidebarOpen: boolean;
   userRole?: string | null;
+  /** Hide header language dropdown on Owner Dashboard only — not other pages. */
+  hideLanguageSelect?: boolean;
+  /** Sahyadri firm logo — Owner Dashboard home only, never login. */
+  showFirmLogo?: boolean;
 }
 
 function formatFruitPruningDate(value: unknown) {
@@ -56,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   toggleSidebar,
   isSidebarOpen,
   userRole: appUserRole,
+  hideLanguageSelect = false,
+  showFirmLogo = false,
 }) => {
   const [weather, setWeather] = useState<WeatherServiceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,6 +82,16 @@ export const Header: React.FC<HeaderProps> = ({
   const userRole = String(appUserRole ?? getUserRole() ?? "")
     .toLowerCase()
     .trim();
+  const firmLogo = useMemo(
+    () => getOwnerFirmHeaderLogo(userData ?? getUserData()),
+    [userData],
+  );
+  const [firmLogoSrc, setFirmLogoSrc] = useState<string | null>(
+    () => firmLogo?.src ?? null,
+  );
+  useEffect(() => {
+    setFirmLogoSrc(firmLogo?.src ?? null);
+  }, [firmLogo]);
   const farmerProfile = useFarmerProfile();
   const { profile: farmerProfileData, loading: farmerProfileLoading } =
     farmerProfile;
@@ -558,10 +575,23 @@ export const Header: React.FC<HeaderProps> = ({
       <header className="header-container">
         {/* Main Header Section */}
         <div className="header-main">
-          {/* Left side - Menu Button */}
-          <button onClick={toggleSidebar} className="menu-button">
-            {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          {/* Left: menu + firm logo (only when a logo exists). CropEye stays on the right. */}
+          <div className="header-left-cluster">
+            <button onClick={toggleSidebar} className="menu-button">
+              {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+            {showFirmLogo && firmLogo && firmLogoSrc ? (
+              <img
+                src={firmLogoSrc}
+                alt={firmLogo.alt}
+                className="header-firm-logo"
+                onError={() => {
+                  const fallback = sahyadriFarmsLogoSrc();
+                  if (firmLogoSrc !== fallback) setFirmLogoSrc(fallback);
+                }}
+              />
+            ) : null}
+          </div>
 
           {/* Center - Weather Marquee */}
           <div className="marquee-section">
@@ -683,7 +713,9 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
             )}
-            <GoogleTranslateWidget />
+            {userRole === "farmer" || !hideLanguageSelect ? (
+              <GoogleTranslateWidget />
+            ) : null}
             <img src="/icons/Cropeye-new.png" alt="CropEye Logo" className="logo-image" />
           </div>
         </div>

@@ -30,13 +30,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //       headers: {
   //         'Content-Type': 'application/json',
   //       },
-  //       body: JSON.stringify({ 
+  //       body: JSON.stringify({
   //         email: identifier.trim()
   //       }),
   //     });
 
   //     const responseText = await response.text();
-      
+
   //     if (!response.ok) {
   //       throw new Error(responseText || 'Error sending OTP');
   //     }
@@ -44,7 +44,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //     // Successfully sent OTP
   //     setStep('otp');
   //     setError('');
-      
+
   //   } catch (err: any) {
   //     console.error('OTP sending error:', err);
   //     setError(err.message || 'Failed to send OTP. Please try again.');
@@ -65,21 +65,21 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //       headers: {
   //         'Content-Type': 'application/json',
   //       },
-  //       body: JSON.stringify({ 
+  //       body: JSON.stringify({
   //         email: identifier.trim(),
   //         otp: otp.trim()
   //       }),
   //     });
 
   //     const responseText = await response.text();
-      
+
   //     if (!response.ok) {
   //       throw new Error(responseText || 'OTP verification failed');
   //     }
 
   //     const result = JSON.parse(responseText);
   //     const token = result.access || result.token;
-      
+
   //     if (!token) {
   //       throw new Error('No authentication token received');
   //     }
@@ -100,18 +100,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //     console.log('User data received:', userData); // Debug log
   //     console.log('userData.role:', userData.role, 'type:', typeof userData.role);
   //     console.log('userData.role_id:', userData.role_id, 'type:', typeof userData.role_id);
-      
+
   //     // Handle both string roles and numeric role_id
   //     let userRole: UserRole;
-      
+
   //     // Create role mapping
   //     const roleMap: { [key: number]: UserRole } = {
   //       1: 'farmer',
-  //       2: 'fieldofficer', 
+  //       2: 'fieldofficer',
   //       3: 'manager',
   //       4: 'owner'
   //     };
-      
+
   //     if (userData.role && typeof userData.role === 'object' && userData.role.name) {
   //       // If role is an object with name property, use the name
   //       userRole = userData.role.name.toLowerCase() as UserRole;
@@ -136,11 +136,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //       // Log all available properties for debugging
   //       console.log('All userData properties:', Object.keys(userData));
   //       console.log('Full userData object:', userData);
-        
+
   //       // Try to find any role-related property
   //       const possibleRoleKeys = ['role', 'role_id', 'user_role', 'user_type', 'type'];
   //       let foundRole = null;
-        
+
   //       for (const key of possibleRoleKeys) {
   //         if (userData[key] !== undefined) {
   //           console.log(`Found ${key}:`, userData[key], 'type:', typeof userData[key]);
@@ -156,7 +156,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //           }
   //         }
   //       }
-        
+
   //       if (foundRole) {
   //         userRole = foundRole as UserRole;
   //         console.log('Found role through property search:', foundRole);
@@ -179,19 +179,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   //       username: userData.username || '',
   //       id: userData.id || ''
   //     };
-      
+
   //     console.log('🔐 Storing authentication data:', {
   //       token: token ? `${token.substring(0, 20)}...` : 'null',
   //       role: userRole,
   //       userData: userDataToStore
   //     });
-      
+
   //     setAuthData(token, userRole, userDataToStore);
-      
+
   //     // Verify token was stored
   //     const storedToken = localStorage.getItem('token');
   //     console.log('✅ Token stored verification:', storedToken ? 'Token stored successfully' : 'Token storage failed');
-      
+
   //     // Success - call the callback with role and token
   //     onLoginSuccess(userRole, token);
 
@@ -213,26 +213,26 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       // Using the API function to login with email as username
       const response = await login(phone_number.trim(), password.trim());
       const result = response.data;
-      
+
       const token = result.access || result.token;
       const refreshToken = result.refresh; // Get refresh token from response
-      
+
       if (!token) {
         throw new Error('No authentication token received');
       }
 
       // User data is already included in the login response
       const userData = result.user;
-      
+
       // Handle role determination from the response format
       let userRole: UserRole;
-      
+
       if (userData.role && typeof userData.role === 'object' && userData.role.name) {
         userRole = userData.role.name.toLowerCase() as UserRole;
       } else if (userData.role && typeof userData.role === 'object' && userData.role.id) {
         const roleMap: { [key: number]: UserRole } = {
           1: 'farmer',
-          2: 'fieldofficer', 
+          2: 'fieldofficer',
           3: 'manager',
           4: 'owner'
         };
@@ -255,7 +255,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         username: userData.username ||phone_number,
         id: userData.id || ''
       };
-      
+
       // Store refresh token if available
       if (refreshToken) {
         setRefreshToken(refreshToken);
@@ -263,25 +263,25 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       } else {
         console.warn("⚠️ No refresh token received from login response");
       }
-      
+
       setAuthData(token, userRole, userDataToStore, refreshToken);
-      
+
       console.log("✅ Login successful - Access token and refresh token stored");
-      
+
       // Success - call the callback with role and token
       onLoginSuccess(userRole, token);
 
     } catch (err: any) {
       console.error('❌ Login error:', err);
-      
+
       // Handle different types of errors
       if (err.response) {
         // Server responded with error status
         const status = err.response.status;
         const data = err.response.data;
-        
+
         console.error('Server error response:', { status, data });
-        
+
         if (status === 400) {
           setError('Invalid phone_number or password. Please check your credentials.');
         } else if (status === 401) {
@@ -294,7 +294,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           setError(data?.detail || data?.message || `Login failed (${status})`);
         }
       } else if (err.request) {
-        // Network error      
+        // Network error
         console.error('Network error:', err.request);
         setError('Network error. Please check your internet connection.');
       } else {
@@ -390,7 +390,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                           disabled={loading}
                         />
                       </div>
-                    </div>                   
+                    </div>
                     <div className="relative">
                       <div className="flex items-center border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-500">
                     <Lock className="w-5 h-5 mr-3 text-gray-500" />
@@ -418,7 +418,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                         </button>
                       </div>
                     </div>
-                    
+
                     <button
                       type="submit"
                   disabled={loading || !phone_number.trim() || !password.trim()}

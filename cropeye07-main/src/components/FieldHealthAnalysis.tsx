@@ -72,7 +72,7 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
 
   const computedStatus = getStatusLabel(targetPercent);
   const colors = getHealthColors(targetPercent);
-  
+
   // ✅ Fixed orange color for remaining arc
   const remainingArcColor = "#f59e0b"; // Orange color
 
@@ -105,7 +105,7 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
                     stroke="#E5E7EB"
                     strokeWidth="3.8"
                   />
-                  
+
                   {/* Active health arc - Dynamic color based on score */}
                   <path
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831
@@ -117,7 +117,7 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
                     strokeLinecap="round"
                     style={{ transition: "stroke-dasharray 1.5s ease-in-out" }}
                   />
-                  
+
                   {/* Remaining arc - Always ORANGE */}
                   <path
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831
@@ -133,7 +133,7 @@ export const FieldHealthAnalysis: React.FC<FieldHealthAnalysisProps> = ({
                       strokeOpacity: 0.3,
                     }}
                   />
-                  
+
                   {/* Center text */}
                   <text
                     x="18"

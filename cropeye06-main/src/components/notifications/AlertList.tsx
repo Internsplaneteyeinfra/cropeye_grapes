@@ -34,7 +34,7 @@ export const AlertList: React.FC<AlertListProps> = ({ alerts, filter, onRead }) 
       if (a.is_read !== b.is_read) {
         return a.is_read ? 1 : -1;
       }
-      
+
       const severityOrder: Record<AlertSeverity, number> = { high: 3, moderate: 2, low: 1 };
       const sevDiff = severityOrder[b.severity] - severityOrder[a.severity];
       if (sevDiff !== 0) return sevDiff;
@@ -56,7 +56,7 @@ export const AlertList: React.FC<AlertListProps> = ({ alerts, filter, onRead }) 
   // Group by date
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 

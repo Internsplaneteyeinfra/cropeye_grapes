@@ -69,13 +69,13 @@ export const Addusers: React.FC<AddusersProps> = ({ setUsers, users }) => {
 
     try {
       await addUser(userData);
-      
+
       // For display, convert role to readable role name
       const displayRoleMap: { [key: string]: string } = {
         'admin': 'Factory Head Office',        // Display as "Factory Head Office" in UI
         'fieldofficer': 'Field Officer', // Display as "Field Officer" in UI
       };
-      
+
       const newUser: User = {
         id: users.length + 1, // Ideally should come from backend response
         first_name: formData.first_name,
@@ -112,7 +112,7 @@ export const Addusers: React.FC<AddusersProps> = ({ setUsers, users }) => {
       if (error.response?.data) {
         const apiErrors = error.response.data;
         const status = error.response.status;
-        
+
         // Handle token validation errors specifically
         if (status === 401 || apiErrors.code === 'token_not_valid') {
           setError('Your session has expired. Please login again to continue.');
@@ -122,7 +122,7 @@ export const Addusers: React.FC<AddusersProps> = ({ setUsers, users }) => {
           }, 3000);
           return;
         }
-        
+
         const errorMessages = Object.entries(apiErrors)
           .map(([key, val]) => {
             // Handle nested error objects
@@ -142,7 +142,7 @@ export const Addusers: React.FC<AddusersProps> = ({ setUsers, users }) => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`

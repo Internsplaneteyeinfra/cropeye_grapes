@@ -20,38 +20,38 @@ const ImageCarousel: React.FC<ImageCarouselProps> = ({ images }) => {
 
   return (
     <div className="relative w-full h-48 md:h-64 overflow-hidden rounded-t-lg">
-      <div className="absolute w-full h-full flex transition-transform duration-300 ease-in-out" 
+      <div className="absolute w-full h-full flex transition-transform duration-300 ease-in-out"
            style={{ transform: `translateX(-${currentIndex * 100}%)` }}>
         {images.map((image, index) => (
           <div key={index} className="min-w-full h-full flex-shrink-0">
-            <img 
-              src={image} 
-              alt={`Slide ${index + 1}`} 
+            <img
+              src={image}
+              alt={`Slide ${index + 1}`}
               className="w-full h-full object-cover"
             />
           </div>
         ))}
       </div>
-      
-      <button 
+
+      <button
         onClick={goToPrevious}
         className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-1 shadow-md hover:bg-white transition-colors"
         aria-label="Previous image"
       >
         <ChevronLeft size={20} className="text-gray-800" />
       </button>
-      
-      <button 
+
+      <button
         onClick={goToNext}
         className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-1 shadow-md hover:bg-white transition-colors"
         aria-label="Next image"
       >
         <ChevronRight size={20} className="text-gray-800" />
       </button>
-      
+
       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex space-x-1">
         {images.map((_, index) => (
-          <button 
+          <button
             key={index}
             onClick={() => setCurrentIndex(index)}
             className={`w-2 h-2 rounded-full ${

@@ -1,10 +1,14 @@
 export const GATEWAY_URL =
   (import.meta.env.VITE_GATEWAY_URL as string | undefined) ||
-  "http://localhost:5174";
+  "http://localhost:5175";
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "https://cropeye-backendd.up.railway.app/api";
+
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
 
 function toAbsoluteAppUrl(maybeUrl: string): string {
   const raw = String(maybeUrl || "").trim();
@@ -16,18 +20,29 @@ function toAbsoluteAppUrl(maybeUrl: string): string {
   return raw;
 }
 
+function defaultAppUrl(localDevUrl: string, publicPath: string): string {
+  if (typeof window !== "undefined" && !isLocalHostname(window.location.hostname)) {
+    // ngrok / LAN IP: stay on the host the user opened (gateway proxies /grapes and /sugarcan).
+    return publicPath;
+  }
+  if (typeof window !== "undefined" && !import.meta.env.DEV) {
+    return publicPath;
+  }
+  return localDevUrl;
+}
+
 // CRITICAL: Industry mapping must be tolerant to typos like "grapse industry"
 export function getRedirectURL(industryName: string | null | undefined): string | null {
   const name = String(industryName || "").toLowerCase().trim();
 
   const grapesUrl = toAbsoluteAppUrl(
     (import.meta.env.VITE_GRAPES_APP_URL as string | undefined) ||
-    (typeof window !== "undefined" && !import.meta.env.DEV ? "/grapes/" : "http://localhost:3001"),
+      defaultAppUrl("http://localhost:3001/grapes/", "/grapes/"),
   );
   // Dev: sugarcane UI is cropeye07-main — run `npm run dev` there (port 3002). Override with VITE_SUGARCANE_APP_URL.
   const sugarcaneUrl = toAbsoluteAppUrl(
     (import.meta.env.VITE_SUGARCANE_APP_URL as string | undefined) ||
-    (typeof window !== "undefined" && !import.meta.env.DEV ? "/sugarcan/" : "http://localhost:3002"),
+      defaultAppUrl("http://localhost:3002/sugarcan/", "/sugarcan/"),
   );
 
   // Accept "grapes", "grapse", "grape", "grap..." (common typo variants)

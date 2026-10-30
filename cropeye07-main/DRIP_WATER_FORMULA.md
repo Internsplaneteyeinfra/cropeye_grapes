@@ -81,7 +81,7 @@ const calculateNetET = (et: number, rainfall: number) => {
 // Step 2: Calculate Water Required from Net ET
 const waterFromNetET = (netEt: number, kcVal: number) => {
   if (!Number.isFinite(netEt) || !Number.isFinite(kcVal) || netEt <= 0) return 0;
-  
+
   // Formula: Net ET × Kc × Efficiency × Area Conversion
   const liters = netEt * kcVal * 0.94 * 4046.86;
   return Math.round(liters);
@@ -90,11 +90,11 @@ const waterFromNetET = (netEt: number, kcVal: number) => {
 // Step 3: Usage in schedule generation
 const generateScheduleData = () => {
   // ... code ...
-  
+
   const netEt = calculateNetET(etForDay, rainfall);
   const waterRequired = waterFromNetET(netEt, kc);  // Water required in Liters/Acre
   const time = calcIrrigationTime(waterRequired);
-  
+
   // ... rest of code ...
 };
 ```
@@ -106,7 +106,7 @@ const generateScheduleData = () => {
 ### Constants Used:
 - **0.94** = Drip Irrigation Efficiency (94%)
   - Accounts for water loss due to evaporation, deep percolation, etc.
-  
+
 - **4046.86** = Square meters per acre
   - 1 acre = 4046.86 m²
   - Used to convert mm/day to liters/acre
@@ -178,4 +178,3 @@ const timeInMinutes = timeInHours * 60;
 ```
 Irrigation Time (hours) = Water Required (Liters) / (Number of Emitters × Flow Rate per Emitter (LPH))
 ```
-

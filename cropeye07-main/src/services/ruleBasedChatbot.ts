@@ -64,7 +64,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'greeting'
   },
-  
+
   // Crop Health - Generic (no specific values)
   {
     patterns: ['crop health', 'पीक आरोग्य', 'फसल स्वास्थ्य', 'ndvi', 'growth', 'वाढ', 'वृद्धि', 'crop condition', 'पीक स्थिती'],
@@ -75,7 +75,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'crop_health'
   },
-  
+
   // Harvest - Generic
   {
     patterns: ['harvest', 'कापणी', 'कटाई', 'brix', 'sugar', 'साखर', 'readiness', 'maturity', 'परिपक्वता'],
@@ -86,7 +86,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'harvest'
   },
-  
+
   // Fertilizer - Generic
   {
     patterns: ['fertilizer', 'खत', 'उर्वरक', 'npk', 'nitrogen', 'phosphorus', 'potassium', 'नत्र', 'फॉस्फरस', 'पोटॅशियम', 'manure', 'खत'],
@@ -97,7 +97,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'fertilizer'
   },
-  
+
   // Soil - Generic
   {
     patterns: ['soil', 'माती', 'मिट्टी', 'ph', 'moisture', 'आर्द्रता', 'organic carbon', 'nutrients', 'पोषक'],
@@ -108,7 +108,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'soil'
   },
-  
+
   // Irrigation - Generic
   {
     patterns: ['irrigation', 'पाणी', 'पानी', 'water', 'moisture', 'आर्द्रता', 'नमी', 'watering', 'सिंचन'],
@@ -119,7 +119,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'irrigation'
   },
-  
+
   // Pests and Diseases
   {
     patterns: ['pest', 'disease', 'कीटक', 'रोग', 'कीड़े', 'treatment', 'उपचार', 'infection', 'संसर्ग'],
@@ -130,7 +130,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'pests'
   },
-  
+
   // Weather
   {
     patterns: ['weather', 'हवामान', 'मौसम', 'rain', 'पाऊस', 'temperature', 'तापमान', 'forecast', 'पूर्वानुमान'],
@@ -141,7 +141,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'weather'
   },
-  
+
   // Biomass
   {
     patterns: ['biomass', 'बायोमास', 'crop mass', 'yield', 'उत्पादन', 'production', 'productivity'],
@@ -152,7 +152,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'biomass'
   },
-  
+
   // Plot Selection
   {
     patterns: ['plot', 'प्लॉट', 'select', 'निवड', 'चुनें', 'farm', 'शेत', 'खेत', 'field', 'क्षेत्र'],
@@ -163,7 +163,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'plot'
   },
-  
+
   // Dashboard
   {
     patterns: ['dashboard', 'डॅशबोर्ड', 'डैशबोर्ड', 'overview', 'अवलोकन', 'सारांश', 'summary'],
@@ -174,7 +174,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'dashboard'
   },
-  
+
   // Reports
   {
     patterns: ['report', 'अहवाल', 'रिपोर्ट', 'data', 'माहिती', 'जानकारी', 'analysis', 'विश्लेषण'],
@@ -185,7 +185,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'reports'
   },
-  
+
   // Farmer Role Specific
   {
     patterns: ['my farm', 'माझे शेत', 'मेरा खेत', 'my plot', 'माझा प्लॉट', 'मेरा प्लॉट'],
@@ -197,7 +197,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     category: 'farmer_info',
     roles: ['farmer']
   },
-  
+
   // Manager Role Specific
   {
     patterns: ['all farms', 'सर्व शेत', 'सभी खेत', 'all plots', 'overview', 'अवलोकन'],
@@ -209,7 +209,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     category: 'manager_info',
     roles: ['manager']
   },
-  
+
   // Field Officer Role Specific
   {
     patterns: ['field visit', 'क्षेत्र भेट', 'मैदानी भ्रमण', 'monitoring', 'निरीक्षण', 'inspection'],
@@ -221,7 +221,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     category: 'officer_info',
     roles: ['fieldofficer']
   },
-  
+
   // Owner Role Specific
   {
     patterns: ['business', 'व्यवसाय', 'बिजनेस', 'revenue', 'आय', 'income', 'profit', 'नफा'],
@@ -233,7 +233,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     category: 'owner_info',
     roles: ['owner']
   },
-  
+
   // Help
   {
     patterns: ['help', 'मदत', 'सहायता', 'how', 'कसे', 'कैसे', 'what', 'काय', 'क्या', 'guide', 'मार्गदर्शन'],
@@ -244,7 +244,7 @@ export const CHATBOT_RULES: ChatRule[] = [
     },
     category: 'help'
   },
-  
+
   // Default/Unknown
   {
     patterns: ['default'],
@@ -262,19 +262,19 @@ export const CHATBOT_RULES: ChatRule[] = [
  */
 export const detectLanguage = (text: string): 'marathi' | 'hindi' | 'english' => {
   const devanagariPattern = /[\u0900-\u097F]/;
-  
+
   if (devanagariPattern.test(text)) {
     const marathiWords = ["आहे", "ची", "ला", "मी", "तुम्ही", "शेत", "पीक", "कापणी", "खत", "पाणी", "माझे", "माझा"];
     const hindiWords = ["है", "की", "को", "मैं", "आप", "खेत", "फसल", "कटाई", "उर्वरक", "पानी", "मेरे", "मेरा"];
-    
+
     const hasMarathi = marathiWords.some(word => text.includes(word));
     const hasHindi = hindiWords.some(word => text.includes(word));
-    
+
     if (hasMarathi && !hasHindi) return "marathi";
     if (hasHindi && !hasMarathi) return "hindi";
     return "marathi";
   }
-  
+
   return "english";
 };
 
@@ -283,22 +283,22 @@ export const detectLanguage = (text: string): 'marathi' | 'hindi' | 'english' =>
  */
 export const findMatchingRule = (query: string, userRole?: UserRole): ChatRule | null => {
   const lowerQuery = query.toLowerCase().trim();
-  
+
   for (const rule of CHATBOT_RULES) {
     if (rule.category === 'default') continue;
-    
+
     // Check role-specific rules first
     if (rule.roles && userRole) {
       if (!rule.roles.includes(userRole)) continue;
     }
-    
+
     for (const pattern of rule.patterns) {
       if (lowerQuery.includes(pattern.toLowerCase())) {
         return rule;
       }
     }
   }
-  
+
   return CHATBOT_RULES.find(r => r.category === 'default') || null;
 };
 
@@ -308,7 +308,7 @@ export const findMatchingRule = (query: string, userRole?: UserRole): ChatRule |
 export const getChatbotResponse = (query: string, userRole?: UserRole): { text: string; language: Language } => {
   const detectedLang = detectLanguage(query);
   const rule = findMatchingRule(query, userRole);
-  
+
   if (!rule) {
     // Default response in Marathi
     return {
@@ -316,7 +316,7 @@ export const getChatbotResponse = (query: string, userRole?: UserRole): { text: 
       language: 'marathi'
     };
   }
-  
+
   // Always prefer Marathi response, fallback to detected language if Marathi not available
   return {
     text: rule.responses.marathi || rule.responses[detectedLang] || rule.responses.english,

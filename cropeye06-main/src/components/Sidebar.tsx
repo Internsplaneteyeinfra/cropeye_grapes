@@ -227,8 +227,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // ─── Generic submenu renderer (manager / owner / farmer / admin) ───────────
-  const renderMenu = (title: string, iconImg: string, submenu?: string[]) => {
+  const renderMenu = (
+    title: string,
+    iconImg: string,
+    submenu?: string[],
+    displayLabel?: string,
+  ) => {
     const isOpen_ = openMenus.includes(title);
+    const label = displayLabel || title;
 
     // Get Material Icon for this menu item
     const materialIcon = getMaterialIconForMenu(title);
@@ -253,10 +259,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : 'bg-transparent text-gray-500 group-hover:text-green-600'
                   }`}
               >
-                <CropImg src={iconImg} alt={title} active={isOpen_} />
+                <CropImg src={iconImg} alt={label} active={isOpen_} />
               </div>
             )}
-            <span className="text-sm font-semibold font-premium text-black">{title}</span>
+            <span className="text-sm font-semibold font-premium text-black">{label}</span>
           </div>
           <div className="flex items-center space-x-2">
             {submenu && (
@@ -292,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'farmer':
         return (
           <>
-            {/* {renderMenu('My Profile',         IMG.Settings)} */}
+            {renderMenu('My Profile', IMG.Settings)}
             {renderMenu('FarmerDashboard', IMG.CropStatus)}
             {renderMenu('MyTask', IMG.Tasks, ['Calendar', 'ViewList'])}
             {renderMenu('Irrigation', IMG.Irrigation)}
@@ -346,8 +352,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className={`fixed top-0 left-0 h-full w-[280px] max-w-[85vw] flex flex-col transition-transform duration-300 z-50 sidebar-glass ${isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
     >
-      {/* Stable Background Illustration Layer */}
-      <div className={`sidebar-background-stable ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div
+        className={`sidebar-background-stable ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{
+          backgroundImage: `url("${import.meta.env.BASE_URL}Image/farmer_illustration.png")`,
+        }}
+      >
         <div className="sidebar-bg-overlay" />
       </div>
 

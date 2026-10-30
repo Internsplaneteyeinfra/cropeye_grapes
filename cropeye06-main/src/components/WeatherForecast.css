@@ -39,7 +39,7 @@
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
   }
-  
+
   .weather-temp-card,
   .weather-humidity-card {
     margin-left: 0 !important;

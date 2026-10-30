@@ -67,7 +67,7 @@
 </head>
 <body>
     <h1>Test Map Component API Endpoints</h1>
-    
+
     <div class="test-section">
         <h2>Test Plot Data API (fetchPlotData)</h2>
         <div class="endpoint-info">
@@ -128,22 +128,22 @@
             const resultDiv = document.getElementById('plot-data-result');
             resultDiv.textContent = `Testing plot data for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&end_date=${today}&days_back=7`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Plot Data - ${plotName}:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `Plot Data - ${plotName}:\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -154,22 +154,22 @@
             const resultDiv = document.getElementById('soil-analysis-result');
             resultDiv.textContent = `Testing soil analysis for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&end_date=${today}&days_back=7`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Soil Analysis - ${plotName}:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `Soil Analysis - ${plotName}:\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -180,21 +180,21 @@
             const resultDiv = document.getElementById('field-analysis-result');
             resultDiv.textContent = `Testing field analysis for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&start_date=2025-05-10&end_date=2025-06-20`, {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Field Analysis - ${plotName}:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `Field Analysis - ${plotName}:\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -205,13 +205,13 @@
             const resultDiv = document.getElementById('all-apis-result');
             resultDiv.textContent = `Testing all APIs for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             const results = {
                 plotData: null,
                 soilAnalysis: null,
                 fieldAnalysis: null
             };
-            
+
             try {
                 // Test Plot Data
                 const today = new Date().toISOString().split('T')[0];
@@ -227,7 +227,7 @@
             } catch (error) {
                 results.plotData = { error: error.message };
             }
-            
+
             try {
                 // Test Soil Analysis
                 const soilResponse = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&end_date=${today}&days_back=7`, {
@@ -242,7 +242,7 @@
             } catch (error) {
                 results.soilAnalysis = { error: error.message };
             }
-            
+
             try {
                 // Test Field Analysis
                 const fieldResponse = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&start_date=2025-05-10&end_date=2025-06-20`, {
@@ -257,7 +257,7 @@
             } catch (error) {
                 results.fieldAnalysis = { error: error.message };
             }
-            
+
             resultDiv.textContent = `All APIs Results - ${plotName}:\n${JSON.stringify(results, null, 2)}`;
             resultDiv.className = 'result success';
         }
@@ -270,4 +270,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

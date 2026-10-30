@@ -20,13 +20,13 @@ export const ImageModal: React.FC<ImageModalProps> = ({ isOpen, imageUrl, pestNa
         >
           <X className="w-8 h-8" />
         </button>
-        
+
         <img
           src={imageUrl}
           alt={pestName}
           className="max-w-full max-h-[80vh] object-contain rounded-lg"
         />
-        
+
         <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4 rounded-b-lg">
           <h3 className="text-xl font-semibold">{pestName}</h3>
         </div>

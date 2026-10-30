@@ -35,7 +35,7 @@ export const pestsData: Pest[] = [
     stage: {
       minDays: 10,
       maxDays: 30,
-      description: "Bud Break to shoot Development (10–30 DAP)"
+      description: "Bud Break to  (10–30 DAP)"
     },
     category: "chewing",
     symptoms: [

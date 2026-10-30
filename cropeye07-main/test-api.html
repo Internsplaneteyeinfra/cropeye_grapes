@@ -52,17 +52,17 @@
 </head>
 <body>
     <h1>Soil Analysis API Test</h1>
-    
+
     <div class="test-section">
         <h3>Test API Endpoint</h3>
         <p>API URL: <code>http://192.168.41.120:1002/analyze</code></p>
-        
+
         <div>
             <label for="plotName">Plot Name:</label>
             <input type="text" id="plotName" value="294724" placeholder="Enter plot name">
             <button onclick="testAPI()">Test API</button>
         </div>
-        
+
         <div id="result" class="result" style="display: none;"></div>
     </div>
 
@@ -80,17 +80,17 @@
         async function testAPI() {
             const plotName = document.getElementById('plotName').value;
             const resultDiv = document.getElementById('result');
-            
+
             if (!plotName) {
                 showResult('Please enter a plot name', 'error');
                 return;
             }
-            
+
             const url = `http://192.168.41.120:1002/analyze?plot_name=${plotName}`;
-            
+
             try {
                 showResult('Testing API...', '');
-                
+
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: {
@@ -99,21 +99,21 @@
                     },
                     mode: 'cors',
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
+
                 const data = await response.json();
                 showResult(`Success! Received data for plot ${plotName}:`, 'success');
                 showResult(JSON.stringify(data, null, 2), 'success');
-                
+
             } catch (error) {
                 showResult(`Error: ${error.message}`, 'error');
                 console.error('API Test Error:', error);
             }
         }
-        
+
         function showResult(message, type) {
             const resultDiv = document.getElementById('result');
             resultDiv.style.display = 'block';
@@ -122,4 +122,4 @@
         }
     </script>
 </body>
-</html> 
+</html>

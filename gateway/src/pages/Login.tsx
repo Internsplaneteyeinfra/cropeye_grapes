@@ -33,7 +33,7 @@ export default function LoginPage() {
   // cropeye06/cropeye07 bootstrap logic, but its value can be either
   // industry name or crop_type (preferred).
   const buildRedirectWithTokens = (baseUrl: string, access: string, refresh: string, industry: string) => {
-    const u = new URL(baseUrl);
+    const u = new URL(baseUrl, window.location.origin);
     u.searchParams.set("access", access);
     u.searchParams.set("refresh", refresh);
     u.searchParams.set("industry", industry);
@@ -315,4 +315,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

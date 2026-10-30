@@ -6,6 +6,7 @@ import {
   getRefreshToken,
   setRefreshToken,
   clearAuthData,
+  getUserRole,
 } from "./utils/auth";
 import { checkAndRefreshToken, isTokenExpired, decodeToken } from "./utils/tokenManager";
 import { navigateToLogin } from "./utils/navigation";
@@ -13,6 +14,9 @@ import { getBackendApiBaseUrl, getEventsBaseUrl } from "./utils/serviceUrls";
 import { USE_MOCK_AUTH } from "./config/authConfig";
 import { filterRowsByIndustry, getStoredUserIndustry } from "./utils/userIndustry";
 import { isFrontendRolePreview } from "./utils/frontendRolePreview";
+import { getGatewayLoginUrl } from "./utils/gatewayAuth";
+import { UNASSIGNED_MANAGER, UNASSIGNED_TEAM_ID } from "./utils/ownerPortfolio";
+import type { SoilReportPayload } from "./utils/soilReportPayload";
 
 // Backend API — Railway via Vite proxy in DEV (`/api/backend` → cropeye-backendd.up.railway.app)
 const RAILWAY_API = "https://cropeye-backendd.up.railway.app/api/";
@@ -523,8 +527,202 @@ function parseTeamConnectUsers(data: unknown): {
     };
 }
 
-/** Owner grapes: load field officers with industry-aware fallbacks. */
+export type GrapesIndustryPlots = {
+  industry: { id: number; name: string; crop_type?: string } | null;
+  plots: any[];
+};
+
+const INDUSTRY_PLOTS_MISSING_KEY = `grapesIndustryPlotsMissing:${
+  (import.meta.env.DEV
+    ? (import.meta.env.VITE_BACKEND_PROXY_TARGET as string | undefined)
+    : undefined) ?? API_BASE_URL
+}`;
+
+const industryPlotsInFlight = new Map<string, Promise<GrapesIndustryPlots>>();
+
+/** GET /users/grapes/plots/?industry_id= — every grapes plot in the owner's industry. */
+export function getGrapesIndustryPlots(
+  industryId?: number | null,
+): Promise<GrapesIndustryPlots> {
+  const key = String(industryId ?? "");
+  const pending = industryPlotsInFlight.get(key);
+  if (pending) return pending;
+  const request = fetchGrapesIndustryPlots(industryId).finally(() =>
+    industryPlotsInFlight.delete(key),
+  );
+  industryPlotsInFlight.set(key, request);
+  return request;
+}
+
+async function fetchGrapesIndustryPlots(
+  industryId?: number | null,
+): Promise<GrapesIndustryPlots> {
+  // Backends without this route return 404; skip it for the rest of the session.
+  if (sessionStorage.getItem(INDUSTRY_PLOTS_MISSING_KEY) === "1") {
+    throw new Error("users/grapes/plots is not available on this backend");
+  }
+  try {
+    const res = await api.get("/users/grapes/plots/", {
+      params: industryId != null ? { industry_id: industryId } : undefined,
+      timeout: 60_000,
+    });
+    const data = res.data ?? {};
+    return {
+      industry: data.industry ?? null,
+      plots: pickApiArray(data.plots, data.results, data.data),
+    };
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      sessionStorage.setItem(INDUSTRY_PLOTS_MISSING_KEY, "1");
+    }
+    throw err;
+  }
+}
+
+export { UNASSIGNED_TEAM_ID };
+
+const hierarchyPlotKeys = (plot: any): string[] => {
+  const keys: string[] = [];
+  if (plot?.id != null) keys.push(`id:${plot.id}`);
+  if (plot?.gat_number != null && plot?.plot_number != null) {
+    keys.push(`gat:${plot.gat_number}/${plot.plot_number}`);
+  }
+  for (const v of [plot?.fastapi_plot_id, plot?.plot_name, plot?.plot_id]) {
+    if (v != null && String(v).trim()) keys.push(`name:${String(v).trim()}`);
+  }
+  return keys;
+};
+
+const nestedFarmers = (fo: any): any[] =>
+  pickApiArray(fo?.farmers, fo?.farmer_list, fo?.assigned_farmers, fo?.my_farmers);
+
+const nestedPlots = (farmer: any): any[] => {
+  const direct = pickApiArray(farmer?.plots, farmer?.plot_list);
+  if (direct.length > 0) return direct;
+  const farms = pickApiArray(farmer?.farms, farmer?.farm_list);
+  const fromFarms = farms.flatMap((f: any) => pickApiArray(f?.plots, f?.plot_list));
+  return fromFarms.length > 0 ? fromFarms : farms;
+};
+
+/**
+ * Industry plot list is the full set of plots. Plots already in the hierarchy get
+ * missing location fields filled in; the rest are grouped by farmer under one
+ * "Unassigned plots" field officer (and manager, when managers exist) so every owner
+ * screen that walks manager → FO → farmer → plot can reach them.
+ */
+export function mergeIndustryPlotsIntoHierarchy(
+  fieldOfficers: any[],
+  managers: any[],
+  industryPlots: any[],
+): { fieldOfficers: any[]; managers: any[]; added: number } {
+  if (industryPlots.length === 0) return { fieldOfficers, managers, added: 0 };
+
+  const known = new Map<string, any>();
+  fieldOfficers.forEach((fo) =>
+    nestedFarmers(fo).forEach((farmer) =>
+      nestedPlots(farmer).forEach((plot) =>
+        hierarchyPlotKeys(plot).forEach((k) => known.set(k, plot)),
+      ),
+    ),
+  );
+  // Without nested plots we cannot tell which industry plots are already assigned.
+  const canDetectUnassigned = known.size > 0 || fieldOfficers.length === 0;
+
+  const farmersById = new Map<string, any>();
+  industryPlots.forEach((row) => {
+    const { farmer, ...plot } = row ?? {};
+    const existing = hierarchyPlotKeys(plot)
+      .map((k) => known.get(k))
+      .find(Boolean);
+    if (existing) {
+      for (const field of ["village", "taluka", "district", "state", "variety", "crop_variety", "grafted_variety"]) {
+        if (!existing[field] && plot[field]) existing[field] = plot[field];
+      }
+      if (!Array.isArray(existing.farms) || existing.farms.length === 0) {
+        if (Array.isArray(plot.farms) && plot.farms.length > 0) existing.farms = plot.farms;
+      }
+      return;
+    }
+    if (!canDetectUnassigned) return;
+    const farmerKey = farmer?.id != null ? String(farmer.id) : "unlinked";
+    if (!farmersById.has(farmerKey)) {
+      farmersById.set(
+        farmerKey,
+        farmer
+          ? { ...farmer, plots: [] }
+          : { id: `${UNASSIGNED_TEAM_ID}-farmer`, first_name: "Farmer", last_name: "not linked", plots: [] },
+      );
+    }
+    farmersById.get(farmerKey).plots.push(plot);
+  });
+
+  if (farmersById.size === 0) return { fieldOfficers, managers, added: 0 };
+
+  const farmers = Array.from(farmersById.values());
+  const unassignedOfficer = {
+    id: UNASSIGNED_TEAM_ID,
+    first_name: "Unassigned",
+    last_name: "plots",
+    manager_id: managers.length > 0 ? UNASSIGNED_TEAM_ID : null,
+    manager_name: UNASSIGNED_MANAGER,
+    farmers,
+  };
+  return {
+    fieldOfficers: [...fieldOfficers, unassignedOfficer],
+    managers:
+      managers.length > 0
+        ? [
+            ...managers,
+            {
+              id: UNASSIGNED_TEAM_ID,
+              first_name: "Unassigned",
+              last_name: "plots",
+              field_officers: [unassignedOfficer],
+            },
+          ]
+        : managers,
+    added: farmers.reduce((n, f) => n + f.plots.length, 0),
+  };
+}
+
+/**
+ * Owner grapes: managers + field officers (with farmers / plots), completed with
+ * GET /users/grapes/plots/?industry_id= when the backend provides it.
+ */
 export async function loadOwnerFieldOfficers(options?: {
+  industryId?: number | null;
+}): Promise<{
+  fieldOfficers: any[];
+  managers: any[];
+  source: string;
+  industry: GrapesIndustryPlots["industry"];
+}> {
+  const industryId = options?.industryId ?? getStoredUserIndustry().id;
+  const [hierarchy, industryPlots] = await Promise.all([
+    loadOwnerHierarchyBase({ industryId }),
+    getGrapesIndustryPlots(industryId).catch((err) => {
+      if (err?.response?.status !== 404) {
+        console.warn("loadOwnerFieldOfficers: users/grapes/plots failed", err);
+      }
+      return null;
+    }),
+  ]);
+  if (!industryPlots) return { ...hierarchy, industry: null };
+
+  const merged = mergeIndustryPlotsIntoHierarchy(
+    hierarchy.fieldOfficers,
+    hierarchy.managers,
+    industryPlots.plots,
+  );
+  return {
+    fieldOfficers: merged.fieldOfficers,
+    managers: merged.managers,
+    source: merged.added > 0 ? `${hierarchy.source}+grapes-plots` : hierarchy.source,
+    industry: industryPlots.industry,
+  };
+}
+
+async function loadOwnerHierarchyBase(options?: {
   industryId?: number | null;
 }): Promise<{
   fieldOfficers: any[];
@@ -1471,7 +1669,12 @@ export type TeamConnectGrapesParams = {
   variety?: string;
 };
 
-const TEAM_CONNECT_GRAPES_MISSING_KEY = "teamConnectGrapesMissing";
+// Scoped to the backend so a 404 from one server doesn't hide the route on another.
+const TEAM_CONNECT_GRAPES_MISSING_KEY = `teamConnectGrapesMissing:${
+  (import.meta.env.DEV
+    ? (import.meta.env.VITE_BACKEND_PROXY_TARGET as string | undefined)
+    : undefined) ?? API_BASE_URL
+}`;
 
 export const getTeamConnectGrapes = async (
   params?: TeamConnectGrapesParams,
@@ -1783,7 +1986,7 @@ export const getFarmerMyProfile = () => {
   const token = getAccessToken();
   if (!token || !isValidToken(token)) {
     const error = new Error(
-      "No access_token after login. Open gateway http://localhost:5174 , enable Network Preserve log, login, then confirm POST .../api/login/",
+      `No access_token after login. Log in again at ${getGatewayLoginUrl()}`,
     );
     (error as any).response = {
       status: 403,
@@ -1791,6 +1994,15 @@ export const getFarmerMyProfile = () => {
     };
     (error as any).isSilent = false;
     (error as any).code = "NO_AUTH_TOKEN";
+    return Promise.reject(error);
+  }
+  // Farmer-only endpoint: owners/admins always get 403, so don't send the request.
+  const role = String(getUserRole() ?? "").toLowerCase();
+  if (role === "owner" || role === "admin") {
+    const error = new Error("/farms/my-profile/ is only available to farmers");
+    (error as any).response = { status: 403, data: { detail: "Not a farmer account." } };
+    (error as any).isSilent = true;
+    (error as any).code = "NOT_FARMER";
     return Promise.reject(error);
   }
   console.info(
@@ -2034,17 +2246,6 @@ export const registerFarmerAllInOne = async (data: {
     pipe_width_inches?: number;
     distance_motor_to_plot_m?: number;
   };
-  soil_report?: {
-    nitrogen: number;
-    phosphorus: number;
-    potassium: number;
-    soil_ph: number;
-    cec: number;
-    organic_carbon: number;
-    bulk_density: number;
-    fe: number;
-    soil_organic_carbon: number;
-  };
   plantation?: {
     plantation_date: string;
     foundation_pruning_date: string;
@@ -2180,7 +2381,7 @@ export const uploadGrapesReport = async (
 
     // Success response (201): { id, plot, file_type, file (URL), uploaded_by, field_officer, notes, uploaded_at }
     const responseData = response.data;
-    console.log(`✅ Grapse Report uploaded successfully:`, {
+    console.log(`✅ Grapes Report uploaded successfully:`, {
       id: responseData.id,
       plot: responseData.plot,
       file_type: responseData.file_type,
@@ -2199,8 +2400,169 @@ export const uploadGrapesReport = async (
   }
 };
 
+// Get uploaded Grapes Reports (by plot ID)
+export const getGrapesReports = async (plotId?: number) => {
+  const query = plotId ? `?plot=${plotId}` : "";
+  return api.get(`/grapse-reports/${query}`);
+};
+
+/** Backend status values for /api/grapes-certification/ */
+export type GrapesCertificationStatus =
+  | "documents_pending"
+  | "submitted"
+  | "under_review"
+  | "approved"
+  | "rejected"
+  | string;
+
+export type GrapesCertificationDocument = {
+  id: number;
+  file: string;
+  uploaded_at?: string;
+};
+
+export type GrapesCertificationChecklistItem = {
+  file_type: string;
+  label: string;
+  required: boolean;
+  uploaded: boolean;
+  documents: GrapesCertificationDocument[];
+};
+
+export type GrapesCertificationRecord = {
+  id: number;
+  plot: number;
+  status: GrapesCertificationStatus;
+  notes: string;
+  created_by?: number;
+  created_at?: string;
+  updated_at?: string;
+  documents_complete?: boolean;
+  checklist?: GrapesCertificationChecklistItem[];
+};
+
+const certificationIdStorageKey = (plotId: number) =>
+  `cropeye_grapes_certification_api_id_${plotId}`;
+
+export function rememberGrapesCertificationId(plotId: number, certificationId: number) {
+  try {
+    localStorage.setItem(certificationIdStorageKey(plotId), String(certificationId));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function rememberedGrapesCertificationId(plotId: number): number | null {
+  try {
+    const raw = localStorage.getItem(certificationIdStorageKey(plotId));
+    const id = Number(raw);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/grapes-certification/ */
+export async function createGrapesCertification(payload: {
+  plot: number;
+  status?: GrapesCertificationStatus;
+  notes?: string;
+}): Promise<GrapesCertificationRecord> {
+  const { data } = await api.post<GrapesCertificationRecord>("/grapes-certification/", {
+    plot: payload.plot,
+    status: payload.status ?? "documents_pending",
+    notes: payload.notes ?? "",
+  });
+  if (data?.id != null && data?.plot != null) {
+    rememberGrapesCertificationId(Number(data.plot), Number(data.id));
+  }
+  return data;
+}
+
+/** GET /api/grapes-certification/{id}/ */
+export async function getGrapesCertification(
+  certificationId: number,
+): Promise<GrapesCertificationRecord> {
+  const { data } = await api.get<GrapesCertificationRecord>(
+    `/grapes-certification/${certificationId}/`,
+  );
+  return data;
+}
+
+/** GET /api/grapes-certification/?plot= */
+export async function listGrapesCertifications(
+  plotId?: number,
+): Promise<GrapesCertificationRecord[]> {
+  const { data } = await api.get<GrapesCertificationRecord[] | { results: GrapesCertificationRecord[] }>(
+    "/grapes-certification/",
+    { params: plotId != null ? { plot: plotId } : undefined },
+  );
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray((data as { results?: unknown }).results)) {
+    return (data as { results: GrapesCertificationRecord[] }).results;
+  }
+  return [];
+}
+
+/** PATCH /api/grapes-certification/{id}/ */
+export async function patchGrapesCertification(
+  certificationId: number,
+  payload: { status?: GrapesCertificationStatus; notes?: string },
+): Promise<GrapesCertificationRecord> {
+  const { data } = await api.patch<GrapesCertificationRecord>(
+    `/grapes-certification/${certificationId}/`,
+    payload,
+  );
+  return data;
+}
+
+/**
+ * Load certification for a plot: remembered id → list by plot → create if missing.
+ * Uses POST/GET/PATCH /api/grapes-certification/ on the configured Railway backend.
+ */
+export async function ensureGrapesCertification(
+  plotId: number,
+  options?: { notes?: string; createIfMissing?: boolean },
+): Promise<GrapesCertificationRecord | null> {
+  if (!Number.isFinite(plotId) || plotId <= 0) return null;
+  const createIfMissing = options?.createIfMissing !== false;
+
+  const remembered = rememberedGrapesCertificationId(plotId);
+  if (remembered) {
+    try {
+      return await getGrapesCertification(remembered);
+    } catch {
+      /* fall through — id may be stale */
+    }
+  }
+
+  try {
+    const listed = await listGrapesCertifications(plotId);
+    const existing =
+      listed.find((c) => Number(c.plot) === plotId) ?? listed[0] ?? null;
+    if (existing?.id != null) {
+      rememberGrapesCertificationId(plotId, Number(existing.id));
+      try {
+        return await getGrapesCertification(Number(existing.id));
+      } catch {
+        return existing;
+      }
+    }
+  } catch {
+    /* list may 404 on older backends */
+  }
+
+  if (!createIfMissing) return null;
+
+  return createGrapesCertification({
+    plot: plotId,
+    status: "documents_pending",
+    notes: options?.notes ?? "",
+  });
+}
+
 // Soil Report functions
-export const addSoilReport = (data: any) => {
+export const addSoilReport = (data: SoilReportPayload) => {
   return api.post("/soil-reports/", data);
 };
 
@@ -2420,27 +2782,6 @@ const convertSinglePlotToAllInOneFormat = (formData: any, plot: any) => {
       soil_type: (formData.soil_type && String(formData.soil_type).trim()) || "sandy_loam",
     },
   };
-
-  if (formData.soil_report && formData.soil_details) {
-    const details = formData.soil_details || {};
-    const parseNumber = (value: any) => {
-      if (value === null || value === undefined || value === "") return 0;
-      const num = parseFloat(String(value));
-      return Number.isFinite(num) ? num : 0;
-    };
-
-    payload.soil_report = {
-      nitrogen: parseNumber(details.nitrogen),
-      phosphorus: parseNumber(details.phosphorus),
-      potassium: parseNumber(details.potassium),
-      soil_ph: parseNumber(details.soil_ph),
-      cec: parseNumber(details.cec),
-      organic_carbon: parseNumber(details.organic_carbon),
-      bulk_density: parseNumber(details.bulk_density),
-      fe: parseNumber(details.fe),
-      soil_organic_carbon: parseNumber(details.soil_organic_carbon),
-    };
-  }
 
   // Validate that GAT and plot numbers are provided
   if (!payload.plot.gat_number || payload.plot.gat_number.trim() === "") {

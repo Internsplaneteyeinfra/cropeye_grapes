@@ -8,6 +8,16 @@ import CommonSpinner from "./CommanSpinner";
 import axios from "axios";
 import { getCache, setCache } from "../utils/cache";
 import {
+  HECTARES_TO_ACRES,
+  extractFarmers,
+  extractFarms,
+  extractPlots,
+  normalizeGrapesStatus,
+  pickArray,
+  readAgroYieldBrix,
+  resolveFarmAreaAcres,
+} from "../utils/ownerPortfolio";
+import {
   MapPin,
   ChevronDown,
   Calendar,
@@ -159,40 +169,6 @@ const STATUS_COLOR_PALETTE = [
   "#888",
 ];
 
-const HECTARES_TO_ACRES = 2.47105;
-
-function pickArray(...candidates: unknown[]): any[] {
-  let fallback: any[] | null = null;
-  for (const c of candidates) {
-    if (Array.isArray(c)) {
-      if (c.length > 0) return c;
-      if (fallback == null) fallback = c;
-      continue;
-    }
-    if (c && typeof c === "object") {
-      const obj = c as Record<string, unknown>;
-      for (const key of [
-        "results",
-        "data",
-        "farmers",
-        "farmer_list",
-        "plots",
-        "plot_list",
-        "farms",
-        "items",
-      ]) {
-        const nested = obj[key];
-        if (Array.isArray(nested) && nested.length > 0) return nested;
-        if (Array.isArray(nested) && fallback == null) fallback = nested;
-      }
-      if (obj.id != null || obj.farmer_id != null || obj.farmerId != null) {
-        return [c];
-      }
-    }
-  }
-  return fallback ?? [];
-}
-
 function countUniqueFarmPlots(payload: unknown): number {
   const records = pickArray(payload);
   const plotKeys = new Set<string>();
@@ -253,33 +229,6 @@ function countUniqueFarmPlots(payload: unknown): number {
   return plotKeys.size;
 }
 
-function resolveFarmAreaAcres(farm: any, plot?: any): number {
-  const acres = parseFloat(
-    String(
-      farm?.area_acres ??
-        farm?.area_in_acres ??
-        farm?.plot_area ??
-        plot?.area_acres ??
-        plot?.area_in_acres ??
-        plot?.plot_area ??
-        ""
-    )
-  );
-  if (Number.isFinite(acres) && acres > 0) return acres;
-
-  const size = parseFloat(
-    String(
-      farm?.area_size ??
-        farm?.area_size_numeric ??
-        plot?.area_size ??
-        plot?.area_size_numeric ??
-        "0"
-    )
-  );
-  if (!Number.isFinite(size) || size <= 0) return 0;
-  return size * HECTARES_TO_ACRES;
-}
-
 /** Prefer explicit kilometer fields; convert motor-to-plot measurements from meters. */
 function resolveDistanceKm(plot: any, farm?: any): number | null {
   const records = [plot, farm]
@@ -329,49 +278,6 @@ function resolveDistanceKm(plot: any, farm?: any): number | null {
   return null;
 }
 
-function readAgroYieldBrix(plotRow: any): {
-  yieldTPerAcre: number | null;
-  brix: number | null;
-  recovery: number | null;
-} {
-  if (!plotRow || typeof plotRow !== "object") {
-    return { yieldTPerAcre: null, brix: null, recovery: null };
-  }
-  const row =
-    plotRow.brix_sugar != null
-      ? plotRow
-      : plotRow.properties && typeof plotRow.properties === "object"
-        ? plotRow.properties
-        : plotRow;
-  const bs = row.brix_sugar ?? row.brixSugar ?? {};
-  const sugarYield = bs.sugar_yield ?? bs.yield ?? bs.predicted_yield;
-  const yieldTPerAcre =
-    typeof sugarYield?.mean === "number"
-      ? sugarYield.mean
-      : typeof sugarYield?.min === "number"
-        ? sugarYield.min
-        : typeof sugarYield === "number"
-          ? sugarYield
-          : null;
-  const brixRaw = bs.brix ?? bs.tss ?? bs.brix_mean ?? row.brix;
-  const brix =
-    typeof brixRaw?.mean === "number"
-      ? brixRaw.mean
-      : typeof brixRaw === "number"
-        ? brixRaw
-        : typeof brixRaw?.min === "number"
-          ? brixRaw.min
-          : null;
-  const recoveryRaw = bs.recovery ?? bs.ta ?? row.recovery;
-  const recovery =
-    typeof recoveryRaw?.mean === "number"
-      ? recoveryRaw.mean
-      : typeof recoveryRaw === "number"
-        ? recoveryRaw
-        : null;
-  return { yieldTPerAcre, brix, recovery };
-}
-
 function extractOfficers(manager: any): any[] {
   return pickArray(
     manager?.field_officers,
@@ -380,56 +286,6 @@ function extractOfficers(manager: any): any[] {
     manager?.field_officer_list,
     manager?.officers,
   );
-}
-
-function extractFarmers(officer: any): any[] {
-  return pickArray(
-    officer?.farmers,
-    officer?.farmer_list,
-    officer?.farmer,
-    officer?.assigned_farmers,
-    officer?.farmer_details,
-    officer?.farmer_profiles,
-    officer?.my_farmers,
-    officer?.all_farmers,
-  );
-}
-
-function extractPlots(farmer: any): any[] {
-  const direct = pickArray(
-    farmer?.plots,
-    farmer?.plot_list,
-    farmer?.plot,
-  );
-  if (direct.length > 0) return direct;
-  // Grapes: farmer.farms may be the plot rows (no nested plots[])
-  const farms = pickArray(farmer?.farms, farmer?.farm_list);
-  if (farms.length === 0) return [];
-  const nestedPlots = farms.flatMap((f: any) =>
-    pickArray(f?.plots, f?.plot_list),
-  );
-  return nestedPlots.length > 0 ? nestedPlots : farms;
-}
-
-/** Prefer plot.farms; if missing, treat the plot itself as one farm row. */
-function extractFarms(plot: any): any[] {
-  const farms = pickArray(plot?.farms, plot?.farm_list, plot?.farm);
-  if (farms.length > 0) return farms;
-  return [plot];
-}
-
-function normalizeGrapesStatus(status: unknown): string {
-  if (typeof status !== "string") return "";
-  const normalized = status
-    .toLowerCase()
-    .replace(/[_-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (normalized.includes("harvested")) return "Harvested";
-  if (normalized.includes("ready")) return "Ready to Harvest";
-  if (normalized.includes("growing")) return "Growing";
-  return normalized;
 }
 
 function buildHarvestPoint(

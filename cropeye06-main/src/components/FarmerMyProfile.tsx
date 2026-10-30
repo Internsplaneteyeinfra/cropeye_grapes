@@ -11,7 +11,10 @@ import {
 } from "lucide-react";
 import { updateUser } from "../api";
 import { useFarmerProfile } from "../hooks/useFarmerProfile";
+import { useAppContext } from "../context/AppContext";
 import { getPlotAreaAcresFromProfile } from "../utils/grapesEventsBundle";
+import type { OwnerPlotRecord } from "../utils/ownerPortfolio";
+import CertificationTimeline from "./ownerDashboard/CertificationTimeline";
 
 function displayValue(value: unknown): string {
   if (value == null || String(value).trim() === "") return "Not provided";
@@ -50,8 +53,12 @@ type ProfileFormValues = {
 const FarmerMyProfile: React.FC<FarmerMyProfileProps> = ({
   initialEditMode = false,
 }) => {
-  const { profile, loading, error, refreshMyProfile } = useFarmerProfile();
+  const { profile, loading, error, refreshMyProfile, getFarmerFullName } =
+    useFarmerProfile();
+  const { selectedPlotName } = useAppContext();
   const [isEditing, setIsEditing] = useState(initialEditMode);
+  const [certificationTimelineOpen, setCertificationTimelineOpen] =
+    useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -133,6 +140,66 @@ const FarmerMyProfile: React.FC<FarmerMyProfileProps> = ({
       .join(" ") ||
     profile?.farmer_profile?.username ||
     "Farmer";
+
+  const farmerCertPlots = useMemo((): OwnerPlotRecord[] => {
+    if (!profile?.plots?.length) return [];
+    const name = getFarmerFullName?.() || farmerName || "Farmer";
+    const addr = profile.farmer_profile?.address_info;
+    const phone = profile.farmer_profile?.personal_info?.phone_number || "";
+    return profile.plots.map((plot: any, idx: number) => {
+      const plotId = String(
+        plot.fastapi_plot_id || plot.id || plot.plot_id || `plot-${idx}`,
+      );
+      let plotLabel = "";
+      if (plot.gat_number && plot.plot_number) {
+        plotLabel = `${plot.gat_number}_${plot.plot_number}`;
+      } else {
+        plotLabel =
+          plot.gat_number ||
+          plot.plot_number ||
+          plot.address?.village ||
+          plotId;
+      }
+      return {
+        key: plotId,
+        plotId,
+        plotLabel,
+        farmerName: name,
+        fieldOfficerId: "",
+        fieldOfficerName: "",
+        managerId: "",
+        managerName: "",
+        district: plot.address?.district || addr?.district || "",
+        taluka: plot.address?.taluka || addr?.taluka || "",
+        village: plot.address?.village || addr?.village || "",
+        state: plot.address?.state || addr?.state || "Maharashtra",
+        areaAcres: Number(plot.area_acres || plot.area_size || 0) || 0,
+        cropType: "Grapes",
+        variety: plot.crop_variety || plot.variety || null,
+        plantationDate: plot.plantation_date || null,
+        boundary: null,
+        center: null,
+        hierarchyStatus: "active",
+        agro: null,
+        farmerPhone: phone,
+        gatNumber: plot.gat_number || "",
+        pruningFoundationDate: plot.foundation_pruning_date || "",
+        pruningFruitDate: plot.fruit_pruning_date || "",
+      } as OwnerPlotRecord;
+    });
+  }, [profile, getFarmerFullName, farmerName]);
+
+  const farmerCertSelectedPlot = useMemo(() => {
+    if (!farmerCertPlots.length) return null;
+    return (
+      farmerCertPlots.find(
+        (p) =>
+          p.plotId === selectedPlotName ||
+          p.key === selectedPlotName ||
+          p.plotLabel === selectedPlotName,
+      ) || farmerCertPlots[0]
+    );
+  }, [farmerCertPlots, selectedPlotName]);
 
   const updateField = (key: keyof ProfileFormValues, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -427,6 +494,14 @@ const FarmerMyProfile: React.FC<FarmerMyProfileProps> = ({
           </div>
         )}
       </section>
+
+      <CertificationTimeline
+        isOpen={certificationTimelineOpen}
+        onClose={() => setCertificationTimelineOpen(false)}
+        selectedPlot={farmerCertSelectedPlot}
+        plots={farmerCertPlots}
+        syncBackendCertification={false}
+      />
     </main>
   );
 };

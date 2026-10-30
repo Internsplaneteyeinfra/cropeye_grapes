@@ -32,8 +32,8 @@
 //   currentUserName?: string;
 // }
 
-// export const Tasklist: React.FC<TasklistProps> = ({ 
-//   currentUserId , 
+// export const Tasklist: React.FC<TasklistProps> = ({
+//   currentUserId ,
 //   currentUserRole,
 //   currentUserName = 'User'
 // }) => {
@@ -52,18 +52,18 @@
 //     try {
 //       console.log('Fetching tasks for user ID:', currentUserId);
 //       const response = await getTasksForUser(currentUserId);
-      
-//       const tasksData = response.data.results 
-//         ? response.data.results 
+
+//       const tasksData = response.data.results
+//         ? response.data.results
 //         : (Array.isArray(response.data) ? response.data : []);
-      
+
 //       const filteredTasks = tasksData.filter((task: any) =>
 //         task.assigned_to && task.assigned_to.id === currentUserId
 //       );
-      
+
 //       console.log(`Tasks assigned to user ${currentUserId}:`, filteredTasks.length);
 //       setTasks(filteredTasks);
-      
+
 //     } catch (error: any) {
 //       console.error('Error fetching tasks:', error);
 //       setTasks([]);
@@ -108,7 +108,7 @@
 //     ]
 //       .map((row) => row.join(','))
 //       .join('\n');
-    
+
 //     const blob = new Blob([csv], { type: 'text/csv' });
 //     const a = document.createElement('a');
 //     a.href = URL.createObjectURL(blob);
@@ -169,7 +169,7 @@
 //               className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 //             />
 //           </div>
-          
+
 //           <button
 //             onClick={fetchTasks}
 //             disabled={loading}
@@ -180,7 +180,7 @@
 //           </button>
 //         </div>
 //       </div>
-      
+
 //       <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
 //         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center mb-6 space-y-4 lg:space-y-0">
 //           <div>
@@ -191,9 +191,9 @@
 //               Tasks assigned to you
 //             </p>
 //           </div>
-          
-//           <button 
-//             onClick={handleDownload} 
+
+//           <button
+//             onClick={handleDownload}
 //             className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
 //           >
 //             <Download className="w-4 h-4 mr-2" />
@@ -295,9 +295,9 @@
 //                         {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
 //                       </span>
 //                     </div>
-                    
+
 //                     <p className="text-sm text-gray-600 mb-3">{task.description}</p>
-                    
+
 //                     <div className="space-y-2 mb-4">
 //                       <div className="flex items-center text-sm">
 //                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(task.priority)} mr-2`}>
@@ -307,7 +307,7 @@
 //                         {new Date(task.due_date).toLocaleDateString()}
 //                       </div>
 //                     </div>
-                    
+
 //                     <div className="flex gap-2">
 //                       <select
 //                         value={task.status}
@@ -318,7 +318,7 @@
 //                         <option value="in_progress">In Progress</option>
 //                         <option value="completed">Completed</option>
 //                       </select>
-                      
+
 //                       <button
 //                         onClick={() => handleEdit(task.id)}
 //                         className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg"
@@ -342,7 +342,7 @@
 //                 <p className="text-sm text-gray-600">
 //                   Showing {paginatedTasks.length} of {filteredTasks.length} entries
 //                 </p>
-                
+
 //                 <div className="flex items-center space-x-2">
 //                   <button
 //                     disabled={currentPage === 1}
@@ -405,8 +405,8 @@ interface TasklistProps {
   currentUserName?: string;
 }
 
-export const Tasklist: React.FC<TasklistProps> = ({ 
-  currentUserId , 
+export const Tasklist: React.FC<TasklistProps> = ({
+  currentUserId ,
   currentUserRole,
   currentUserName = 'User'
 }) => {
@@ -431,18 +431,18 @@ export const Tasklist: React.FC<TasklistProps> = ({
     try {
       console.log('Fetching tasks for user ID:', currentUserId);
       const response = await getTasksForUser(currentUserId);
-      
-      const tasksData = response.data.results 
-        ? response.data.results 
+
+      const tasksData = response.data.results
+        ? response.data.results
         : (Array.isArray(response.data) ? response.data : []);
-      
+
       const filteredTasks = tasksData.filter((task: any) =>
         task.assigned_to && task.assigned_to.id === currentUserId
       );
-      
+
       console.log(`Tasks assigned to user ${currentUserId}:`, filteredTasks.length);
       setTasks(filteredTasks);
-      
+
     } catch (error: any) {
       console.error('Error fetching tasks:', error);
       setTasks([]);
@@ -459,19 +459,19 @@ export const Tasklist: React.FC<TasklistProps> = ({
     try {
       console.log('Fetching tasks created by field officer:', currentUserId);
       const response = await getTasksForUser(currentUserId);
-      
-      const tasksData = response.data.results 
-        ? response.data.results 
+
+      const tasksData = response.data.results
+        ? response.data.results
         : (Array.isArray(response.data) ? response.data : []);
-      
+
       // Filter tasks created by the current field officer
       const createdTasks = tasksData.filter((task: any) =>
         task.created_by && task.created_by.id === currentUserId
       );
-      
+
       console.log(`Tasks created by field officer ${currentUserId}:`, createdTasks.length);
       setFieldOfficerTasks(createdTasks);
-      
+
     } catch (error: any) {
       console.error('Error fetching field officer tasks:', error);
       setFieldOfficerTasks([]);
@@ -528,7 +528,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
     ]
       .map((row) => row.join(','))
       .join('\n');
-    
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -552,7 +552,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
     ]
       .map((row) => row.join(','))
       .join('\n');
-    
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -620,7 +620,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
   );
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -650,7 +650,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
               className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          
+
           <button
             onClick={fetchTasks}
             disabled={loading}
@@ -660,7 +660,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
           </button>
         </div>
       </div>
-      
+
       {/* EXISTING TABLE - Tasks assigned to me */}
       <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center mb-6 space-y-4 lg:space-y-0">
@@ -672,9 +672,9 @@ export const Tasklist: React.FC<TasklistProps> = ({
               Tasks assigned to you
             </p>
           </div>
-          
-          <button 
-            onClick={handleDownload} 
+
+          <button
+            onClick={handleDownload}
             className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
             <Download className="w-4 h-4 mr-2" />
@@ -775,9 +775,9 @@ export const Tasklist: React.FC<TasklistProps> = ({
                         {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
                       </span>
                     </div>
-                    
+
                     <p className="text-sm text-gray-600 mb-3">{task.description}</p>
-                    
+
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center text-sm">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(task.priority)} mr-2`}>
@@ -787,7 +787,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
                         {new Date(task.due_date).toLocaleDateString()}
                       </div>
                     </div>
-                    
+
                     <div className="flex gap-2">
                       <select
                         value={task.status}
@@ -798,7 +798,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
                         <option value="in_progress">In Progress</option>
                         <option value="completed">Completed</option>
                       </select>
-                      
+
                       <button
                         onClick={() => handleEdit(task.id)}
                         className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg"
@@ -822,7 +822,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
                 <p className="text-sm text-gray-600">
                   Showing {paginatedTasks.length} of {filteredTasks.length} entries
                 </p>
-                
+
                 <div className="flex items-center space-x-2">
                   <button
                     disabled={currentPage === 1}
@@ -861,7 +861,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
                 Tasks you have assigned to farmers
               </p>
             </div>
-            
+
             <div className="flex gap-2">
               <button
                 onClick={fetchFieldOfficerTasks}
@@ -870,8 +870,8 @@ export const Tasklist: React.FC<TasklistProps> = ({
               >
                 <RefreshCw className={`w-4 h-4 mr-2 ${foLoading ? 'animate-spin' : ''}`} />
               </button>
-              <button 
-                onClick={handleFoDownload} 
+              <button
+                onClick={handleFoDownload}
                 className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Download className="w-4 h-4 mr-2" />
@@ -964,9 +964,9 @@ export const Tasklist: React.FC<TasklistProps> = ({
                           {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
                         </span>
                       </div>
-                      
+
                       <p className="text-sm text-gray-600 mb-3">{task.description}</p>
-                      
+
                       <div className="space-y-2">
                         <div className="flex items-center text-sm text-gray-500">
                           <Users className="w-4 h-4 mr-2" />
@@ -990,7 +990,7 @@ export const Tasklist: React.FC<TasklistProps> = ({
                   <p className="text-sm text-gray-600">
                     Showing {paginatedFoTasks.length} of {filteredFoTasks.length} entries
                   </p>
-                  
+
                   <div className="flex items-center space-x-2">
                     <button
                       disabled={foCurrentPage === 1}

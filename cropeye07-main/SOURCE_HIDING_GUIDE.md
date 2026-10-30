@@ -183,4 +183,3 @@ dist/
 - **Dev Mode** (`npm run dev`): Source files visible ✅ (Normal)
 - **Production Build** (`npm run build` + `npm run preview`): Source files hidden ✅
 - **Deployment**: Only deploy `dist/` folder ✅
-

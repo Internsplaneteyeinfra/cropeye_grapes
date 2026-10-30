@@ -3,6 +3,7 @@ import { Waves } from "lucide-react";
 import "../Irrigation.css";
 import { useAppContext } from "../../../context/AppContext";
 import { useFarmerProfile } from "../../../hooks/useFarmerProfile";
+import { toBackendPlotName } from "../../../utils/plotName";
 
 interface HourlyETRecord {
   time: string;
@@ -21,28 +22,28 @@ interface ETResponse {
 const EvapotranspirationCard: React.FC = () => {
   const { appState, setAppState, getCached, setCached, selectedPlotName } = useAppContext();
   const { profile, loading: profileLoading } = useFarmerProfile();
-  
+
   const [plotName, setPlotName] = useState<string>("");
-  const etValue = appState?.etValue ?? 0;
+  const etValue: number | null =
+    typeof appState?.etValue === "number" && Number.isFinite(appState.etValue) ? appState.etValue : null;
   const trendData = Array.isArray(appState?.etTrendData) ? appState.etTrendData : [];
   const [hourlyData, setHourlyData] = useState<Array<{time: string, value: number}>>([]);
-  const [loading, setLoading] = useState<boolean>(!etValue);
+  const [loading, setLoading] = useState<boolean>(etValue == null);
   const [error, setError] = useState<string | null>(null);
-  const [average] = useState<number>(2.5);
 
   // Set plot name from global selectedPlotName or fallback to first plot
   useEffect(() => {
     if (profile && !profileLoading) {
       let plotToUse = "";
-      
+
       // Use global selectedPlotName if available
       if (selectedPlotName) {
         // Find the plot by fastapi_plot_id or constructed ID
-        const foundPlot = profile.plots?.find((plot: any) => 
+        const foundPlot = profile.plots?.find((plot: any) =>
           plot.fastapi_plot_id === selectedPlotName ||
           `${plot.gat_number}_${plot.plot_number}` === selectedPlotName
         );
-        
+
         if (foundPlot && foundPlot.fastapi_plot_id) {
           plotToUse = foundPlot.fastapi_plot_id;
         } else {
@@ -53,7 +54,7 @@ const EvapotranspirationCard: React.FC = () => {
         const plotNames = profile.plots?.map((plot: any) => plot.fastapi_plot_id) || [];
         plotToUse = plotNames.length > 0 ? plotNames[0] : "";
       }
-      
+
       if (plotToUse && plotToUse !== plotName) {
         setPlotName(plotToUse);
         console.log('EvapotranspirationCard: Setting plot name to:', plotToUse);
@@ -98,14 +99,14 @@ const EvapotranspirationCard: React.FC = () => {
       // Use POST request - API: https://cropeye-grapes-sef-production.up.railway.app/docs#/default/compute_et_for_plot_plots__plot_name__compute_et__post
       // Response URL: https://cropeye-grapes-sef-production.up.railway.app/plots/14D_14/compute-et/
       const baseUrl = 'https://cropeye-grapes-sef-production.up.railway.app';
-      const url = `${baseUrl}/plots/${encodeURIComponent(plotName)}/compute-et/`;
-      
+      const url = `${baseUrl}/plots/${encodeURIComponent(toBackendPlotName(plotName))}/compute-et/`;
+
       console.log(`💧 EvapotranspirationCard: Fetching ET data from: ${url}`);
-      
+
       // Create AbortController with 5 minute timeout to prevent session timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-      
+
       try {
       const response = await fetch(url, {
         method: "POST",
@@ -119,7 +120,7 @@ const EvapotranspirationCard: React.FC = () => {
           signal: controller.signal,
           // Empty body as per API specification
       });
-        
+
         clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -130,58 +131,24 @@ const EvapotranspirationCard: React.FC = () => {
       const data: ETResponse = await response.json();
 
       // Extract ET value from ET_mean_mm_per_day (primary field from API response)
-      const etValueExtracted = data.ET_mean_mm_per_day ?? 2.5;
-
-      // Extract hourly trend data from hourly_records_et array
-      let trendDataExtracted: number[] = [];
-      let hourlyDataWithTime: Array<{time: string, value: number}> = [];
-      
-      if (data.hourly_records_et && Array.isArray(data.hourly_records_et) && data.hourly_records_et.length > 0) {
-        // Use real hourly data from API
-        // Extract both time and et0_fao_evapotranspiration values
-        hourlyDataWithTime = data.hourly_records_et.map((record: HourlyETRecord) => ({
-          time: record.time || '',
-          value: Number(record.et0_fao_evapotranspiration) || 0
-        }));
-        
-        // Map the et0_fao_evapotranspiration values for trendDataExtracted
-        trendDataExtracted = hourlyDataWithTime.map(item => item.value);
-        
-        // Ensure we have exactly 24 hours of data
-        // If we have fewer than 24 records, pad with zeros and generate time
-        while (hourlyDataWithTime.length < 24) {
-          const currentDate = data.start_date || new Date().toISOString().split('T')[0];
-          const hour = hourlyDataWithTime.length.toString().padStart(2, '0');
-          hourlyDataWithTime.push({
-            time: `${currentDate}T${hour}:00`,
-            value: 0
-          });
-          trendDataExtracted.push(0);
-        }
-        
-        // If we have more than 24 records, take only the first 24
-        if (hourlyDataWithTime.length > 24) {
-          hourlyDataWithTime = hourlyDataWithTime.slice(0, 24);
-          trendDataExtracted = trendDataExtracted.slice(0, 24);
-        }
-      } else {
-        // Fallback: Generate trend data if hourly_records_et is not available
-        const base = etValueExtracted;
-        const currentDate = data.start_date || new Date().toISOString().split('T')[0];
-        trendDataExtracted = Array.from({ length: 24 }, (_, i) => {
-          const fluctuation = (Math.sin(i / 3) + 1) * 0.1 * base;
-          return Math.round((base + fluctuation) * 10) / 10;
-        });
-        
-        hourlyDataWithTime = trendDataExtracted.map((value, i) => {
-          const hour = i.toString().padStart(2, '0');
-          return {
-            time: `${currentDate}T${hour}:00`,
-            value: value
-          };
-        });
+      const etRaw = Number(data.ET_mean_mm_per_day);
+      if (!Number.isFinite(etRaw)) {
+        throw new Error('ET API returned no ET_mean_mm_per_day for this plot');
       }
-      
+      const etValueExtracted = etRaw;
+
+      // Only real hourly records — no padding or generated values.
+      const hourlyDataWithTime: Array<{ time: string; value: number }> = (
+        Array.isArray(data.hourly_records_et) ? data.hourly_records_et : []
+      )
+        .map((record: HourlyETRecord) => ({
+          time: record.time || '',
+          value: Number(record.et0_fao_evapotranspiration),
+        }))
+        .filter((r) => Number.isFinite(r.value))
+        .slice(0, 24);
+      const trendDataExtracted = hourlyDataWithTime.map((item) => item.value);
+
       // Store hourly data with time for tooltips
       setHourlyData(hourlyDataWithTime);
 
@@ -203,7 +170,7 @@ const EvapotranspirationCard: React.FC = () => {
 
     } catch (err: any) {
         clearTimeout(timeoutId);
-        
+
         // Handle timeout errors gracefully
         if (err.name === 'AbortError' || err.message?.includes('aborted')) {
           console.warn('⚠️ Evapotranspiration request timed out after 5 minutes');
@@ -216,7 +183,7 @@ const EvapotranspirationCard: React.FC = () => {
           } else {
       const errorMessage = err.message || 'Unknown error';
       setError(`Failed to fetch ET data: ${errorMessage}`);
-      
+
       // Log detailed error for debugging
       console.error('ET API fetch error:', {
         error: err,
@@ -227,10 +194,10 @@ const EvapotranspirationCard: React.FC = () => {
       });
           }
         }
-        
+
         setAppState((prev: any) => ({
           ...prev,
-          etValue: 0,
+          etValue: null,
           etTrendData: [],
         }));
       }
@@ -240,18 +207,13 @@ const EvapotranspirationCard: React.FC = () => {
       setError('Failed to fetch ET data');
       setAppState((prev: any) => ({
         ...prev,
-        etValue: 0,
+        etValue: null,
         etTrendData: [],
       }));
     } finally {
       setLoading(false);
     }
   };
-
-  const comparison =
-    etValue > average
-      ? { status: "Above average", className: "text-orange-500" }
-      : { status: "Below average", className: "text-green-500" };
 
   const maxTrendValue =
     Array.isArray(trendData) && trendData.length > 0
@@ -275,17 +237,13 @@ const EvapotranspirationCard: React.FC = () => {
             <div className="loading-spinner-small"></div>
           ) : (
             <>
-              <span className="value">{etValue.toFixed(2)}</span>
+              <span className="value">{etValue != null ? etValue.toFixed(2) : "—"}</span>
               <span className="unit">mm</span>
             </>
           )}
         </div>
 
         {error && <div className="error-message-small">{error}</div>}
-
-        <div className={`evap-comparison ${comparison.className}`}>
-          {comparison.status} ({average.toFixed(1)}mm)
-        </div>
 
         <div className="evap-trend">
           <div className="trend-label">24h Trend</div>
@@ -295,10 +253,10 @@ const EvapotranspirationCard: React.FC = () => {
                 const numVal = Number(val) || 0;
                 // Get time from hourlyData if available, otherwise use index
                 const timeData = hourlyData[i] || null;
-                const displayTime = timeData?.time 
+                const displayTime = timeData?.time
                   ? new Date(timeData.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
                   : `${i.toString().padStart(2, '0')}:00`;
-                
+
                 return (
                   <div
                     key={i}

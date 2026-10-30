@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
 
-  
+
   const getMenuItems = () => {
     switch (userRole) {
       case 'farmer':
@@ -112,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           // renderMenu('Plot Birde View', <BarChart3 size={20} />),
           renderMenu('Team Connect', <List size={20} />),
           renderMenu('User Desk', <Users size={20} />, ['Contactuser']),
-          
+
         ];
       case 'owner':
         return [
@@ -123,7 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           // renderMenu('Plot Birde View', <BarChart3 size={20} />),
           renderMenu('Team Connect', <List size={20} />),
           renderMenu('Contactuser', <Users size={20} />,),
-          
+
         ];
       case 'fieldofficer':
         return [
@@ -176,11 +176,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isOpen ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
-      
+
       <div className="p-4 border-b flex items-center justify-between">
-        <img 
-          src="/icons/CROPEYE Updated.png" 
-          alt="CROPEYE Logo" 
+        <img
+          src="/icons/CROPEYE Updated.png"
+          alt="CROPEYE Logo"
           className="h-8 w-auto object-contain"
         />
         <button onClick={onHomeClick} className="text-gray-600 hover:text-gray-900">

@@ -8,7 +8,7 @@ const Blog: React.FC = () => {
   const sliderRef = useRef<HTMLDivElement>(null);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
-  
+
   // Minimum swipe distance (in px)
   const minSwipeDistance = 50;
 
@@ -23,11 +23,11 @@ const Blog: React.FC = () => {
 
   const handleTouchEnd = () => {
     if (!touchStart || !touchEnd) return;
-    
+
     const distance = touchStart - touchEnd;
     const isLeftSwipe = distance > minSwipeDistance;
     const isRightSwipe = distance < -minSwipeDistance;
-    
+
     if (isLeftSwipe && activeIndex < blogPosts.length - 1) {
       setActiveIndex(prevIndex => prevIndex + 1);
     } else if (isRightSwipe && activeIndex > 0) {
@@ -59,7 +59,7 @@ const Blog: React.FC = () => {
       </p>
 
       <div className="relative overflow-hidden">
-        <div 
+        <div
           ref={sliderRef}
           className="flex transition-transform duration-300 ease-in-out"
           onTouchStart={handleTouchStart}
@@ -85,7 +85,7 @@ const Blog: React.FC = () => {
             />
           ))}
         </div>
-        
+
         <button
           onClick={goToPrevious}
           disabled={activeIndex === 0}
@@ -96,7 +96,7 @@ const Blog: React.FC = () => {
         >
           <ChevronLeft size={24} className="text-gray-800" />
         </button>
-        
+
         <button
           onClick={goToNext}
           disabled={activeIndex === blogPosts.length - 1}

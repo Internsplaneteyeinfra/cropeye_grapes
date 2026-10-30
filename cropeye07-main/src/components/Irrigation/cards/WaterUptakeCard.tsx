@@ -20,7 +20,7 @@ const WaterUptakeCard: React.FC = () => {
   // Get plants_in_field from current plot
   const currentPlot = profile?.plots?.find(plot => plot.fastapi_plot_id === plotName);
   const plantsInField = currentPlot?.farms?.[0]?.plants_in_field ?? 0;
-  
+
   // Calculate water per plant per hour: (waterRequired / plants_in_field) / 24
   const waterPerPlantPerHour = plantsInField > 0 ? (waterReqLiters / plantsInField) / 24 : 0;
 
@@ -49,11 +49,11 @@ const WaterUptakeCard: React.FC = () => {
 
         setLoading(true);
         setError(null);
-        
+
         const currentEndDate = new Date().toISOString().split('T')[0];
         const baseUrl = 'https://admin-cropeye.up.railway.app';
         const url = `${baseUrl}/wateruptake?plot_name=${plotName}&end_date=${currentEndDate}&days_back=7`;
-        
+
         const response = await fetch(url, {
           method: "POST",
           mode: "cors",
@@ -227,4 +227,3 @@ const WaterUptakeCard: React.FC = () => {
 };
 
 export default WaterUptakeCard;
-

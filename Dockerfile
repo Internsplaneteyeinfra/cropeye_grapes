@@ -31,23 +31,29 @@ ENV VITE_SUGARCANE_APP_URL=${VITE_PUBLIC_ORIGIN}/sugarcan/
 
 # Build gateway (login at site root)
 COPY gateway/package*.json ./gateway/
-RUN cd gateway && npm ci
-COPY gateway ./gateway
-RUN cd gateway && npm run build
+WORKDIR /build/gateway
+RUN npm ci
+COPY gateway ./
+RUN npm run build
 
 # Build cropeye06 (grapes)
+WORKDIR /build
 COPY cropeye06-main/package*.json ./cropeye06-main/
-RUN cd cropeye06-main && npm ci
-COPY cropeye06-main ./cropeye06-main
-RUN cd cropeye06-main && npm run build
+WORKDIR /build/cropeye06-main
+RUN npm ci
+COPY cropeye06-main ./
+RUN npm run build
 
 # Build cropeye07 (sugarcane UI, served under /sugarcan/)
+WORKDIR /build
 COPY cropeye07-main/package*.json ./cropeye07-main/
-RUN cd cropeye07-main && npm ci
-COPY cropeye07-main ./cropeye07-main
-RUN cd cropeye07-main && npm run build
+WORKDIR /build/cropeye07-main
+RUN npm ci
+COPY cropeye07-main ./
+RUN npm run build
 
 FROM nginx:1.27-alpine@sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8
+# hadolint ignore=DL3018
 RUN apk add --no-cache gettext
 
 # Copy built SPAs into path-based folders
@@ -64,4 +70,3 @@ ENV PORT=10000
 EXPOSE 10000
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-

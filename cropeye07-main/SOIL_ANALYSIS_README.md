@@ -70,7 +70,7 @@ Open `test-api.html` in a browser to test the API endpoint directly.
 
 ### API Connection Issues
 - **Issue**: "Failed to fetch soil data" error
-- **Solution**: 
+- **Solution**:
   1. Verify API server is running on `192.168.41.120:1002`
   2. Check CORS settings on the API server
   3. Test with `test-api.html`
@@ -104,4 +104,4 @@ test-api.html                 # API testing utility
 - **URL**: `http://192.168.41.120:1002/analyze`
 - **Method**: GET
 - **Parameters**: `plot_name` (string)
-- **Example**: `http://192.168.41.120:1002/analyze?plot_name=294724` 
+- **Example**: `http://192.168.41.120:1002/analyze?plot_name=294724`

@@ -326,13 +326,13 @@ export function calculateSugarcaneStage(
   assessmentDate = new Date().toISOString().split('T')[0],
 ): string {
   const daysSincePlantation = calculateDaysSincePlantation(plantationDate, assessmentDate);
-  
+
   for (const stage of SUGARCANE_STAGES) {
     if (daysSincePlantation >= stage.minDays && daysSincePlantation <= stage.maxDays) {
       return stage.name;
     }
   }
-  
+
   // If beyond 365 days, return the last stage
   return "Ripening & Maturity";
 }
@@ -350,15 +350,15 @@ export function checkTemperatureHumidityMatch(
   const tempRange = pestTemp.split('-').map(t => parseFloat(t.trim()));
   const tempMin = tempRange[0];
   const tempMax = tempRange[1];
-  
+
   // Parse humidity range (e.g., "70-80" -> min: 70, max: 80)
   const humidityRange = pestHumidity.split('-').map(h => parseFloat(h.trim()));
   const humidityMin = humidityRange[0];
   const humidityMax = humidityRange[1];
-  
+
   const tempMatch = currentTemp >= tempMin && currentTemp <= tempMax;
   const humidityMatch = currentHumidity >= humidityMin && currentHumidity <= humidityMax;
-  
+
   return { tempMatch, humidityMatch };
 }
 
@@ -406,7 +406,7 @@ export async function fetchPestDetectionData(
 
     const response = await getFarmerMyProfile();
     const profileData = response.data;
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       console.warn('No plots found in user profile for pest detection');
       return {
@@ -420,32 +420,32 @@ export async function fetchPestDetectionData(
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId ||
         p.plot_name === plotId
       );
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
     }
 
     const plotName = selectedPlot.plot_name || selectedPlot.fastapi_plot_id || `${selectedPlot.gat_number}_${selectedPlot.plot_number}`;
-    
+
     // Use direct API URL - CORS is handled on the backend
     // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/pest_detection_by_crop_pest_detection_post
     const params = new URLSearchParams({ plot_name: plotName });
     if (startDate) params.set('start_date', startDate);
     if (endDate) params.set('end_date', endDate);
     const url = `${getGrapesAdminBaseUrl().replace(/\/+$/, '')}/pest-detection?${params}`;
-    
+
     console.log(`🐛 Fetching Pest Detection data from: ${url}`);
-    
+
     // Create AbortController with 5 minute timeout to prevent session timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
-    
+
     try {
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const postResponse = await fetch(url, {
@@ -453,15 +453,15 @@ export async function fetchPestDetectionData(
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (postResponse.ok) {
         const pestData = await postResponse.json();
         const pixelSummary = pestData.pixel_summary || {};
@@ -471,17 +471,17 @@ export async function fetchPestDetectionData(
           sucking_affected_pixel_percentage: pixelSummary.sucking_affected_pixel_percentage || 0,
           SoilBorn_affected_pixel_percentage: pixelSummary.SoilBorn_affected_pixel_percentage || 0,
         };
-        
+
         // Cache the result
         if (plotId) {
           const dateSuffix = startDate || endDate ? `_${startDate || ''}_${endDate || ''}` : '';
           const cacheKey = `pestDetectionData_${plotId}${dateSuffix}`;
           setCache(cacheKey, result);
         }
-        
+
         return result;
       }
-      
+
       // If request fails, return default
       console.warn(`Pest detection API error: ${postResponse.status}`);
       return {
@@ -490,17 +490,17 @@ export async function fetchPestDetectionData(
         sucking_affected_pixel_percentage: 0,
         SoilBorn_affected_pixel_percentage: 0,
       };
-      
+
     } catch (error: any) {
       clearTimeout(timeoutId);
-      
+
       // Handle timeout errors gracefully
       if (error.name === 'AbortError' || error.message?.includes('aborted')) {
         console.warn('⚠️ Pest detection request timed out after 5 minutes');
       } else {
         console.warn('Error fetching pest detection data:', error?.message || error);
       }
-      
+
       return {
         fungi_affected_pixel_percentage: 0,
         chewing_affected_pixel_percentage: 0,
@@ -521,6 +521,55 @@ export async function fetchPestDetectionData(
 }
 
 /**
+ * POST /pest-detection for an explicit plot name (owner / manager views have no farmer profile).
+ * Returns null when the API gives no answer — never zero-filled.
+ */
+export async function fetchPestDetectionForPlotName(
+  plotName: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<PestDetectionData | null> {
+  if (!plotName?.trim()) return null;
+  const cacheKey = `pestDetectionByName_${plotName}_${startDate || ''}_${endDate || ''}`;
+  const cached = getCache(cacheKey, 30 * 60 * 1000);
+  if (cached) return cached as PestDetectionData;
+
+  const params = new URLSearchParams({ plot_name: plotName.trim() });
+  if (startDate) params.set('start_date', startDate);
+  if (endDate) params.set('end_date', endDate);
+  const token = getAuthToken();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120_000);
+  try {
+    const res = await fetch(`${getGrapesAdminBaseUrl().replace(/\/+$/, '')}/pest-detection?${params}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const s = body?.pixel_summary;
+    if (!s || typeof s !== 'object') return null;
+    const pick = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const result: PestDetectionData = {
+      fungi_affected_pixel_percentage: pick(s.fungi_affected_pixel_percentage),
+      chewing_affected_pixel_percentage: pick(s.chewing_affected_pixel_percentage),
+      sucking_affected_pixel_percentage: pick(s.sucking_affected_pixel_percentage),
+      SoilBorn_affected_pixel_percentage: pick(s.SoilBorn_affected_pixel_percentage),
+    };
+    setCache(cacheKey, result);
+    return result;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Main function to generate pest and disease risk assessment
  */
 export async function generateRiskAssessment(
@@ -533,15 +582,15 @@ export async function generateRiskAssessment(
   try {
     // Calculate days since plantation
     const daysSincePlantation = calculateDaysSincePlantation(plantationDate, assessmentDate);
-    
+
     // Calculate current grapes stage
     const currentStage = calculateSugarcaneStage(plantationDate, assessmentDate);
-    
+
     // Extract current conditions
     const currentMonth = monthNameForDate(assessmentDate) || weatherData.month;
     const currentTemp = weatherData.temperature;
     const currentHumidity = weatherData.humidity;
-    
+
     console.log('🌱 Risk Assessment Input Data:', {
       'Plantation Date': plantationDate,
       'Days Since Plantation': daysSincePlantation,
@@ -551,7 +600,7 @@ export async function generateRiskAssessment(
       'Humidity': currentHumidity,
       'Plot ID': plotId
     });
-    
+
     // Fetch API pest detection data
     let pestDetectionData: PestDetectionData | undefined = suppliedPestDetectionData;
     try {
@@ -568,7 +617,7 @@ export async function generateRiskAssessment(
         SoilBorn_affected_pixel_percentage: 0,
       };
     }
-    
+
     // Initialize result
     const result: RiskAssessmentResult = {
       stage: currentStage,
@@ -588,7 +637,7 @@ export async function generateRiskAssessment(
         Low: []
       }
     };
-    
+
     // Assess pest risks using pestRiskCalculator:
     // High: stage + legend (API %) + month | Moderate: stage + month | Low: month only
     for (const pest of pestsData) {
@@ -606,7 +655,7 @@ export async function generateRiskAssessment(
         result.pests.Low.push(pest.name);
       }
     }
-    
+
     // Assess disease risks using diseaseRiskCalculator:
     // High: stage + legend (fungi %) + month | Moderate: stage + month | Low: month only
     for (const disease of diseasesData) {
@@ -624,7 +673,7 @@ export async function generateRiskAssessment(
         result.diseases.Low.push(disease.name);
       }
     }
-    
+
     console.log('📊 Risk assessment result:', {
       daysSincePlantation,
       currentStage,
@@ -643,14 +692,14 @@ export async function generateRiskAssessment(
       },
       diseasesHigh: result.diseases.High // Show which diseases are in High
     });
-    
+
     // Log summary of API detection and results
     if (pestDetectionData) {
       const hasChewing = pestDetectionData.chewing_affected_pixel_percentage > 0;
       const hasSucking = pestDetectionData.sucking_affected_pixel_percentage > 0;
       const hasSoilBorn = pestDetectionData.SoilBorn_affected_pixel_percentage > 0;
       const hasFungi = pestDetectionData.fungi_affected_pixel_percentage > 0;
-      
+
       console.log('📊 Final API Detection Summary:', {
         hasChewing,
         hasSucking,
@@ -666,9 +715,9 @@ export async function generateRiskAssessment(
         'Diseases Displayed': { High: result.diseases.High, Moderate: result.diseases.Moderate, Low: result.diseases.Low }
       });
     }
-    
+
     return result;
-    
+
   } catch (error) {
     console.error('Error generating risk assessment:', error);
     throw new Error('Failed to generate risk assessment');
@@ -690,7 +739,7 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     console.log('📅 Fetching plantation date for plot:', plotId);
     const response = await getFarmerMyProfile();
     const profileData = response.data;
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       console.warn('⚠️ No plots found in profile, using fallback date');
       return new Date().toISOString().split('T')[0];
@@ -699,13 +748,13 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId
       );
       console.log('🔍 Looking for plot:', plotId, 'Found:', selectedPlot ? 'Yes' : 'No');
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
       console.log('📋 Using first plot from profile:', selectedPlot.fastapi_plot_id || `${selectedPlot.gat_number}_${selectedPlot.plot_number}`);
@@ -723,12 +772,12 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     } else {
       console.warn('⚠️ No farms found in selected plot, using fallback date');
     }
-    
+
     // Fallback to current date if no plantation date found
     const fallbackDate = new Date().toISOString().split('T')[0];
     console.warn('⚠️ Using fallback plantation date:', fallbackDate);
     return fallbackDate;
-    
+
   } catch (error: any) {
     console.warn('⚠️ Error fetching plantation date, using fallback:', error?.message || error);
     // Return today's date as fallback - don't throw error, just use fallback
@@ -810,7 +859,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
         'July', 'August', 'September', 'October', 'November', 'December'
       ];
       const currentMonth = monthNames[currentDate.getMonth()];
-      
+
       return {
         temperature: 25, // Default temperature
         humidity: 60, // Default humidity
@@ -820,7 +869,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
 
     const response = await getFarmerMyProfile();
     const profileData = response.data;
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       console.warn('🌤️ RiskAssessment: No plots found in user profile, using default weather data');
       const currentDate = new Date();
@@ -839,12 +888,12 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId
       );
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
     }
@@ -872,14 +921,14 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
     // Use centralized weather service with fallback enabled
     const { fetchCurrentWeather: fetchWeather } = await import("../../../services/weatherService");
     const weatherData = await fetchWeather(lat, lon, true); // Use fallback to prevent crashes
-    
+
     const currentDate = new Date();
     const monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     const currentMonth = monthNames[currentDate.getMonth()];
-    
+
     return {
       temperature: weatherData.temperature_c || 25,
       humidity: weatherData.humidity || 60,
@@ -897,7 +946,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     const currentMonth = monthNames[currentDate.getMonth()];
-    
+
     return {
       temperature: 25, // Default temperature
       humidity: 60, // Default humidity

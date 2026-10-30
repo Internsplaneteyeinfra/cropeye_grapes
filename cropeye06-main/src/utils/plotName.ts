@@ -37,6 +37,11 @@ export function sanitizePlotName(name: string): string {
     .replace(/^[_/\s]+|[_/\s]+$/g, "");
 }
 
+/** SEF / admin path segments only resolve `674_936`; `674/936` (encoded `%2F`) returns 404. */
+export function toBackendPlotName(name: string): string {
+  return sanitizePlotName(name).replace(/\//g, "_");
+}
+
 /** Format plot name for SEF/field-score API query (spaces → `+`). */
 export function formatPlotNameForApi(plotName: string): string {
   return sanitizePlotName(plotName).replace(/ /g, "+");

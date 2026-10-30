@@ -78,15 +78,15 @@ export const SUGARCANE_STAGES: SugarcaneStage[] = [
 export function calculateSugarcaneStage(plantationDate: string): string {
   const today = new Date();
   const plantation = new Date(plantationDate);
-  
+
   const daysSincePlantation = Math.floor((today.getTime() - plantation.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   for (const stage of SUGARCANE_STAGES) {
     if (daysSincePlantation >= stage.minDays && daysSincePlantation <= stage.maxDays) {
       return stage.name;
     }
   }
-  
+
   // If beyond 365 days, return the last stage
   return "Ripening & Maturity";
 }
@@ -104,15 +104,15 @@ function checkTemperatureHumidityMatch(
   const tempRange = pestTemp.split('-').map(t => parseFloat(t.trim()));
   const tempMin = tempRange[0];
   const tempMax = tempRange[1];
-  
+
   // Parse humidity range (e.g., "70-80" -> min: 70, max: 80)
   const humidityRange = pestHumidity.split('-').map(h => parseFloat(h.trim()));
   const humidityMin = humidityRange[0];
   const humidityMax = humidityRange[1];
-  
+
   const tempMatch = currentTemp >= tempMin && currentTemp <= tempMax;
   const humidityMatch = currentHumidity >= humidityMin && currentHumidity <= humidityMax;
-  
+
   return { tempMatch, humidityMatch };
 }
 
@@ -122,7 +122,7 @@ function checkTemperatureHumidityMatch(
 export function calculateDaysSincePlantation(plantationDate: string): number {
   const today = new Date();
   const plantation = new Date(plantationDate);
-  
+
   if (isNaN(plantation.getTime())) {
     // Try parsing different date formats
     const parts = plantationDate.split("-");
@@ -130,7 +130,7 @@ export function calculateDaysSincePlantation(plantationDate: string): number {
       plantation.setFullYear(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     }
   }
-  
+
   const daysSincePlantation = Math.floor((today.getTime() - plantation.getTime()) / (1000 * 60 * 60 * 24));
   return Math.max(0, daysSincePlantation);
 }
@@ -160,37 +160,37 @@ function assessPestRisk(
       apiPercentage = pestDetectionData.SoilBorn_affected_pixel_percentage || 0;
     }
   }
-  
+
   // Check if stage matches (days since plantation)
   let stageMatch = true; // Default to true if no stage info
   if (pest.stage) {
     stageMatch = daysSincePlantation >= pest.stage.minDays && daysSincePlantation <= pest.stage.maxDays;
   }
-  
+
   // Check if month matches (case-insensitive comparison)
   const currentMonthNormalized = currentMonth?.trim().toLowerCase() || '';
   const pestMonths = Array.isArray(pest.months) ? pest.months : [];
   const pestMonthsNormalized = pestMonths.map((m: string) => String(m).trim().toLowerCase());
   const monthMatch = pestMonthsNormalized.includes(currentMonthNormalized);
-  
+
   // High: API percentage > 0 (legend circle) AND stage matches AND month matches
   if (apiPercentage > 0 && stageMatch && monthMatch) {
     console.log(`🔍 Pest Assessment: ${pest.name} -> HIGH (API: ${apiPercentage}%, Stage: ✓, Month: ✓)`);
     return 'High';
   }
-  
+
   // Moderate: Stage matches AND month matches
   if (stageMatch && monthMatch) {
     console.log(`🔍 Pest Assessment: ${pest.name} -> MODERATE (Stage: ✓, Month: ✓)`);
     return 'Moderate';
   }
-  
+
   // Low: Month matches only
   if (monthMatch) {
     console.log(`🔍 Pest Assessment: ${pest.name} -> LOW (Month: ✓)`);
     return 'Low';
   }
-  
+
   // Don't display if month doesn't match
   return null;
 }
@@ -211,40 +211,40 @@ function assessDiseaseRisk(
 ): 'High' | 'Moderate' | 'Low' | null {
   // Check if API detected fungi (legend circle shows fungi percentage)
   const fungiPercentage = pestDetectionData?.fungi_affected_pixel_percentage || 0;
-  
+
   // Check if stage matches (days since plantation)
   let stageMatch = true; // Default to true if no stage info
   if (disease.stage) {
     stageMatch = daysSincePlantation >= disease.stage.minDays && daysSincePlantation <= disease.stage.maxDays;
   }
-  
+
   // Check if month matches (case-insensitive comparison)
   const currentMonthNormalized = currentMonth?.trim().toLowerCase() || '';
   const diseaseMonths = Array.isArray(disease.months) ? disease.months : [];
   const diseaseMonthsNormalized = diseaseMonths.map((m: string) => String(m).trim().toLowerCase());
   const monthMatch = diseaseMonthsNormalized.includes(currentMonthNormalized);
-  
+
   // For fungal diseases (Red Rot, Rust, Smut, Wilt, Downy Mildew), check API percentage
   const isFungalDisease = ['Red Rot', 'Rust', 'Smut', 'Wilt', 'Downy Mildew'].includes(disease.name);
-  
+
   // High: API fungi percentage > 0 (legend circle) AND stage matches AND month matches (for fungal diseases only)
   if (isFungalDisease && fungiPercentage > 0 && stageMatch && monthMatch) {
     console.log(`🔍 Disease Assessment: ${disease.name} -> HIGH (Fungi: ${fungiPercentage}%, Stage: ✓, Month: ✓)`);
     return 'High';
   }
-  
+
   // Moderate: Stage matches AND month matches
   if (stageMatch && monthMatch) {
     console.log(`🔍 Disease Assessment: ${disease.name} -> MODERATE (Stage: ✓, Month: ✓)`);
     return 'Moderate';
   }
-  
+
   // Low: Month matches only
   if (monthMatch) {
     console.log(`🔍 Disease Assessment: ${disease.name} -> LOW (Month: ✓)`);
     return 'Low';
   }
-  
+
   // Don't display if month doesn't match
   return null;
 }
@@ -267,7 +267,7 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
     }
 
     const profileData = await getProfileData();
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       console.warn('No plots found in user profile for pest detection');
       return {
@@ -281,13 +281,13 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId ||
         p.plot_name === plotId
       );
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
     }
@@ -307,17 +307,17 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
         SoilBorn_affected_pixel_percentage: ps.SoilBorn_affected_pixel_percentage || 0,
       };
     }
-    
+
     // Use proxy in development to avoid CORS issues, direct URL in production
-    const baseUrl = import.meta.env.DEV 
-      ? '/api/dev-plot' 
+    const baseUrl = import.meta.env.DEV
+      ? '/api/dev-plot'
       : 'https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/pest-detection?plot_name=${plotName}&end_date=${currentDate}&days_back=7`;
-    
+
     // Add timeout to prevent hanging on 503 errors
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
+
     try {
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const postResponse = await fetch(url, {
@@ -325,14 +325,14 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         signal: controller.signal
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (postResponse.ok) {
         const pestData = await postResponse.json();
         setCache(cacheKey, pestData); // Cache for Map and future calls
@@ -344,14 +344,14 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
           SoilBorn_affected_pixel_percentage: pixelSummary.SoilBorn_affected_pixel_percentage || 0,
         };
       }
-      
+
       // Handle 503 Service Unavailable and other errors gracefully
       if (postResponse.status === 503) {
         console.warn(`⚠️ Pest detection API is temporarily unavailable (503). Using default values.`);
       } else {
         console.warn(`⚠️ Pest detection API error: ${postResponse.status}`);
       }
-      
+
       // Return default values on any error
       return {
         fungi_affected_pixel_percentage: 0,
@@ -361,14 +361,14 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
       };
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
-      
+
       // Handle timeout or network errors
       if (fetchError.name === 'AbortError') {
         console.warn('⚠️ Pest detection API request timed out. Using default values.');
       } else {
         console.warn('⚠️ Error fetching pest detection data:', fetchError?.message || fetchError);
       }
-      
+
       return {
         fungi_affected_pixel_percentage: 0,
         chewing_affected_pixel_percentage: 0,
@@ -376,7 +376,7 @@ export async function fetchPestDetectionData(plotId?: string): Promise<PestDetec
         SoilBorn_affected_pixel_percentage: 0,
       };
     }
-    
+
   } catch (error: any) {
     console.warn('Error fetching pest detection data:', error?.message || error);
     return {
@@ -400,15 +400,15 @@ export async function generateRiskAssessment(
   try {
     // Calculate days since plantation
     const daysSincePlantation = calculateDaysSincePlantation(plantationDate);
-    
+
     // Calculate current sugarcane stage
     const currentStage = calculateSugarcaneStage(plantationDate);
-    
+
     // Extract current conditions
     const currentMonth = weatherData.month;
     const currentTemp = weatherData.temperature;
     const currentHumidity = weatherData.humidity;
-    
+
     console.log('🌱 Risk Assessment Input Data:', {
       'Plantation Date': plantationDate,
       'Days Since Plantation': daysSincePlantation,
@@ -418,7 +418,7 @@ export async function generateRiskAssessment(
       'Humidity': currentHumidity,
       'Plot ID': plotId
     });
-    
+
     // Use provided pest detection data or fetch it if not provided
     let pestDetectionData: PestDetectionData | undefined;
     if (pestDetectionDataOverride) {
@@ -438,7 +438,7 @@ export async function generateRiskAssessment(
         };
       }
     }
-    
+
     // Initialize result
     const result: RiskAssessmentResult = {
       stage: currentStage,
@@ -458,7 +458,7 @@ export async function generateRiskAssessment(
         Low: []
       }
     };
-    
+
     // Determine which pest categories have percentage > 0 (legend circle shows percentage)
     const activeCategories: string[] = [];
     if (pestDetectionData) {
@@ -472,9 +472,9 @@ export async function generateRiskAssessment(
         activeCategories.push('soil_borne');
       }
     }
-    
+
     console.log('📋 Active Pest Categories (with percentage > 0):', activeCategories.length > 0 ? activeCategories.join(', ') : 'NONE');
-    
+
     // Assess pest risks: Process ALL pests to determine High, Moderate, or Low risk
     // High: API percentage > 0 (legend circle) AND stage matches AND month matches
     // Moderate: Stage matches AND month matches
@@ -489,7 +489,7 @@ export async function generateRiskAssessment(
           currentHumidity,
           pestDetectionData
         );
-        
+
         // Add to appropriate risk level array
         if (riskLevel === 'High') {
           result.pests.High.push(pest.name);
@@ -503,11 +503,11 @@ export async function generateRiskAssessment(
         // Continue processing other pests
       }
     }
-    
+
     // Check if fungi percentage > 0 (legend circle shows fungi percentage)
     const hasFungi = pestDetectionData?.fungi_affected_pixel_percentage > 0;
     console.log('🍄 Fungal Diseases Active:', hasFungi ? `YES (${pestDetectionData?.fungi_affected_pixel_percentage}%)` : 'NO');
-    
+
     // Assess disease risks: Process ALL diseases to determine High, Moderate, or Low risk
     // High: API fungi percentage > 0 (legend circle) AND stage matches AND month matches (for fungal diseases only)
     // Moderate: Stage matches AND month matches
@@ -522,7 +522,7 @@ export async function generateRiskAssessment(
           currentHumidity,
           pestDetectionData
         );
-        
+
         // Add to appropriate risk level array
         if (riskLevel === 'High') {
           result.diseases.High.push(disease.name);
@@ -536,7 +536,7 @@ export async function generateRiskAssessment(
         // Continue processing other diseases
       }
     }
-    
+
     console.log('📊 Risk assessment result:', {
       daysSincePlantation,
       currentStage,
@@ -555,14 +555,14 @@ export async function generateRiskAssessment(
       },
       diseasesHigh: result.diseases.High // Show which diseases are in High
     });
-    
+
     // Log summary of API detection and results
     if (pestDetectionData) {
       const hasChewing = pestDetectionData.chewing_affected_pixel_percentage > 0;
       const hasSucking = pestDetectionData.sucking_affected_pixel_percentage > 0;
       const hasSoilBorn = pestDetectionData.SoilBorn_affected_pixel_percentage > 0;
       const hasFungi = pestDetectionData.fungi_affected_pixel_percentage > 0;
-      
+
       console.log('📊 Final API Detection Summary:', {
         'Chewing percentage': pestDetectionData.chewing_affected_pixel_percentage,
         'Sucking percentage': pestDetectionData.sucking_affected_pixel_percentage,
@@ -586,7 +586,7 @@ export async function generateRiskAssessment(
         'Moderate Risk Diseases': result.diseases.Moderate,
         'Low Risk Diseases': result.diseases.Low
       });
-      
+
       // Log summary of risk distribution
       const totalPests = result.pests.High.length + result.pests.Moderate.length + result.pests.Low.length;
       const totalDiseases = result.diseases.High.length + result.diseases.Moderate.length + result.diseases.Low.length;
@@ -596,9 +596,9 @@ export async function generateRiskAssessment(
         'Note': 'High = API detected (legend circle) + stage + month match, Moderate = stage + month match, Low = month match only'
       });
     }
-    
+
     return result;
-    
+
   } catch (error) {
     console.error('Error generating risk assessment:', error);
     throw new Error('Failed to generate risk assessment');
@@ -619,7 +619,7 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
 
     console.log('📅 Fetching plantation date for plot:', plotId);
     const profileData = await getProfileData();
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       console.warn('⚠️ No plots found in profile, using fallback date');
       return new Date().toISOString().split('T')[0];
@@ -628,13 +628,13 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId
       );
       console.log('🔍 Looking for plot:', plotId, 'Found:', selectedPlot ? 'Yes' : 'No');
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
       console.log('📋 Using first plot from profile:', selectedPlot.fastapi_plot_id || `${selectedPlot.gat_number}_${selectedPlot.plot_number}`);
@@ -652,12 +652,12 @@ export async function fetchPlantationDate(plotId?: string): Promise<string> {
     } else {
       console.warn('⚠️ No farms found in selected plot, using fallback date');
     }
-    
+
     // Fallback to current date if no plantation date found
     const fallbackDate = new Date().toISOString().split('T')[0];
     console.warn('⚠️ Using fallback plantation date:', fallbackDate);
     return fallbackDate;
-    
+
   } catch (error: any) {
     console.warn('⚠️ Error fetching plantation date, using fallback:', error?.message || error);
     // Return today's date as fallback - don't throw error, just use fallback
@@ -681,7 +681,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
         'July', 'August', 'September', 'October', 'November', 'December'
       ];
       const currentMonth = monthNames[currentDate.getMonth()];
-      
+
       return {
         temperature: 25, // Default temperature
         humidity: 60, // Default humidity
@@ -690,7 +690,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
     }
 
     const profileData = await getProfileData();
-    
+
     if (!profileData.plots || profileData.plots.length === 0) {
       throw new Error('No plots found in user profile');
     }
@@ -698,12 +698,12 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
     // Find selected plot or use first plot
     let selectedPlot = null;
     if (plotId) {
-      selectedPlot = profileData.plots.find((p: any) => 
+      selectedPlot = profileData.plots.find((p: any) =>
         p.fastapi_plot_id === plotId ||
         `${p.gat_number}_${p.plot_number}` === plotId
       );
     }
-    
+
     if (!selectedPlot) {
       selectedPlot = profileData.plots[0];
     }
@@ -716,20 +716,20 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
     const lon = selectedPlot.coordinates.location.longitude;
 
     const weatherResponse = await fetch(`https://weather-cropeye.up.railway.app/current-weather?lat=${lat}&lon=${lon}`);
-    
+
     if (!weatherResponse.ok) {
       throw new Error(`Weather API error: ${weatherResponse.status}`);
     }
-    
+
     const weatherData = await weatherResponse.json();
-    
+
     const currentDate = new Date();
     const monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     const currentMonth = monthNames[currentDate.getMonth()];
-    
+
     return {
       temperature: weatherData.temperature || 25,
       humidity: weatherData.humidity || 60,
@@ -744,7 +744,7 @@ export async function fetchCurrentWeather(plotId?: string): Promise<WeatherData>
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     const currentMonth = monthNames[currentDate.getMonth()];
-    
+
     return {
       temperature: 25, // Default temperature
       humidity: 60, // Default humidity

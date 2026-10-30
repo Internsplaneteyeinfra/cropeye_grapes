@@ -64,13 +64,13 @@ const IrrigationSchedule: React.FC = () => {
   /**
    * Calculate Water Required for Drip Irrigation (Liters per Acre)
    * Formula: Water Required = Net ET × Kc × Efficiency × Area Conversion
-   * 
+   *
    * Where:
    * - Net ET: Evapotranspiration - Rainfall (mm/day)
    * - Kc: Crop coefficient (varies by growth stage: 0.3 to 1.2)
    * - 0.94: Irrigation efficiency factor (94% efficiency for drip)
    * - 4046.86: Conversion factor (1 acre = 4046.86 m²)
-   * 
+   *
    * @param netEt - Net Evapotranspiration in mm/day
    * @param kcVal - Crop coefficient
    * @returns Water required in Liters per Acre (rounded)
@@ -137,12 +137,12 @@ const IrrigationSchedule: React.FC = () => {
     // Use global selected plot or fallback to first plot
     let selectedPlot = null;
     if (selectedPlotName) {
-      selectedPlot = profile.plots?.find((p: any) => 
+      selectedPlot = profile.plots?.find((p: any) =>
         p.fastapi_plot_id === selectedPlotName ||
         `${p.gat_number}_${p.plot_number}` === selectedPlotName
       );
     }
-    
+
     // Fallback to first plot if no selection or selected plot not found
     if (!selectedPlot && profile.plots && profile.plots.length > 0) {
       selectedPlot = profile.plots[0];
@@ -289,11 +289,11 @@ const IrrigationSchedule: React.FC = () => {
       if (!profile || !selectedPlotName) return;
 
       // Find selected plot
-      let selectedPlot = profile.plots?.find((p: any) => 
+      let selectedPlot = profile.plots?.find((p: any) =>
         p.fastapi_plot_id === selectedPlotName ||
         `${p.gat_number}_${p.plot_number}` === selectedPlotName
       );
-      
+
       if (!selectedPlot && profile.plots && profile.plots.length > 0) {
         selectedPlot = profile.plots[0];
       }
@@ -352,7 +352,7 @@ const IrrigationSchedule: React.FC = () => {
   const generateAdjustedET = (baseEt: number) => {
     // If base ET is too low, set a minimum realistic value
     const effectiveBaseEt = baseEt > 0 ? baseEt : 2.5;
-    
+
     // Create a seed from plotName to ensure different users get different patterns
     // This makes Medium appear at different positions for different users
     let seed = 0;
@@ -363,33 +363,33 @@ const IrrigationSchedule: React.FC = () => {
     }
     // Add date-based variation for extra randomness
     seed += new Date().getDate();
-    
+
     // Simple seeded random function
     let randomSeed = seed;
     const seededRandom = () => {
       randomSeed = (randomSeed * 9301 + 49297) % 233280;
       return randomSeed / 233280;
     };
-    
+
     // Create predictions with realistic variations
     // Day 1-6 will have variations to ensure mix of Low and Medium ranges
     const predictions: number[] = [];
-    
+
     // Determine which days should be Medium based on seed (ensuring 2-3 Medium days out of 6)
     const mediumDays: number[] = [];
     const candidateDays = [0, 1, 2, 3, 4, 5];
     const numMediumDays = 2 + Math.floor(seededRandom() * 2); // 2 or 3 Medium days
-    
+
     for (let k = 0; k < numMediumDays; k++) {
       const randomIdx = Math.floor(seededRandom() * candidateDays.length);
       mediumDays.push(candidateDays[randomIdx]);
       candidateDays.splice(randomIdx, 1);
     }
-    
+
     for (let i = 0; i < 6; i++) {
       let predictedET: number;
       const isMediumDay = mediumDays.includes(i);
-      
+
       if (effectiveBaseEt <= 3.0) {
         // If current is Low, predict mostly Low with some Medium
         if (isMediumDay) {
@@ -421,16 +421,16 @@ const IrrigationSchedule: React.FC = () => {
           predictedET = 3.0 + (seededRandom() * 0.8); // 3.0-3.8
         }
       }
-      
+
       // Add slight day-to-day variation for realism
       const variationFactor = 0.95 + (seededRandom() * 0.10); // ±5% variation
       predictedET = predictedET * variationFactor;
-      
+
       // Ensure minimum value and round
       predictedET = Math.max(predictedET, 1.5);
       predictions.push(Number(predictedET.toFixed(1)));
     }
-    
+
     return predictions;
   };
 
@@ -453,11 +453,11 @@ const IrrigationSchedule: React.FC = () => {
 
       // Step 1: Calculate Net ET (ET - Rainfall)
       const netEt = calculateNetET(etForDay, rainfall);
-      
+
       // Step 2: Calculate Water Required using formula: Net ET × Kc × 0.94 × 4046.86
       // Result is in Liters per Acre
       const waterRequired = waterFromNetET(netEt, kc);
-      
+
       // Step 3: Calculate irrigation time based on water required
       const time = calcIrrigationTime(waterRequired);
 

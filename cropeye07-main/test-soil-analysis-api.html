@@ -61,7 +61,7 @@
 </head>
 <body>
     <h1>Test Soil Analysis API</h1>
-    
+
     <div class="test-section">
         <h2>Test Specific Plots</h2>
         <p>Testing soil analysis for plots: <strong>294724, 289138, 294725</strong></p>
@@ -91,25 +91,25 @@
             const resultDiv = document.getElementById('soil-analysis-result');
             resultDiv.textContent = `Testing soil analysis for: ${plotName}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const response = await fetch(`http://192.168.41.120:1002/analyze?plot_name=${plotName}&end_date=${today}&days_back=7`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Soil Analysis - ${plotName}:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
                 // Analyze the response structure
                 analyzeSoilResponse(data, plotName);
-                
+
             } catch (error) {
                 resultDiv.textContent = `Soil Analysis - ${plotName}:\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -120,15 +120,15 @@
             const resultDiv = document.getElementById('all-plots-result');
             resultDiv.textContent = 'Testing all plots...';
             resultDiv.className = 'result';
-            
+
             const plots = ['294724', '289138', '294725'];
             const results = {};
-            
+
             for (const plot of plots) {
                 try {
                     const today = new Date().toISOString().split('T')[0];
                     const response = await fetch(`http://192.168.41.120:1002/1001/analyze?plot_name=${plot}&end_date=${today}&days_back=7`);
-                    
+
                     if (response.ok) {
                         const data = await response.json();
                         results[plot] = { success: true, data: data };
@@ -139,7 +139,7 @@
                     results[plot] = { success: false, error: error.message };
                 }
             }
-            
+
             resultDiv.textContent = `All Plots Results:\n${JSON.stringify(results, null, 2)}`;
             resultDiv.className = 'result success';
         }
@@ -148,19 +148,19 @@
             const resultDiv = document.getElementById('api-result');
             resultDiv.textContent = 'Testing API connection...';
             resultDiv.className = 'result';
-            
+
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const response = await fetch(`http://192.168.41.120:1002/1001/analyze?plot_name=294724&end_date=${today}&days_back=7`);
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `API Connection Successful!\nResponse:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `API Connection Failed: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -169,7 +169,7 @@
 
         function analyzeSoilResponse(data, plotName) {
             console.log(`Analyzing soil response for plot ${plotName}:`, data);
-            
+
             if (Array.isArray(data)) {
                 console.log('Response is an array with', data.length, 'items');
                 if (data.length > 0) {
@@ -179,7 +179,7 @@
             } else if (typeof data === 'object') {
                 console.log('Response is an object');
                 console.log('Available fields:', Object.keys(data));
-                
+
                 // Check for specific soil parameters
                 const specificParams = [
                     'bulk_density', 'bdod_0-5cm_mean',
@@ -190,10 +190,10 @@
                     'organic_carbon_stock', 'ocs_0-30cm_mean',
                     'phh2o', 'phh2o_0-5cm_mean'
                 ];
-                
+
                 const foundParams = specificParams.filter(param => data.hasOwnProperty(param));
                 console.log('Found specific soil parameters:', foundParams);
-                
+
                 // Display specific parameter values
                 if (foundParams.length > 0) {
                     console.log('Specific parameter values:');
@@ -213,4 +213,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

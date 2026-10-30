@@ -77,7 +77,7 @@ export const weedsData: Weed[] = [
     ],
     identification: [
       "Broad leaves",
-      
+
     ],
   },
   {
@@ -94,12 +94,12 @@ export const weedsData: Weed[] = [
       "Hand weeding + mulching"
     ],
     symptoms: [
-      "Competes in early stage", 
+      "Competes in early stage",
       "latex may affect soil",
     ],
     identification: [
       "Small plant with milky latex",
-      
+
     ],
   },
    {
@@ -120,7 +120,7 @@ export const weedsData: Weed[] = [
     ],
     identification: [
       "Sticky stems, sticks to clothes",
-      
+
     ],
   }
 ];

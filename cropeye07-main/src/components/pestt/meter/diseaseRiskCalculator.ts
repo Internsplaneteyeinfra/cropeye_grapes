@@ -6,4 +6,4 @@ export function calculateDiseaseRisk(disease: any, weather: any, month: string) 
     pest: disease, // for compatibility with PestRisk type
     riskLevel: 'low' as RiskLevel
   };
-} 
+}

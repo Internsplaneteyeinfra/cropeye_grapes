@@ -60,7 +60,7 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
   const renderActionItems = () => {
     const organicControls = (data as any).organic || [];
     const chemicalControls = (data as any).chemical || [];
-    
+
     return (
       <>
         <div className="mb-3 font-semibold text-green-700 text-base">Organic Controls</div>
@@ -152,7 +152,7 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
                 </div>
               )}
             </div>
-            
+
             {/* Always show symptoms and identification */}
             <div className="mt-3 text-xs sm:text-sm bg-white border border-gray-300 rounded-md p-3">
               {symptoms.length > 0 && (
@@ -172,7 +172,7 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
                 </>
               )}
             </div>
-            
+
             {/* Image moved to bottom after symptoms box */}
             <div className="relative w-full mt-3">
               <img
@@ -207,8 +207,8 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
           <div className="bg-white rounded-tl-lg rounded-tr-lg w-full max-w-sm sm:max-w-md relative">
             <div className="flex justify-between items-center p-4 border-b border-gray-200">
               <h3 className="text-lg font-bold text-red-700">Action for {name}</h3>
-              <button 
-                onClick={() => setShowModal(false)} 
+              <button
+                onClick={() => setShowModal(false)}
                 className="text-2xl font-bold text-gray-600 hover:text-gray-800"
               >
                 ×

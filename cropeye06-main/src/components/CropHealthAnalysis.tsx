@@ -7,9 +7,9 @@ import { Download, Info } from 'lucide-react';
 import { pestsData } from './pestt/meter/pestsData';
 import { diseasesData } from './pestt/meter/diseasesData';
 import { weedsData } from './pestt/meter/Weeds';
-import { 
-  generateRiskAssessment, 
-  fetchPlantationDate, 
+import {
+  generateRiskAssessment,
+  fetchPlantationDate,
   fetchCurrentWeather,
   fetchPestDetectionData,
   RiskAssessmentResult,
@@ -99,11 +99,11 @@ const MeasureWithInfo: React.FC<{ measure: string }> = ({ measure }) => {
           <div key={index} className="relative inline-flex items-center gap-0.5">
             <span className="font-medium">{mainText}</span>
             {tooltipText && (
-              <div 
+              <div
                 className="relative inline-block"
                 ref={(el) => { tooltipRefs.current[index] = el; }}
               >
-                <Info 
+                <Info
                   className="w-3 h-3 text-red-600 cursor-pointer hover:text-red-800 transition-colors"
                   onMouseEnter={() => !isMobile && setHoveredIndex(index)}
                   onMouseLeave={() => !isMobile && setHoveredIndex(null)}
@@ -111,14 +111,14 @@ const MeasureWithInfo: React.FC<{ measure: string }> = ({ measure }) => {
                 />
                 {hoveredIndex === index && (
                   <div className={`absolute z-50 px-2 py-1 text-xs text-red-600 bg-white border border-red-300 shadow-lg rounded whitespace-normal break-words font-semibold ${
-                    isMobile 
-                      ? 'top-full left-1/2 transform -translate-x-1/2 mt-1 w-48 max-w-xs' 
+                    isMobile
+                      ? 'top-full left-1/2 transform -translate-x-1/2 mt-1 w-48 max-w-xs'
                       : 'bottom-full left-1/2 transform -translate-x-1/2 mb-1 w-64 max-w-lg'
                   }`}>
                     {tooltipText}
                     <div className={`absolute w-2 h-2 bg-white border-l border-b border-red-300 transform rotate-45 ${
-                      isMobile 
-                        ? '-top-1 left-1/2 -translate-x-1/2' 
+                      isMobile
+                        ? '-top-1 left-1/2 -translate-x-1/2'
                         : '-bottom-1 left-1/2 -translate-x-1/2'
                     }`} />
                   </div>
@@ -154,7 +154,7 @@ const InfoTooltip: React.FC<{ text: string }> = ({ text }) => {
   // Close tooltip when clicking outside on mobile
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (show && tooltipRef.current && !tooltipRef.current.contains(event.target as Node) && 
+      if (show && tooltipRef.current && !tooltipRef.current.contains(event.target as Node) &&
           iconRef.current && !iconRef.current.contains(event.target as Node)) {
         setShow(false);
       }
@@ -174,25 +174,25 @@ const InfoTooltip: React.FC<{ text: string }> = ({ text }) => {
 
   return (
     <span ref={iconRef} className="relative inline-flex items-center ml-1">
-      <Info 
+      <Info
         className="w-4 h-4 text-blue-600 cursor-pointer hover:text-blue-800 transition-colors"
         onMouseEnter={() => !isMobile && setShow(true)}
         onMouseLeave={() => !isMobile && setShow(false)}
         onClick={handleToggle}
       />
       {show && (
-        <div 
+        <div
           ref={tooltipRef}
           className={`absolute z-50 px-3 py-2 text-xs text-blue-700 bg-white border border-blue-300 shadow-lg rounded whitespace-normal break-words font-semibold ${
-            isMobile 
-              ? 'top-full left-1/2 transform -translate-x-1/2 mt-2 w-48 max-w-xs' 
+            isMobile
+              ? 'top-full left-1/2 transform -translate-x-1/2 mt-2 w-48 max-w-xs'
               : 'bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 max-w-sm'
           }`}
         >
           {text}
           <div className={`absolute w-2 h-2 bg-white border-l border-b border-blue-300 transform rotate-45 ${
-            isMobile 
-              ? '-top-1 left-1/2 -translate-x-1/2' 
+            isMobile
+              ? '-top-1 left-1/2 -translate-x-1/2'
               : '-bottom-1 left-1/2 -translate-x-1/2'
           }`} />
         </div>
@@ -225,18 +225,18 @@ const CropHealthAnalysis: React.FC = () => {
   const loadRiskAssessment = async (plotId: string) => {
     try {
       setLoading(true);
-      
+
       // Fetch plantation date, weather data, and pest detection data
       const plantationDate = await fetchPlantationDate(plotId);
       const weatherData = await fetchCurrentWeather(plotId);
-      
+
       // Generate risk assessment (already includes API data, stage, and month matching)
       const assessment = await generateRiskAssessment(plantationDate, weatherData, plotId);
-      
+
       // Assessment already has correct logic: only HIGH if API percentage > 0 AND stage matches AND month matches
       setRiskAssessment(assessment);
       lastLoadedPlotRef.current = plotId;
-      
+
     } catch (error) {
       console.error('Failed to load risk assessment:', error);
     } finally {
@@ -356,7 +356,7 @@ const CropHealthAnalysis: React.FC = () => {
   const currentMonthLower = useMemo(getCurrentMonthLower, []);
   const weedRiskBuckets = useMemo(() => categorizeWeedsBySeason(weedsData, currentMonthLower), [currentMonthLower]);
   const weedRiskMap = useMemo(() => buildWeedRiskLevelMap(weedRiskBuckets), [weedRiskBuckets]);
-  
+
   // Debug: Log current month and weed risk buckets to verify categorization
   // console.log('Current month:', currentMonthLower);
   // console.log('Weed risk buckets:', weedRiskBuckets);
@@ -482,7 +482,7 @@ const CropHealthAnalysis: React.FC = () => {
                         <td className="py-1 md:py-2 px-1 md:px-2 font-semibold">{pc.pest}</td>
                         <td className="py-1 md:py-2 px-1 md:px-2">
                           <span className={`font-bold ${
-                            pc.probability === 'High' ? 'text-red-600' : 
+                            pc.probability === 'High' ? 'text-red-600' :
                             pc.probability === 'Moderate' ? 'text-orange-600' : 'text-yellow-600'
                           }`}>
                             {pc.probability}
@@ -527,7 +527,7 @@ const CropHealthAnalysis: React.FC = () => {
                         <td className="py-1 md:py-3 px-1 md:px-2 font-semibold">{disease.name}</td>
                         <td className="py-1 md:py-3 px-1 md:px-2">
                           <span className={`font-bold capitalize ${
-                            disease.probability === 'High' ? 'text-red-600' : 
+                            disease.probability === 'High' ? 'text-red-600' :
                             disease.probability === 'Moderate' ? 'text-orange-600' : 'text-yellow-600'
                           }`}>
                             {disease.probability}
@@ -563,7 +563,7 @@ const CropHealthAnalysis: React.FC = () => {
                   // Get risk level from month-based categorization map
                   // This uses the same logic as Pest & Disease component:
                   // - Weeds matching current month → "High" risk
-                  // - First remaining weed → "Moderate" risk  
+                  // - First remaining weed → "Moderate" risk
                   // - All other weeds → "Low" risk
                   const riskLevel = weedRiskMap.get(weed.name) || 'Low';
                   const chemicalText = Array.isArray(weed.chemical) ? weed.chemical[0] : '';
@@ -571,7 +571,7 @@ const CropHealthAnalysis: React.FC = () => {
                   const chemicalParts = chemicalText.split(' - ');
                   const chemicalName = chemicalParts[0] || chemicalText;
                   const dosage = chemicalParts[1] || '';
-                  
+
                   return (
                     <tr key={idx} className="border-b hover:bg-green-50">
                       <td className="px-1 md:px-2 py-1 md:py-2 border font-bold">
@@ -579,8 +579,8 @@ const CropHealthAnalysis: React.FC = () => {
                       </td>
                       <td className="px-1 md:px-2 py-1 md:py-2 border">
                         <span className={`font-bold ${
-                          riskLevel === 'High' ? 'text-red-600' : 
-                          riskLevel === 'Moderate' ? 'text-orange-600' : 
+                          riskLevel === 'High' ? 'text-red-600' :
+                          riskLevel === 'Moderate' ? 'text-orange-600' :
                           'text-yellow-600'
                         }`}>
                           {riskLevel}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Polygon, useMap, Circle, Rectangle, Marker } from "react-leaflet";
 import { divIcon } from "leaflet";
-import { LatLngTuple, LatLngBounds, LeafletMouseEvent } from "leaflet";
+import { LatLngTuple, LatLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./Map.css";
 import { useFarmerProfile, resolveFarmerPlotId } from "../hooks/useFarmerProfile";
@@ -20,7 +20,7 @@ import FertilizerTable from "./FertilizerTable";
 import { useAppContext } from "../context/AppContext";
 import { getCache, setCache, mapLayerCacheMaxAgeMs, shouldBypassMapLayerCache, clearMapLayerCache } from "./utils/cache";
 import { getEventsBaseUrl, getGrapesAdminBaseUrl, getGrapesSefBaseUrl } from "../utils/serviceUrls";
-import { fieldScoreCacheKey, findPlotRef } from "../utils/plotName";
+import { fieldScoreCacheKey, findPlotRef, toBackendPlotName } from "../utils/plotName";
 import { fetchPlotHarvestInfo } from "../utils/harvestStatusService";
 import { grapesPlotFormBody } from "../utils/grapesEventsBundle";
 
@@ -53,7 +53,7 @@ const tooltipStyles = `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.2);
   }
-  
+
   .brix-tooltip {
     position: fixed;
     background: rgba(0, 0, 0, 0.75);
@@ -98,48 +98,48 @@ const tooltipStyles = `
   text-align: right;
   font-size: 10px;
   }
-  
+
   @media (max-width: 768px) {
     .hover-tooltip {
       padding: 6px 8px;
       font-size: 10px;
       max-width: 150px;
     }
-    
+
     .enhanced-tooltip {
       padding: 6px 8px;
       font-size: 10px;
       max-width: 160px;
     }
-    
+
     .layer-name {
       min-width: 40px;
       font-size: 9px;
     }
-    
+
     .layer-description {
       font-size: 9px;
     }
   }
-  
+
   @media (max-width: 320px) {
     .hover-tooltip {
       padding: 4px 6px;
       font-size: 9px;
       max-width: 120px;
     }
-    
+
     .enhanced-tooltip {
       padding: 2px 15px;
       font-size: 9px;
       max-width: 100px;
     }
-    
+
     .layer-name {
       min-width: 30px;
       font-size: 8px;
     }
-    
+
     .layer-description {
       font-size: 8px;
     }
@@ -174,10 +174,10 @@ const BrixValueMarker: React.FC<{ position: [number, number]; value: string }> =
     const updateZoom = () => {
       setZoom(map.getZoom());
     };
-    
+
     map.on('zoom', updateZoom);
     updateZoom(); // Initial zoom level
-    
+
     return () => {
       map.off('zoom', updateZoom);
     };
@@ -357,7 +357,7 @@ const Map: React.FC<MapProps> = ({
   const phStatistics = appState?.soilData?.phh2o_0_5cm_mean ? {
     phh2o_0_5cm_mean_mean: appState.soilData.phh2o_0_5cm_mean
   } : undefined;
-  
+
   // Declare state variables first
   const [plotData, setPlotData] = useState<any>(null);
   const [plotBoundary, setPlotBoundary] = useState<any>(null); // Separate state for plot boundary that persists
@@ -366,7 +366,7 @@ const Map: React.FC<MapProps> = ({
   const [mapCenter] = useState<LatLngTuple>([17.842832246588202, 74.91558702408217]);
   const [selectedPlotName, setSelectedPlotName] = useState("");
   const [activeLayer, setActiveLayer] = useState<"Growth" | "Water Uptake" | "Soil Moisture" | "PEST" | "Brix">("Growth");
-  
+
   // Use context selectedPlotName if available, otherwise use local state
   const activePlotName = contextSelectedPlotName || selectedPlotName;
   // IMPORTANT: In this component, most fetches are keyed off local `selectedPlotName`.
@@ -405,7 +405,7 @@ const Map: React.FC<MapProps> = ({
   const [selectedLegendClass, setSelectedLegendClass] = useState<string | null>(null);
   const [layerChangeKey, setLayerChangeKey] = useState(0);
   const [pixelTooltip, setPixelTooltip] = useState<{layers: Array<{layer: string, label: string, description: string, percentage: number}>, x: number, y: number} | null>(null);
-  
+
   // Date navigation state (similar to Streamlit logic)
   const [currentEndDate, setCurrentEndDate] = useState<string>(() => {
     if (selectedAnalysisDate) return selectedAnalysisDate;
@@ -531,7 +531,7 @@ const Map: React.FC<MapProps> = ({
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
       setCurrentEndDate(todayStr);
-      
+
       // Check if data exists in cache before showing loading spinner
       let hasCachedData = false;
       if (selectedPlotName) {
@@ -544,12 +544,12 @@ const Map: React.FC<MapProps> = ({
         } else if (activeLayer === "PEST") {
           hasCachedData = !!(pestData || hasApiData('pest', selectedPlotName) || getCache(`pest_${selectedPlotName}_${todayStr}`));
         } else if (activeLayer === "Brix") {
-          hasCachedData = !!(brixData || canopyVigourData || brixQualityData || 
+          hasCachedData = !!(brixData || canopyVigourData || brixQualityData ||
                           hasApiData('brix', selectedPlotName) || hasApiData('canopyVigour', selectedPlotName) || hasApiData('brixQuality', selectedPlotName) ||
                           getCache(`brix_${selectedPlotName}_${todayStr}`) || getCache(`canopy_vigour_${selectedPlotName}_${todayStr}`) || getCache(`brixQuality_${selectedPlotName}`));
         }
       }
-      
+
       // Only show loading spinner if data doesn't exist in cache
       if ((!hasCachedData || shouldBypassMapLayerCache()) && selectedPlotName) {
         setLoading(true);
@@ -558,7 +558,7 @@ const Map: React.FC<MapProps> = ({
       }
       setError(null);
     }
-    
+
     // Ensure plotBoundary is preserved when switching layers
     // Try to extract from current layer data if plotBoundary is missing
     if (!plotBoundary && selectedPlotName) {
@@ -686,7 +686,7 @@ const Map: React.FC<MapProps> = ({
       if (cachedDataFound && !shouldFetch) {
         console.log(`✅ Using cached data for ${dataKey} - loading into state`);
         setLoading(false); // Stop spinner immediately
-        
+
         // Load cached data into state
         if (activeLayer === "Growth") {
           const cached = getCache(`growth_${selectedPlotName}_${currentEndDate}`) || (isToday ? getApiData('growth', selectedPlotName) : null);
@@ -733,7 +733,7 @@ const Map: React.FC<MapProps> = ({
           }
           if (cachedBrixQuality) setBrixQualityData(cachedBrixQuality);
         }
-        
+
         dataLoadedRef.current[dataKey] = true;
         return; // Exit early, don't fetch
       }
@@ -789,7 +789,7 @@ const Map: React.FC<MapProps> = ({
 
     // Profile has coordinates as [lng, lat], convert to GeoJSON Polygon format
     const boundaryCoords = plot.coordinates.boundary.coordinates;
-    
+
     // Ensure it's in the correct format: [[[lng, lat], [lng, lat], ...]]
     let polygonCoords = boundaryCoords;
     if (Array.isArray(boundaryCoords[0]) && !Array.isArray(boundaryCoords[0][0])) {
@@ -813,7 +813,7 @@ const Map: React.FC<MapProps> = ({
   // Auto-select first plot from farmer profile and load coordinates immediately
   useEffect(() => {
     console.log('🗺️ Map: Loading profile, profileLoading:', profileLoading, 'hasProfile:', !!profile);
-    
+
     if (profileLoading || !profile) {
       console.log('🗺️ Map: Waiting for profile to load...');
       return;
@@ -829,28 +829,28 @@ const Map: React.FC<MapProps> = ({
     const defaultPlot = selectedProfilePlot
       ? resolveFarmerPlotId(selectedProfilePlot)
       : null;
-    
+
     console.log('🗺️ Map: Available plots:', plotNames);
     console.log('🗺️ Map: Setting default plot:', defaultPlot);
-    
+
     if (defaultPlot) {
       setSelectedPlotName(defaultPlot);
       setContextSelectedPlotName(defaultPlot);
       localStorage.setItem('selectedPlot', defaultPlot);
-      
+
       // Find the plot in profile to get coordinates immediately
       const selectedPlot = profile.plots?.find(
         (p) => resolveFarmerPlotId(p) === defaultPlot,
       );
-      
+
       if (selectedPlot) {
         console.log('🗺️ Map: Found plot in profile, extracting coordinates...');
         const boundaryFromProfile = createPlotBoundaryFromProfile(selectedPlot);
-        
+
         if (boundaryFromProfile) {
           console.log('✅ Map: Setting plot boundary from profile (instant display)');
           setPlotBoundary(boundaryFromProfile);
-          
+
           // Calculate map center from boundary coordinates (optional, map will auto-center on boundary)
           const boundaryCoords = selectedPlot.coordinates?.boundary?.coordinates;
           if (boundaryCoords && Array.isArray(boundaryCoords) && boundaryCoords.length > 0) {
@@ -868,7 +868,7 @@ const Map: React.FC<MapProps> = ({
                   }
                 }
               }
-              
+
               if (flatCoords.length > 0) {
                 let sumLat = 0, sumLng = 0;
                 let validCoords = 0;
@@ -883,7 +883,7 @@ const Map: React.FC<MapProps> = ({
                     }
                   }
                 }
-                
+
                 if (validCoords > 0) {
                   const centerLat = sumLat / validCoords;
                   const centerLng = sumLng / validCoords;
@@ -898,7 +898,7 @@ const Map: React.FC<MapProps> = ({
           console.warn('⚠️ Map: No boundary coordinates in profile, will fetch from API');
         }
       }
-      
+
       // 1) Field Score first (spinner → score card), 2) then map layers.
       console.log('🗺️ Map: Loading Field Score first for plot:', defaultPlot);
       setFieldScoreLoading(true);
@@ -985,16 +985,16 @@ const Map: React.FC<MapProps> = ({
     const today = getCurrentDate();
     const currentDate = new Date(currentEndDate);
     const todayDate = new Date(today);
-    
+
     // Set both to midnight for accurate comparison
     currentDate.setHours(0, 0, 0, 0);
     todayDate.setHours(0, 0, 0, 0);
-    
+
     // If current date is before today, allow forward navigation
     if (currentDate < todayDate) {
       const nextDate = new Date(currentEndDate);
       nextDate.setDate(nextDate.getDate() + DAYS_STEP);
-      
+
       // Don't go beyond today
       if (nextDate <= todayDate) {
         setPopupSide('right');
@@ -1020,33 +1020,33 @@ const Map: React.FC<MapProps> = ({
     timeout: number | null = null // null = unlimited timeout (wait indefinitely until data comes)
   ): Promise<Response> => {
     let lastError: any;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         let controller: AbortController | null = null;
-        let timeoutId: NodeJS.Timeout | null = null;
-        
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
         // Only set timeout if specified
         if (timeout !== null && timeout > 0) {
           controller = new AbortController();
           timeoutId = setTimeout(() => controller!.abort(), timeout);
         }
-        
+
         const response = await fetch(url, {
           ...options,
           cache: import.meta.env.DEV ? "no-store" : options.cache ?? "default",
           signal: controller?.signal,
         });
-        
+
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
-        
+
         // If response is ok, return it
         if (response.ok) {
           return response;
         }
-        
+
         // For 502/503/504, retry
         if ([502, 503, 504].includes(response.status) && attempt < maxRetries) {
           const delay = retryDelay * Math.pow(2, attempt);
@@ -1054,15 +1054,15 @@ const Map: React.FC<MapProps> = ({
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        
+
         // For other errors, throw
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       } catch (error: any) {
         lastError = error;
-        
+
         // If it's a network error and we have retries left, retry
         if (
-          (error.name === 'TypeError' || 
+          (error.name === 'TypeError' ||
            error.message?.includes('Failed to fetch') ||
            error.name === 'AbortError') &&
           attempt < maxRetries
@@ -1072,12 +1072,12 @@ const Map: React.FC<MapProps> = ({
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        
+
         // If no retries left, throw
         throw error;
       }
     }
-    
+
     throw lastError;
   };
 
@@ -1085,7 +1085,7 @@ const Map: React.FC<MapProps> = ({
   const fetchAgroStatsData = async (plotName: string): Promise<any> => {
     const cacheKey = `agroStats_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached agroStats data for ${plotName}`);
       return cachedData;
@@ -1101,7 +1101,7 @@ const Map: React.FC<MapProps> = ({
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
       });
@@ -1109,11 +1109,11 @@ const Map: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("AgroStats API error response:", errorText);
-        
+
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`AgroStats API failed: ${resp.status} ${resp.statusText}`);
       }
 
@@ -1126,7 +1126,7 @@ const Map: React.FC<MapProps> = ({
 
       // Extract data for the specific plot
       // Try different plot name formats (with/without quotes, with/without underscores)
-      const plotData = allPlotsData[plotName] || 
+      const plotData = allPlotsData[plotName] ||
                        allPlotsData[`"${plotName}"`] ||
                        allPlotsData[plotName.replace(/_/g, '"_"')] ||
                        allPlotsData[`"${plotName.replace(/_/g, '"_"')}"`] ||
@@ -1156,73 +1156,6 @@ const Map: React.FC<MapProps> = ({
   };
 
   // Helper function to transform agroStats data to GeoJSON format
-  const transformAgroStatsToGeoJSON = (plotData: any, plotName: string, dataType: string): any => {
-    // Check if data already has GeoJSON structure
-    if (plotData?.features && Array.isArray(plotData.features)) {
-      return plotData;
-    }
-
-    // Try to find geometry in the plot data
-    let geometry = null;
-    let properties: any = { plot_name: plotName };
-
-    // Look for geometry in various possible locations
-    if (plotData?.geometry) {
-      geometry = plotData.geometry;
-    } else if (plotData?.boundary) {
-      geometry = plotData.boundary;
-    } else if (plotData?.location) {
-      // Create a point geometry if only location is available
-      if (plotData.location.coordinates) {
-        geometry = {
-          type: "Point",
-          coordinates: plotData.location.coordinates
-        };
-      }
-    } else if (plotData?.coordinates?.boundary) {
-      geometry = plotData.coordinates.boundary;
-    } else if (plotData?.coordinates?.location) {
-      geometry = {
-        type: "Point",
-        coordinates: plotData.coordinates.location.coordinates || plotData.coordinates.location
-      };
-    }
-
-    // Extract data based on dataType - check multiple possible locations
-    let extractedData = null;
-    
-    if (dataType === 'growth') {
-      extractedData = plotData?.growth || plotData?.growth_data || plotData?.ndvi || plotData;
-    } else if (dataType === 'water_uptake') {
-      extractedData = plotData?.water_uptake || plotData?.water_uptake_data || plotData?.ndwi || plotData;
-    } else if (dataType === 'soil_moisture') {
-      extractedData = plotData?.soil_moisture || plotData?.soil_moisture_data || plotData?.moisture || plotData;
-    } else if (dataType === 'pest') {
-      extractedData = plotData?.pest || plotData?.pest_data || plotData?.pest_detection || plotData;
-    } else {
-      extractedData = plotData;
-    }
-
-    // Merge extracted data into properties
-    if (extractedData && typeof extractedData === 'object') {
-      properties = { ...properties, ...extractedData };
-    }
-
-    // Create GeoJSON feature
-    const feature = {
-      type: "Feature",
-      geometry: geometry || {
-        type: "Polygon",
-        coordinates: [[]]
-      },
-      properties: properties
-    };
-
-    return {
-      type: "FeatureCollection",
-      features: [feature]
-    };
-  };
 
   const fetchGrowthData = async (plotName: string) => {
     if (!plotName) return;
@@ -1242,7 +1175,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `growth_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Growth data for ${plotName}`);
       setGrowthData(cachedData);
@@ -1255,21 +1188,21 @@ const Map: React.FC<MapProps> = ({
 
     setLoading(true);
     setError(null);
-    
+
     try {
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_plot_combined_analyze_Growth_post
       const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/analyze_Growth?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
-      
+
       console.log(`🌱 Fetching Growth data from: ${url}`);
-      
+
       const resp = await fetchWithRetry(url, {
         method: "POST",
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1281,19 +1214,19 @@ const Map: React.FC<MapProps> = ({
       }
 
       const data = await resp.json();
-      
+
       console.log(`✅ Growth data fetched successfully:`, {
         hasFeatures: !!data?.features,
         featureCount: data?.features?.length || 0,
         plotName: plotName,
       });
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('growth', plotName, data); // Store in global context
-      
+
       setGrowthData(data);
-      
+
       // Preserve plot boundary from growth data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -1307,7 +1240,7 @@ const Map: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setGrowthData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch growth data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
@@ -1342,7 +1275,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `wateruptake_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Water Uptake data for ${plotName}`);
       setWaterUptakeData(cachedData);
@@ -1360,16 +1293,16 @@ const Map: React.FC<MapProps> = ({
       // Use direct API URL - CORS is handled on the backend
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_water_uptake_wateruptake_post
       const baseUrl = getGrapesAdminBaseUrl();
-      const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
-      
+      const url = `${baseUrl}/wateruptake?plot_name=${encodeURIComponent(toBackendPlotName(plotName))}&end_date=${currentEndDate}&days_back=7`;
+
       console.log(`💧 Fetching Water Uptake data from: ${url}`);
-      
+
       const resp = await fetchWithRetry(url, {
         method: "POST",
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1381,19 +1314,19 @@ const Map: React.FC<MapProps> = ({
       }
 
       const data = await resp.json();
-      
+
       console.log(`✅ Water Uptake data fetched successfully:`, {
         hasFeatures: !!data?.features,
         featureCount: data?.features?.length || 0,
         plotName: plotName,
       });
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('waterUptake', plotName, data); // Store in global context
-      
+
       setWaterUptakeData(data);
-      
+
       // Preserve plot boundary from water uptake data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -1407,7 +1340,7 @@ const Map: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setWaterUptakeData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch water uptake data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
@@ -1442,7 +1375,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `soilmoisture_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Soil Moisture data for ${plotName}`);
       setSoilMoistureData(cachedData);
@@ -1461,15 +1394,15 @@ const Map: React.FC<MapProps> = ({
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/analyze_plot_combined_SoilMoisture_post
       const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/SoilMoisture?plot_name=${encodeURIComponent(plotName)}&end_date=${currentEndDate}&days_back=7`;
-      
+
       console.log(`🌍 Fetching Soil Moisture data from: ${url}`);
-      
+
       const resp = await fetchWithRetry(url, {
         method: "POST",
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1481,19 +1414,19 @@ const Map: React.FC<MapProps> = ({
       }
 
       const data = await resp.json();
-      
+
       console.log(`✅ Soil Moisture data fetched successfully:`, {
         hasFeatures: !!data?.features,
         featureCount: data?.features?.length || 0,
         plotName: plotName,
       });
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('soilMoisture', plotName, data); // Store in global context
-      
+
       setSoilMoistureData(data);
-      
+
       // Preserve plot boundary from soil moisture data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -1507,7 +1440,7 @@ const Map: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setSoilMoistureData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch soil moisture data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
@@ -1547,7 +1480,7 @@ const Map: React.FC<MapProps> = ({
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1556,18 +1489,18 @@ const Map: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Plot API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Plot API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       setPlotData(data);
-      
+
       // Preserve plot boundary separately so it persists across layer changes
       // Only update if we don't already have a boundary from profile
       if (data?.features?.[0]?.geometry && !plotBoundary) {
@@ -1586,7 +1519,7 @@ const Map: React.FC<MapProps> = ({
         plotName: plotName,
         endDate: currentDate
       });
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch plot data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
@@ -1655,16 +1588,16 @@ const Map: React.FC<MapProps> = ({
       // Use direct API URL - CORS is handled on the backend
       const baseUrl = getGrapesSefBaseUrl();
       const url = `${baseUrl}/analyze?plot_name=${plotName}&end_date=${currentDate}&days_back=7`;
-      
+
       console.log(`🔍 Fetching field analysis from: ${url}`);
-      
+
       // Use retry logic for better reliability
       const resp = await fetchWithRetry(url, {
         method: "GET",
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1749,7 +1682,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `pest_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Pest Detection data for ${plotName}`);
       setPestData(cachedData);
@@ -1768,15 +1701,15 @@ const Map: React.FC<MapProps> = ({
       // API: https://cropeye-grapes-admin-production.up.railway.app/docs#/default/pest_detection_by_crop_pest_detection_post
       const baseUrl = getGrapesAdminBaseUrl();
       const url = `${baseUrl}/pest-detection?plot_name=${encodeURIComponent(plotName)}`;
-      
+
       console.log(`🐛 Fetching Pest Detection data from: ${url}`);
-      
+
       const resp = await fetchWithRetry(url, {
         method: "POST",
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "Content-Type": "application/json"
         },
@@ -1788,19 +1721,19 @@ const Map: React.FC<MapProps> = ({
       }
 
       const data = await resp.json();
-      
+
       console.log(`✅ Pest Detection data fetched successfully:`, {
         hasFeatures: !!data?.features,
         featureCount: data?.features?.length || 0,
         plotName: plotName,
       });
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('pest', plotName, data); // Store in global context
-      
+
       setPestData(data);
-      
+
       // Preserve plot boundary from pest data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -1815,15 +1748,15 @@ const Map: React.FC<MapProps> = ({
         const soilBornePercentage = pixelSummary.SoilBorn_affected_pixel_percentage || 0;
 
         const totalAffectedPercentage = chewingPestPercentage + suckingPercentage + fungiPercentage + soilBornePercentage;
-        
+
         onPestDataChange({
           plotName,
           pestPercentage: totalAffectedPercentage,
           healthyPercentage: 100 - totalAffectedPercentage,
           totalPixels: pixelSummary.total_pixel_count || 0,
-          pestAffectedPixels: (pixelSummary.chewing_affected_pixel_count || 0) + 
-                             (pixelSummary.sucking_affected_pixel_count || 0) + 
-                             (pixelSummary.fungi_affected_pixel_count || 0) +  
+          pestAffectedPixels: (pixelSummary.chewing_affected_pixel_count || 0) +
+                             (pixelSummary.sucking_affected_pixel_count || 0) +
+                             (pixelSummary.fungi_affected_pixel_count || 0) +
                              (pixelSummary.SoilBorn_pixel_count || 0),
           chewingPestPercentage,
           chewingPestPixels: pixelSummary.chewing_affected_pixel_count || 0,
@@ -1840,7 +1773,7 @@ const Map: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setPestData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch pest data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
@@ -1860,117 +1793,6 @@ const Map: React.FC<MapProps> = ({
     }
   };
 
-  const fetchCanopyVigour = async (plotName: string) => {
-    if (!plotName) {
-      setCanopyVigourData(null);
-      return;
-    }
-
-    // Check context first (preloaded data)
-    const preloadedData = getApiData('canopyVigour', plotName);
-    if (preloadedData && isTodayDate(currentEndDate) && !shouldBypassMapLayerCache()) {
-      console.log(`✅ Using preloaded Canopy Vigour data from context for ${plotName}`);
-      setCanopyVigourData(preloadedData);
-      if (!plotBoundary && preloadedData?.features?.[0]?.geometry) {
-        setPlotBoundary(preloadedData.features[0]);
-      }
-      return Promise.resolve(); // Return resolved promise to mark as loaded
-    }
-
-    // Check cache second
-    const cacheKey = `canopy_vigour_${plotName}_${currentEndDate}`;
-    const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
-    if (cachedData && !shouldBypassMapLayerCache()) {
-      console.log(`✅ Using cached Canopy Vigour data for ${plotName}`);
-      setCanopyVigourData(cachedData);
-      if (!plotBoundary && cachedData?.features?.[0]?.geometry) {
-        setPlotBoundary(cachedData.features[0]);
-      }
-      return Promise.resolve(); // Return resolved promise to mark as loaded
-    }
-
-    setLoading(true);
-    setError(null);
-
-    // Use direct API URL - CORS is handled on the backend
-    const baseUrl = getGrapesAdminBaseUrl();
-    // Endpoint: /grapes/canopy-vigour1 (for Brix layer background)
-    const url = `${baseUrl}/grapes/canopy-vigour1?plot_name=${plotName}`;
-
-    console.log(`🌿 Fetching Canopy Vigour data from: ${url}`);
-
-    try {
-      // Use retry logic for better reliability
-      const resp = await fetchWithRetry(url, {
-        method: "POST",
-        mode: "cors",
-        cache: "default",
-        credentials: "omit",
-        headers: {
-          Accept: "application/json",
-        },
-        body: grapesPlotFormBody(plotName),
-      });
-
-      if (!resp.ok) {
-        const errorText = await resp.text().catch(() => 'Unable to read error response');
-        console.error("Canopy Vigour API error response:", errorText);
-        
-        if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
-          throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
-        }
-        
-        throw new Error(`Canopy Vigour API failed: ${resp.status} ${resp.statusText}`);
-      }
-
-      const data = await resp.json();
-      console.log(`✅ Canopy Vigour data fetched successfully:`, {
-        hasFeatures: !!data?.features,
-        featureCount: data?.features?.length || 0,
-        hasTileUrl: !!data?.features?.[0]?.properties?.tile_url,
-        plotName: plotName,
-        dataKeys: Object.keys(data || {})
-      });
-      
-      // Cache the data in both localStorage and context
-      setCache(cacheKey, data);
-      setApiData('canopyVigour', plotName, data); // Store in global context
-      
-      setCanopyVigourData(data);
-      
-      // Preserve plot boundary from canopy vigour data if not already set
-      if (!plotBoundary && data?.features?.[0]?.geometry) {
-        setPlotBoundary(data.features[0]);
-      }
-    } catch (err: any) {
-      console.error("Error fetching canopy vigour data:", {
-        error: err,
-        message: err?.message,
-        name: err?.name,
-        plotName: plotName,
-        endDate: currentEndDate
-      });
-      setCanopyVigourData(null);
-      
-      let errorMessage = "Failed to fetch canopy vigour data";
-      if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
-        if (err?.message?.includes("CORS") || err?.message?.includes("cors")) {
-          errorMessage = "CORS error: Backend server is not allowing requests from this origin. Please check CORS configuration on the server.";
-        } else if (err?.name === "AbortError") {
-          errorMessage = "Request timed out. The server is taking too long to respond. Please check your internet connection and try again.";
-        } else {
-          errorMessage = "Cannot connect to server. Please check if the backend service is running and accessible.";
-        }
-      } else if (err?.message) {
-        errorMessage = err.message;
-      }
-      setError(errorMessage);
-    } finally {
-      // Don't set loading to false here - let fetchBrixData handle it
-      // since both are called together for Brix layer
-    }
-  };
 
   const fetchBrixData = async (plotName: string) => {
     if (!plotName) {
@@ -1993,7 +1815,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `brix_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Brix data for ${plotName}`);
       setBrixData(cachedData);
@@ -2031,14 +1853,14 @@ const Map: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Brix API error response:", errorText);
-        
+
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Brix API failed: ${resp.status} ${resp.statusText}`);
       }
-      
+
       const data = await resp.json();
       console.log(`✅ Brix data fetched successfully:`, {
         hasFeatures: !!data?.features,
@@ -2048,13 +1870,13 @@ const Map: React.FC<MapProps> = ({
         plotName: plotName,
         dataKeys: Object.keys(data || {})
       });
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('brix', plotName, data); // Store in global context
-      
+
       setBrixData(data);
-      
+
       // Preserve plot boundary from brix data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -2068,7 +1890,7 @@ const Map: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setBrixData(null);
-      
+
       let errorMessage = "Failed to fetch brix data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError" || err?.name === "AbortError") {
         if (err?.message?.includes("CORS") || err?.message?.includes("cors")) {
@@ -2114,7 +1936,7 @@ const Map: React.FC<MapProps> = ({
     // Check cache second
     const cacheKey = `brixQuality_${plotName}_${currentEndDate}`;
     const cachedData = getCache(cacheKey, mapLayerCacheMaxAgeMs()); // 30 min cache
-    
+
     if (cachedData && !shouldBypassMapLayerCache()) {
       console.log(`✅ Using cached Brix Quality data for ${plotName}`);
       setBrixQualityData(cachedData);
@@ -2133,7 +1955,7 @@ const Map: React.FC<MapProps> = ({
         mode: "cors",
         cache: "default",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
       }, 3, 1000, null); // No timeout
@@ -2146,7 +1968,7 @@ const Map: React.FC<MapProps> = ({
 
       const data = await resp.json();
       console.log(`✅ Brix Quality data fetched successfully:`, data);
-      
+
       // Cache the data in both localStorage and context
       setCache(cacheKey, data);
       setApiData('brixQuality', plotName, data); // Store in global context
@@ -2201,21 +2023,21 @@ const Map: React.FC<MapProps> = ({
     }
 
     const gridValues = brixData.grid_values;
-    
+
     // Calculate actual grid spacing from the dataset
     let latStep = 0.0000898; // Default spacing
     let lngStep = 0.0000898; // Default spacing
-    
+
     if (gridValues.length > 1) {
       // Calculate average spacing between adjacent points
       const sortedByLat = [...gridValues].sort((a, b) => a.latitude - b.latitude);
       const sortedByLng = [...gridValues].sort((a, b) => a.longitude - b.longitude);
-      
+
       let latSpacing = 0;
       let lngSpacing = 0;
       let latCount = 0;
       let lngCount = 0;
-      
+
       // Calculate spacing for latitude (vertical spacing)
       for (let i = 1; i < sortedByLat.length; i++) {
         const diff = Math.abs(sortedByLat[i].latitude - sortedByLat[i-1].latitude);
@@ -2224,7 +2046,7 @@ const Map: React.FC<MapProps> = ({
           latCount++;
         }
       }
-      
+
       // Calculate spacing for longitude (horizontal spacing)
       for (let i = 1; i < sortedByLng.length; i++) {
         const diff = Math.abs(sortedByLng[i].longitude - sortedByLng[i-1].longitude);
@@ -2233,14 +2055,14 @@ const Map: React.FC<MapProps> = ({
           lngCount++;
         }
       }
-      
+
       if (latCount > 0) {
         latStep = latSpacing / latCount;
       }
       if (lngCount > 0) {
         lngStep = lngSpacing / lngCount;
       }
-      
+
       // Use the maximum spacing to ensure square grid cells
       const gridStep = Math.max(latStep, lngStep);
       latStep = gridStep;
@@ -2428,13 +2250,13 @@ const Map: React.FC<MapProps> = ({
       const suckingPercentage = pestData?.pixel_summary?.sucking_affected_pixel_percentage || 0;
       const fungiPercentage = pestData?.pixel_summary?.fungi_affected_pixel_percentage || 0;
       const soilBornePercentage = pestData?.pixel_summary?.SoilBorn_affected_pixel_percentage || 0;
-      
+
       return [
         { label: "Chewing pest", color: "#DC2626", percentage: Math.round(chewingPestPercentage), description: "Areas affected by chewing pests" },
         { label: "Sucking pest", color: "#B91C1C", percentage: Math.round(suckingPercentage), description: "Areas affected by sucking disease" },
         { label: "fungus", color: "#991B1B", percentage: Math.round(fungiPercentage), description: "fungi infections affecting plants" },
         { label: "Soil Borne pathozane ", color: "#7F1D1D", percentage: Math.round(soilBornePercentage), description: "Soil borne infections affecting plants" },
-        
+
       ];
     }
 
@@ -2481,7 +2303,7 @@ const Map: React.FC<MapProps> = ({
 
   const getFilteredPixels = useMemo(() => {
     // console.log('getFilteredPixels called with:', { selectedLegendClass, activeLayer });
-    
+
     if (!selectedLegendClass) {
       // console.log('No selectedLegendClass, returning empty array');
       return [];
@@ -2494,15 +2316,15 @@ const Map: React.FC<MapProps> = ({
       }
 
       // console.log('Processing PEST layer for selectedLegendClass:', selectedLegendClass);
-      
+
       if (!["Chewing", "Sucking", "fungi", "Soil Borne"].includes(selectedLegendClass)) {
         // console.log('SelectedLegendClass not in allowed pest categories:', selectedLegendClass);
         return [];
       }
-      
+
       let coordinates = [];
       let pestType = "";
-      
+
       if (selectedLegendClass === "Chewing") {
         coordinates = pestData.pixel_summary?.chewing_affected_pixel_coordinates || [];
         pestType = "Chewing";
@@ -2516,17 +2338,17 @@ const Map: React.FC<MapProps> = ({
         coordinates = pestData.pixel_summary?.SoilBorne_affected_pixel_coordinates || [];
         pestType = "Soil Borne";
       }
-      
+
       if (!coordinates || !Array.isArray(coordinates)) {
         // console.log('No valid coordinates found for', pestType);
         return [];
       }
-      
+
       // console.log(`Found ${coordinates.length} coordinates for ${pestType}`);
 
       const actualPixels = coordinates.map((coord, index) => {
         if (!Array.isArray(coord) || coord.length < 2) return null;
-        
+
         return {
           geometry: {
             coordinates: [coord[0], coord[1]]
@@ -2538,11 +2360,11 @@ const Map: React.FC<MapProps> = ({
           }
         };
       }).filter(Boolean);
-      
+
       // console.log(`Generated ${actualPixels.length} pixel objects for ${pestType}`);
       return actualPixels;
     }
-    
+
     if (activeLayer === "Water Uptake") {
       if (!waterUptakeData || !currentPlotFeature) {
         // console.log('Missing waterUptakeData or currentPlotFeature');
@@ -2578,7 +2400,7 @@ const Map: React.FC<MapProps> = ({
         // console.log('No valid coordinates found for', categoryType);
       return [];
     }
-    
+
       // console.log(`Found ${coordinates.length} coordinates for ${categoryType}`);
 
       const actualPixels = coordinates.map((coord, index) => {
@@ -2717,20 +2539,20 @@ const Map: React.FC<MapProps> = ({
   const getMultiLayerDataForPosition = (coords: number[]) => {
     const allLayerData = [];
     const tolerance = 0.00001;
-    
+
     // Helper function to find category for coordinates in a layer
     const findCategoryInLayer = (layerData: any, layerName: string, legendItems: any[]) => {
       if (!layerData?.pixel_summary) return null;
-      
+
       for (const legendItem of legendItems) {
         const coordsKey = getCoordinatesKey(layerName, legendItem.label);
         const coordinates = layerData.pixel_summary[coordsKey] || [];
-        
-        const found = coordinates.find((coord: number[]) => 
-          Math.abs(coord[0] - coords[0]) < tolerance && 
+
+        const found = coordinates.find((coord: number[]) =>
+          Math.abs(coord[0] - coords[0]) < tolerance &&
           Math.abs(coord[1] - coords[1]) < tolerance
         );
-        
+
         if (found) {
           return {
             layer: layerName,
@@ -2742,7 +2564,7 @@ const Map: React.FC<MapProps> = ({
       }
       return null;
     };
-    
+
     // Get coordinates key for each layer type
     const getCoordinatesKey = (layerName: string, label: string) => {
       if (layerName === 'Growth') {
@@ -2761,7 +2583,7 @@ const Map: React.FC<MapProps> = ({
       }
       return '';
     };
-    
+
     // Check Growth layer
     if (growthData) {
       const growthLegend = [
@@ -2773,7 +2595,7 @@ const Map: React.FC<MapProps> = ({
       const growthResult = findCategoryInLayer(growthData, 'Growth', growthLegend);
       if (growthResult) allLayerData.push(growthResult);
     }
-    
+
     // Check Water Uptake layer
     if (waterUptakeData) {
       const waterLegend = [
@@ -2786,7 +2608,7 @@ const Map: React.FC<MapProps> = ({
       const waterResult = findCategoryInLayer(waterUptakeData, 'Water Uptake', waterLegend);
       if (waterResult) allLayerData.push(waterResult);
     }
-    
+
     // Check Soil Moisture layer
     if (soilMoistureData) {
       const soilLegend = [
@@ -2799,7 +2621,7 @@ const Map: React.FC<MapProps> = ({
       const soilResult = findCategoryInLayer(soilMoistureData, 'Soil Moisture', soilLegend);
       if (soilResult) allLayerData.push(soilResult);
     }
-    
+
     // Check PEST layer
     if (pestData) {
       const pestLegend = [
@@ -2811,7 +2633,7 @@ const Map: React.FC<MapProps> = ({
       const pestResult = findCategoryInLayer(pestData, 'PEST', pestLegend);
       if (pestResult) allLayerData.push(pestResult);
     }
-    
+
     return allLayerData;
   };
 
@@ -2829,7 +2651,7 @@ const Map: React.FC<MapProps> = ({
   const renderPlotBorder = () => {
     // Always prioritize plotBoundary (persists across layer changes)
     let featureToUse = plotBoundary || currentPlotFeature;
-    
+
     // If still no feature, try to get from active layer data as fallback (read-only)
     if (!featureToUse) {
       if (activeLayer === "Growth" && growthData?.features?.[0]) {
@@ -2844,7 +2666,7 @@ const Map: React.FC<MapProps> = ({
         featureToUse = brixData.features[0];
       }
     }
-    
+
     const geom = featureToUse?.geometry;
     if (!geom || geom.type !== "Polygon" || !geom.coordinates?.[0]) {
       // If no geometry available, return null but don't clear anything
@@ -2880,7 +2702,7 @@ const Map: React.FC<MapProps> = ({
       if (!coords || !Array.isArray(coords) || coords.length < 2) {
         return null;
       }
-      
+
       const circleRadius = 0.000025;
 
       return (
@@ -2952,16 +2774,16 @@ const Map: React.FC<MapProps> = ({
                 setContextSelectedPlotName(newPlot); // Update context as well
                 onPlotChange?.(newPlot);
                 localStorage.setItem('selectedPlot', newPlot);
-                
+
                 // Find the plot in profile to get coordinates immediately
                 const selectedPlot = profile.plots?.find(
                   (p) => resolveFarmerPlotId(p) === newPlot,
                 );
-                
+
                 if (selectedPlot) {
                   console.log('🗺️ Map: Plot selected, loading coordinates from profile...');
                   const boundaryFromProfile = createPlotBoundaryFromProfile(selectedPlot);
-                  
+
                   if (boundaryFromProfile) {
                     console.log('✅ Map: Setting plot boundary from profile (instant display)');
                     setPlotBoundary(boundaryFromProfile);
@@ -2972,7 +2794,7 @@ const Map: React.FC<MapProps> = ({
                 } else {
                   setPlotBoundary(null);
                 }
-                
+
                 setFieldAnalysisData(null);
                 setFieldScoreReady(false);
                 setFieldScoreLoading(true);
@@ -2990,8 +2812,8 @@ const Map: React.FC<MapProps> = ({
                 const plotValue = resolveFarmerPlotId(plot);
                 if (!plotValue) return null;
                 let displayName = '';
-                
-                if (plot.gat_number && plot.plot_number && 
+
+                if (plot.gat_number && plot.plot_number &&
                     plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
                     !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
                   displayName = `${plot.gat_number}_${plot.plot_number}`;
@@ -3002,7 +2824,7 @@ const Map: React.FC<MapProps> = ({
                 } else {
                   const village = plot.address?.village;
                   const taluka = plot.address?.taluka;
-                  
+
                   if (village) {
                     displayName = `Plot in ${village}`;
                     if (taluka) displayName += `, ${taluka}`;
@@ -3010,7 +2832,7 @@ const Map: React.FC<MapProps> = ({
                     displayName = plotValue;
                   }
                 }
-                
+
                 return (
                   <option key={plotValue} value={plotValue}>
                     {displayName}
@@ -3061,7 +2883,7 @@ const Map: React.FC<MapProps> = ({
         <div className="map-section-expanded" style={{ paddingLeft: '0', overflow: 'hidden', maxWidth: '100%', minWidth: 0 }}>
           {/* Enhanced Multi-Layer Tooltip */}
           {pixelTooltip && pixelTooltip.layers.length > 0 && (
-            <div 
+            <div
               className={activeLayer === "Brix" ? "brix-tooltip" : "enhanced-tooltip"}
               style={{
                 left: `${pixelTooltip.x + 10}px`,
@@ -3146,7 +2968,7 @@ const Map: React.FC<MapProps> = ({
             >
               <span className="timeseries-arrow-icon timeseries-arrow-right-icon"></span>
             </button>
-            
+
             {/* Date Popup */}
             {showDatePopup && (
               <div className={`timeseries-date-popup ${popupSide === 'left' ? 'timeseries-date-popup-left' : ''} ${popupSide === 'right' ? 'timeseries-date-popup-right' : ''}`}>

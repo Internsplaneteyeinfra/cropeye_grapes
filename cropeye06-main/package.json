@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test tests/*.test.mjs",
+    "test:certification": "node --test tests/certificationTimeline.test.mjs",
+    "test:registration-ocr": "node --test tests/grapeRegistrationOcr.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "json-server": "json-server --watch db.json --port 3001"
@@ -33,6 +36,8 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.344.0",
     "papaparse": "^5.5.3",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-calendar": "^5.1.0",
     "react-chartjs-2": "^5.3.1",
@@ -48,6 +53,7 @@
     "screenfull": "^6.0.2",
     "shapefile": "^0.6.6",
     "shpjs": "^6.1.0",
+    "tesseract.js": "^6.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

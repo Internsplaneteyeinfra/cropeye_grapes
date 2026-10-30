@@ -75,7 +75,7 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
 
     try {
       const response = await addVendor(payload);
-      
+
       // Transform API response to match User interface before updating local state
       // Use form data as fallback in case API response doesn't include all fields immediately
       if (response.data) {
@@ -96,7 +96,7 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
       }
 
       setSuccess('Vendor added successfully! The vendor list will be updated automatically.');
-      
+
       // Reset form
     setFormData({
       vendorName: '',
@@ -107,15 +107,15 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
       city: '',
       address: ''
     });
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccess('');
       }, 3000);
     } catch (err: any) {
-      
+
       let errorMessage = 'Error adding vendor. Please try again.';
-      
+
       if (err?.response?.status === 404) {
         errorMessage = 'API endpoint not found (404). Please check the server configuration.';
       } else if (err?.response?.status === 400) {
@@ -126,7 +126,7 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
             .filter(([key]) => key !== 'detail' && key !== 'message')
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('; ');
-          
+
           errorMessage = errorData.detail || errorData.message || fieldErrors || 'Invalid data format. Please check all fields.';
         } else {
           errorMessage = 'Invalid request format (400). Please check all required fields are filled.';
@@ -136,7 +136,7 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
       } else {
         errorMessage = err?.message || errorMessage;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -144,7 +144,7 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -240,13 +240,13 @@ export const Addvendor: React.FC<AddVendorProps> = ({ users, setUsers }) => {
                 {loading ? 'Adding...' : 'Add Vendor'}
               </button>
             </div>
-            
+
             {success && (
               <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
                 {success}
               </div>
             )}
-            
+
             {error && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
                 {error}

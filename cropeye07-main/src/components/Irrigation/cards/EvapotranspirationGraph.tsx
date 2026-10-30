@@ -5,10 +5,10 @@ const EvapotranspirationGraph: React.FC = () => {
   const { appState, getCached, selectedPlotName } = useAppContext();
   const trendData = Array.isArray(appState?.etTrendData) ? appState.etTrendData : [];
   const etValue = appState?.etValue ?? 0;
-  
+
   // Get hourlyData from cache if available
   const [hourlyData, setHourlyData] = useState<Array<{time: string, value: number}>>([]);
-  
+
   useEffect(() => {
     if (selectedPlotName) {
       const cacheKey = `etData_${selectedPlotName}`;
@@ -28,7 +28,7 @@ const EvapotranspirationGraph: React.FC = () => {
 
   // Make chart responsive
   const [containerWidth, setContainerWidth] = useState<number>(1200);
-  
+
   useEffect(() => {
     const updateWidth = () => {
       const container = document.querySelector('.evapotranspiration-graph-container');
@@ -39,7 +39,7 @@ const EvapotranspirationGraph: React.FC = () => {
         setContainerWidth(Math.min(window.innerWidth - 80, 1200));
       }
     };
-    
+
     updateWidth();
     window.addEventListener('resize', updateWidth);
     return () => window.removeEventListener('resize', updateWidth);
@@ -158,24 +158,24 @@ const EvapotranspirationGraph: React.FC = () => {
   }).filter(Boolean);
 
   return (
-    <div className="evapotranspiration-graph-container" style={{ 
-      width: '100%', 
-      backgroundColor: 'white', 
-      borderRadius: '8px', 
+    <div className="evapotranspiration-graph-container" style={{
+      width: '100%',
+      backgroundColor: 'white',
+      borderRadius: '8px',
       padding: '20px',
       boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       marginTop: '20px'
     }}>
-      <h3 style={{ 
-        fontSize: '18px', 
-        fontWeight: '600', 
-        color: '#1e293b', 
+      <h3 style={{
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#1e293b',
         marginBottom: '20px',
         textAlign: 'center'
       }}>
         24-Hour Evapotranspiration Trend
       </h3>
-      
+
       {trendData.length > 0 ? (
         <div style={{ width: '100%', overflowX: 'auto' }}>
           <svg
@@ -192,13 +192,13 @@ const EvapotranspirationGraph: React.FC = () => {
               const barHeight = getBarHeight(numVal);
               const x = getBarX(i);
               const y = getBarY(numVal);
-              
+
               // Get time from hourlyData if available
               const timeData = hourlyData[i] || null;
-              const displayTime = timeData?.time 
+              const displayTime = timeData?.time
                 ? new Date(timeData.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
                 : `${i.toString().padStart(2, '0')}:00`;
-              
+
               return (
                 <g key={`bar-${i}`}>
                   <rect
@@ -233,9 +233,9 @@ const EvapotranspirationGraph: React.FC = () => {
           </svg>
         </div>
       ) : (
-        <div style={{ 
-          textAlign: 'center', 
-          padding: '60px 20px', 
+        <div style={{
+          textAlign: 'center',
+          padding: '60px 20px',
           color: '#94a3b8',
           fontSize: '14px'
         }}>

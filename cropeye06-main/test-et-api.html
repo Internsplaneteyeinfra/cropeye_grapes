@@ -48,7 +48,7 @@
 </head>
 <body>
     <h1>Test Evapotranspiration API</h1>
-    
+
     <div class="test-section">
         <h2>Test ET API Endpoint</h2>
         <p>Testing: <code>http://192.168.41.120:1002/1001/analyze?plot_name=Plot1&end_date=2024-01-15&days_back=7</code></p>
@@ -69,22 +69,22 @@
             const resultDiv = document.getElementById('et-result');
             resultDiv.textContent = 'Testing...';
             resultDiv.className = 'result';
-            
+
             try {
                 const today = new Date().toISOString().split('T')[0];
                 const response = await fetch(`http://192.168.41.120:1002/1001/analyze?plot_name=Plot1&end_date=${today}&days_back=7`);
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Success! Response:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
                 // Analyze the response structure
                 analyzeResponse(data);
-                
+
             } catch (error) {
                 resultDiv.textContent = `Error: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -95,18 +95,18 @@
             const resultDiv = document.getElementById('date-result');
             resultDiv.textContent = `Testing with date: ${date}...`;
             resultDiv.className = 'result';
-            
+
             try {
                 const response = await fetch(`http://192.168.41.120:1002/1001/analyze?plot_name=Plot1&end_date=${date}&days_back=7`);
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 resultDiv.textContent = `Date: ${date}\nResponse:\n${JSON.stringify(data, null, 2)}`;
                 resultDiv.className = 'result success';
-                
+
             } catch (error) {
                 resultDiv.textContent = `Date: ${date}\nError: ${error.message}`;
                 resultDiv.className = 'result error';
@@ -115,7 +115,7 @@
 
         function analyzeResponse(data) {
             console.log('Analyzing ET API response structure:', data);
-            
+
             if (Array.isArray(data)) {
                 console.log('Response is an array with', data.length, 'items');
                 if (data.length > 0) {
@@ -136,4 +136,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

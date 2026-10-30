@@ -99,10 +99,10 @@ const AddBooking: React.FC<AddBookingProps> = ({ bookings, setBookings }) => {
         fullURL: err?.config?.baseURL + err?.config?.url,
         requestData: err?.config?.data,
       });
-      
+
       let errorMessage = 'Failed to add booking. Please try again.';
       const status = err?.response?.status;
-      
+
       if (status === 404) {
         const fullUrl = err?.config?.baseURL + err?.config?.url;
         errorMessage = `API endpoint not found (404). URL: ${fullUrl}. Please check if the bookings endpoint exists on the server.`;
@@ -115,7 +115,7 @@ const AddBooking: React.FC<AddBookingProps> = ({ bookings, setBookings }) => {
           url: err?.config?.url,
           fullURL: err?.config?.baseURL + err?.config?.url
         });
-        
+
         if (errorData) {
           const errorDetail = errorData.detail || errorData.message || errorData.error;
           if (errorDetail) {
@@ -133,7 +133,7 @@ const AddBooking: React.FC<AddBookingProps> = ({ bookings, setBookings }) => {
             .filter(([key]) => key !== 'detail' && key !== 'message')
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('; ');
-          
+
           errorMessage = errorData.detail || errorData.message || fieldErrors || 'Invalid data format. Please check all fields.';
         } else {
           errorMessage = 'Invalid request format (400). Please check all required fields are filled.';
@@ -143,7 +143,7 @@ const AddBooking: React.FC<AddBookingProps> = ({ bookings, setBookings }) => {
       } else if (err?.message) {
         errorMessage = err.message;
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -151,7 +151,7 @@ const AddBooking: React.FC<AddBookingProps> = ({ bookings, setBookings }) => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen dashboard-bg-bleed"
     >
       <div className="min-h-screen bg-black bg-opacity-40">

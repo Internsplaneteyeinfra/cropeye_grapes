@@ -253,11 +253,11 @@ const FertilizerTable: React.FC = () => {
 
     // Determine which plot to use: selectedPlotName > first plot from profile
     let plotToUse = selectedPlotName;
-    
+
     // Fallback to first plot if no selection
     if (!plotToUse && profile?.plots && profile.plots.length > 0) {
       const firstPlot = profile.plots[0];
-      plotToUse = firstPlot.fastapi_plot_id || 
+      plotToUse = firstPlot.fastapi_plot_id ||
                   `${firstPlot.gat_number}_${firstPlot.plot_number}`;
       console.log('FertilizerTable: No plot selected, using first plot:', plotToUse);
     }

@@ -36,7 +36,7 @@ export const navigateToLogin = () => {
   }
 
   const now = Date.now();
-  
+
   // Prevent rapid redirects (infinite loop protection)
   if (redirectInProgress) {
     console.warn('⚠️ Navigation: Redirect already in progress, skipping...');

@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import LightIntensityCard from "./LightIntensityCard";
+import CropStageValue from "./CropStageValue";
+import { useGrapesStage } from "../hooks/useGrapesStage";
+import { toBackendPlotName } from "../utils/plotName";
 import {
   Line,
   XAxis,
@@ -50,7 +54,11 @@ import {
   fetchGrapesPlotDashboardData,
   grapesPlotFormBody,
   ripeningMilestonesFromPayload,
+  type BrixTimeSeriesPoint,
 } from "../utils/grapesEventsBundle";
+import BrixSparkline from "./ownerDashboard/BrixSparkline";
+import BrixOutlook from "./ownerDashboard/BrixOutlook";
+import CropStageCandles from "./ownerDashboard/CropStageCandles";
 import {
   fetchRipeningStageMilestones,
   formatMilestoneDate,
@@ -65,12 +73,15 @@ import {
 import {
   getFieldOfficersByManager,
   loadOwnerFieldOfficers,
+  UNASSIGNED_TEAM_ID,
 } from "../api";
 import { fetchGrapesOwnerFarmersByFieldOfficer } from "../api/grapesOwnerHierarchy";
 import {
   getStoredUserIndustry,
   isGrapesIndustry,
 } from "../utils/userIndustry";
+import { extractFarms, resolveFarmAreaAcres } from "../utils/ownerPortfolio";
+import { grapeVarietyLabel } from "../utils/grapeVarieties";
 
 /** Prefer non-empty arrays; unwrap {results|data|farmers|items}. */
 function pickArray(...candidates: unknown[]): any[] {
@@ -100,22 +111,6 @@ function pickArray(...candidates: unknown[]): any[] {
     }
   }
   return fallback ?? [];
-}
-
-function managerKey(m: any): string | null {
-  const id = m?.id ?? m?.user_id ?? m?.userId ?? null;
-  return id == null || id === "" ? null : String(id);
-}
-
-function extractNestedOfficers(manager: any): any[] {
-  return pickArray(
-    manager?.field_officers,
-    manager?.fieldOfficers,
-    manager?.fo_list,
-    manager?.field_officer_list,
-    manager?.field_officer,
-    manager?.officers,
-  );
 }
 
 function extractNestedFarmers(officer: any): any[] {
@@ -178,27 +173,22 @@ function ownerPlotId(plot: any): string | null {
   return id == null || String(id).trim() === "" ? null : String(id);
 }
 
-function normalizeOfficer(fo: any, managerId: string | null): any {
-  const createdById =
-    fo?.created_by?.id ??
-    (typeof fo?.created_by === "number" || typeof fo?.created_by === "string"
-      ? fo.created_by
-      : null) ??
-    fo?.created_by_id ??
-    null;
+function firstNonEmptyText(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
 
-  return {
-    ...fo,
-    id: fo?.id ?? fo?.user_id ?? fo?.userId,
-    manager_id:
-      fo?.manager_id ??
-      fo?.manager?.id ??
-      fo?.managerId ??
-      fo?.manager_id_number ??
-      createdById ??
-      managerId,
-    farmers: extractNestedFarmers(fo),
-  };
+function formatSummaryDate(value: string | null): string {
+  if (!value) return "—";
+  const datePart = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return "—";
+  return new Date(`${datePart}T00:00:00`).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 // Constants (same as FarmerDashboard)
@@ -286,7 +276,19 @@ interface PieChartWithNeedleProps {
 
 type TimePeriod = "daily" | "weekly" | "monthly" | "yearly";
 
-const OwnerFarmDash: React.FC = () => {
+type OwnerFarmDashProps = {
+  /** Driven by the owner unit view: no hierarchy load or dropdowns, just this plot's cards. */
+  embedded?: {
+    plotId: string;
+    boundary?: [number, number][] | null;
+    areaAcres?: number | null;
+    farmerName?: string | null;
+    cropType?: string | null;
+    variety?: string | null;
+  };
+};
+
+const OwnerFarmDash: React.FC<OwnerFarmDashProps> = ({ embedded }) => {
   // const center: [number, number] = [17.5789, 75.053]; // Unused - using mapCenter state instead
   const mapWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -323,6 +325,7 @@ const OwnerFarmDash: React.FC = () => {
   };
 
   const [lineChartData, setLineChartData] = useState<LineChartData[]>([]);
+  const [brixTrend, setBrixTrend] = useState<BrixTimeSeriesPoint[]>([]);
   const [plotCoordinates, setPlotCoordinates] = useState<[number, number][]>(
     [],
   );
@@ -364,14 +367,24 @@ const OwnerFarmDash: React.FC = () => {
   const [showStressEvents] = useState<boolean>(false);
   const [ndreStressEvents, setNdreStressEvents] = useState<StressEvent[]>([]);
   const [showNDREEvents, setShowNDREEvents] = useState<boolean>(false);
+  const {
+    ripening,
+    fruitPruningDate,
+    savedFoundationPruningDate,
+    savedFruitPruningDate,
+    daysAfterFruitPruning,
+    stageName: currentStageName,
+  } = useGrapesStage(selectedPlotId || null);
   const [milestoneState, setMilestoneState] = useState<{
     ripeningStartDate: string | null;
     harvestReadyStartDate: string | null;
+    cropStatus: string | null;
     loading: boolean;
     error: boolean;
   }>({
     ripeningStartDate: null,
     harvestReadyStartDate: null,
+    cropStatus: null,
     loading: false,
     error: false,
   });
@@ -399,11 +412,29 @@ const OwnerFarmDash: React.FC = () => {
 
   // Grapes owner: load managers (then FOs after manager pick) like sugarcane
   useEffect(() => {
+    if (embedded) {
+      setLoadingHierarchy(false);
+      setLoadingFieldOfficers(false);
+      return;
+    }
     fetchOwnerFieldOfficers();
   }, []);
 
-  // When manager changes: show that manager's FOs only (do not auto-select FO)
   useEffect(() => {
+    if (embedded) setSelectedPlotId(toBackendPlotName(embedded.plotId));
+  }, [embedded?.plotId]);
+
+  // Auto-pick the first FO of the selected manager so the cards load without extra clicks.
+  useEffect(() => {
+    if (!selectedManagerId || selectedFieldOfficerId || loadingFieldOfficers) return;
+    const first = fieldOfficers[0];
+    const firstId = first?.id ?? first?.user_id;
+    if (firstId != null) setSelectedFieldOfficerId(String(firstId));
+  }, [selectedManagerId, selectedFieldOfficerId, fieldOfficers, loadingFieldOfficers]);
+
+  // When manager changes: show that manager's FOs only
+  useEffect(() => {
+    if (embedded) return;
     if (!selectedManagerId) {
       setFieldOfficers([]);
       setSelectedFieldOfficerId("");
@@ -435,6 +466,12 @@ const OwnerFarmDash: React.FC = () => {
         setFieldOfficers(filtered);
         clearDownstream();
       };
+
+      if (String(selectedManagerId) === UNASSIGNED_TEAM_ID) {
+        applyFilteredRaw();
+        setLoadingFieldOfficers(false);
+        return;
+      }
 
       try {
         // Same as sugarcane: GET /users/owner-hierarchy/?manager_id=
@@ -482,6 +519,7 @@ const OwnerFarmDash: React.FC = () => {
       setMilestoneState({
         ripeningStartDate: null,
         harvestReadyStartDate: null,
+        cropStatus: null,
         loading: false,
         error: false,
       });
@@ -499,8 +537,9 @@ const OwnerFarmDash: React.FC = () => {
         setMilestoneState({
           ripeningStartDate: milestones.ripeningStartDate,
           harvestReadyStartDate: milestones.harvestReadyStartDate,
+          cropStatus: milestones.cropStatus ?? null,
           loading: false,
-          error: !(milestones.ripeningStartDate || milestones.harvestReadyStartDate),
+          error: false,
         });
       } catch (err) {
         if (cancelled) return;
@@ -508,6 +547,7 @@ const OwnerFarmDash: React.FC = () => {
         setMilestoneState({
           ripeningStartDate: null,
           harvestReadyStartDate: null,
+          cropStatus: null,
           loading: false,
           error: true,
         });
@@ -521,6 +561,15 @@ const OwnerFarmDash: React.FC = () => {
 
   // NEW: Function to set plot coordinates from existing state
   const setPlotCoordinatesFromState = (plotId: string): void => {
+    if (embedded) {
+      const coords = embedded.boundary ?? [];
+      setPlotCoordinates(coords);
+      if (coords.length > 0) {
+        setMapCenter(calculateCenter(coords));
+        setMapKey((prev) => prev + 1);
+      }
+      return;
+    }
     // Find the selected farmer and their plot
     const farmer = farmersForSelectedOfficer.find(
       (f) => String(f.id) === selectedFarmerId,
@@ -556,6 +605,7 @@ const OwnerFarmDash: React.FC = () => {
 
   // Farmers: nested on FO, else grapes farmers-by-field-officer API
   useEffect(() => {
+    if (embedded) return;
     if (!selectedFieldOfficerId) {
       setFarmersForSelectedOfficer([]);
       setSelectedFarmerId("");
@@ -641,6 +691,7 @@ const OwnerFarmDash: React.FC = () => {
 
   // Fetch plots when farmer is selected
   useEffect(() => {
+    if (embedded) return;
     if (selectedFarmerId) {
       const selectedFarmer = farmersForSelectedOfficer.find(
         (f) =>
@@ -678,10 +729,83 @@ const OwnerFarmDash: React.FC = () => {
   }, [selectedFarmerId, farmersForSelectedOfficer]);
 
   useEffect(() => {
-    if (selectedPlotId) {
-      fetchAllData();
-      setPlotCoordinatesFromState(selectedPlotId); // This will now work
+    if (!selectedPlotId) {
+      setLoadingData(false);
+      return;
     }
+    let cancelled = false;
+    setLoadingData(true);
+    setBrixTrend([]);
+    setPlotCoordinatesFromState(selectedPlotId);
+
+    (async () => {
+      try {
+        const selectedFarmer = farmersForSelectedOfficer.find(
+          (f) =>
+            String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
+        );
+        const ownerProfile = selectedFarmer
+          ? {
+              plots: pickArray(
+                selectedFarmer.plots,
+                selectedFarmer.plot_list,
+                selectedFarmer.plot,
+                selectedFarmer.farms,
+              ),
+            }
+          : null;
+
+        const { metrics, lineChartData, stressEvents, brixSeries } =
+          await fetchGrapesPlotDashboardData(
+            selectedPlotId,
+            ownerProfile,
+            BASE_URL,
+            { get: getCache, set: setCache },
+          );
+        if (cancelled) return;
+
+        setLineChartData(lineChartData);
+        setStressEvents(stressEvents);
+        setNdreStressEvents(stressEvents);
+        setBrixTrend(brixSeries.series.filter((p) => p.brix != null));
+        setMetrics({
+          brix: metrics.brix,
+          brixMin: metrics.brixMin,
+          brixMax: metrics.brixMax,
+          recovery: metrics.recovery,
+          area: metrics.area ?? embedded?.areaAcres ?? null,
+          biomass: metrics.biomass,
+          biomassMax: metrics.biomassMax ?? null,
+          biomassMin: metrics.biomassMin ?? null,
+          totalBiomass: metrics.totalBiomass,
+          stressCount: metrics.stressCount,
+          stressTotalDays: metrics.stressTotalDays ?? null,
+          irrigationEvents: metrics.irrigationEvents,
+          expectedYield: metrics.sugarYieldMean,
+          daysToHarvest: metrics.daysToHarvest,
+          growthStage: metrics.growthStage,
+          soilPH: metrics.soilPH,
+          organicCarbonDensity: metrics.organicCarbonDensity,
+          actualYield: metrics.actualYield,
+          cnRatio: null,
+          sugarYieldMean: metrics.sugarYieldMean,
+          sugarYieldMax: metrics.brixMax,
+          sugarYieldMin: metrics.brixMin,
+          fieldScore: metrics.fieldScore ?? null,
+          cci: metrics.cci ?? null,
+        });
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("OwnerFarmDash: failed to load plot data", err);
+        setBrixTrend([]);
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPlotId]);
 
   useEffect(() => {
@@ -798,71 +922,6 @@ const OwnerFarmDash: React.FC = () => {
     }
   };
 
-  // Fetch all data for selected plot — grapes bundle + indices (same as FarmerDashboard)
-  const fetchAllData = async (): Promise<void> => {
-    if (!selectedPlotId) return;
-
-    setLoadingData(true);
-    try {
-      const selectedFarmer = farmersForSelectedOfficer.find(
-        (f) =>
-          String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
-      );
-      const ownerProfile = selectedFarmer
-        ? {
-            plots: pickArray(
-              selectedFarmer.plots,
-              selectedFarmer.plot_list,
-              selectedFarmer.plot,
-              selectedFarmer.farms,
-            ),
-          }
-        : null;
-
-      const { metrics, lineChartData, stressEvents } =
-        await fetchGrapesPlotDashboardData(
-          selectedPlotId,
-          ownerProfile,
-          BASE_URL,
-          { get: getCache, set: setCache },
-        );
-
-      setLineChartData(lineChartData);
-      setStressEvents(stressEvents);
-      setNdreStressEvents(stressEvents);
-      setMetrics({
-        brix: metrics.brix,
-        brixMin: metrics.brixMin,
-        brixMax: metrics.brixMax,
-        recovery: metrics.recovery,
-        area: metrics.area,
-        biomass: metrics.biomass,
-        biomassMax: metrics.biomassMax ?? null,
-        biomassMin: metrics.biomassMin ?? null,
-        totalBiomass: metrics.totalBiomass,
-        stressCount: metrics.stressCount,
-        stressTotalDays: metrics.stressTotalDays ?? 0,
-        irrigationEvents: metrics.irrigationEvents,
-        expectedYield: metrics.sugarYieldMean,
-        daysToHarvest: metrics.daysToHarvest,
-        growthStage: metrics.growthStage,
-        soilPH: metrics.soilPH,
-        organicCarbonDensity: metrics.organicCarbonDensity,
-        actualYield: metrics.actualYield,
-        cnRatio: null,
-        sugarYieldMean: metrics.sugarYieldMean,
-        sugarYieldMax: metrics.brixMax,
-        sugarYieldMin: metrics.brixMin,
-        fieldScore: metrics.fieldScore ?? null,
-        cci: metrics.cci ?? null,
-      });
-    } catch (err: any) {
-      console.error("OwnerFarmDash: failed to load plot data", err);
-    } finally {
-      setLoadingData(false);
-    }
-  };
-
   // Use working /users/owner-hierarchy/ (same as sugarcane).
   // Do NOT call /users/owner-hierarchy/grapes/ — not deployed on Railway (404).
   const fetchOwnerFieldOfficers = async (): Promise<void> => {
@@ -892,6 +951,11 @@ const OwnerFarmDash: React.FC = () => {
       if (managersData.length > 0) {
         setFieldOfficers([]);
         resetSelection();
+        const firstManager =
+          managersData.find((m: any) => String(m?.id) !== UNASSIGNED_TEAM_ID) ??
+          managersData[0];
+        const firstManagerId = firstManager?.id ?? firstManager?.user_id;
+        if (firstManagerId != null) setSelectedManagerId(String(firstManagerId));
         setHierarchyError(null);
         console.info(
           `OwnerFarmDash: loaded ${managersData.length} managers / ${officersData.length} FOs via ${source}`,
@@ -1279,11 +1343,21 @@ const OwnerFarmDash: React.FC = () => {
   };
 
   // Map auto-center component (from Harvest Dashboard)
-  function MapAutoCenter({ center }: { center: [number, number] }) {
+  function MapAutoCenter({
+    center,
+    boundary,
+  }: {
+    center: [number, number];
+    boundary: [number, number][];
+  }) {
     const map = useMap();
     useEffect(() => {
-      map.setView(center, map.getZoom());
-    }, [center, map]);
+      if (boundary.length > 2) {
+        map.fitBounds(boundary, { padding: [30, 30], maxZoom: 18 });
+      } else {
+        map.setView(center, map.getZoom());
+      }
+    }, [center, boundary, map]);
     return null;
   }
 
@@ -1393,17 +1467,100 @@ const OwnerFarmDash: React.FC = () => {
     );
   }, [fieldOfficers, selectedFieldOfficerId]);
 
-  const selectedFarmerLabel = useMemo(() => {
-    const farmer = farmersForSelectedOfficer.find(
-      (f) =>
-        String(f.id || f.farmer_id || f.farmerId) === String(selectedFarmerId),
+  const selectedFarmerRecord = useMemo(
+    () =>
+      farmersForSelectedOfficer.find(
+        (f) =>
+          String(f.id || f.farmer_id || f.farmerId) ===
+          String(selectedFarmerId),
+      ) ?? null,
+    [farmersForSelectedOfficer, selectedFarmerId],
+  );
+
+  const selectedFieldSummary = useMemo(() => {
+    const plot = pickArray(
+      selectedFarmerRecord?.plots,
+      selectedFarmerRecord?.plot_list,
+      selectedFarmerRecord?.plot,
+      selectedFarmerRecord?.farms,
+    ).find((p) => ownerPlotId(p) === String(selectedPlotId));
+    const farms = plot ? extractFarms(plot) : [];
+    const farm = farms[0] ?? {};
+    const crop = firstNonEmptyText(
+      farm?.crop_type?.crop_type,
+      farm?.crop_type?.name,
+      farm?.crop_type,
+      farm?.crop_name,
+      farm?.crop_type_display,
+      plot?.crop_type?.crop_type,
+      plot?.crop_type?.name,
+      plot?.crop_type,
+      plot?.crop_name,
+      selectedFarmerRecord?.crop_type?.crop_type,
+      selectedFarmerRecord?.crop_type,
     );
+    const rawVariety = firstNonEmptyText(
+      ...farms.map((f) => f?.crop_type?.crop_variety),
+      farm?.plantation?.grafted_variety,
+      farm?.grafted_variety,
+      farm?.variety_display,
+      farm?.variety,
+      farm?.crop_variety,
+      farm?.crop_type?.variety,
+      plot?.variety,
+      plot?.crop_variety,
+      plot?.grafted_variety,
+      selectedFarmerRecord?.variety_display,
+      selectedFarmerRecord?.variety,
+      selectedFarmerRecord?.crop_variety,
+      selectedFarmerRecord?.grafted_variety,
+    );
+
+    const areaAcres = farms.reduce(
+      (sum: number, item) => sum + resolveFarmAreaAcres(item, plot),
+      0,
+    );
+
+    return {
+      areaAcres: areaAcres > 0 ? areaAcres : null,
+      crop,
+      variety: rawVariety ? grapeVarietyLabel(rawVariety) : null,
+      foundationPruningDate: firstNonEmptyText(
+        farm?.foundation_pruning_date,
+        farm?.plantation?.foundation_pruning_date,
+        plot?.foundation_pruning_date,
+        selectedFarmerRecord?.foundation_pruning_date,
+      ),
+      fruitPruningDate: firstNonEmptyText(
+        farm?.fruit_pruning_date,
+        farm?.plantation?.fruit_pruning_date,
+        plot?.fruit_pruning_date,
+        selectedFarmerRecord?.fruit_pruning_date,
+      ),
+    };
+  }, [selectedFarmerRecord, selectedPlotId]);
+
+  const selectedFarmerLabel = useMemo(() => {
+    const farmer = selectedFarmerRecord;
     return (
       `${farmer?.first_name || ""} ${farmer?.last_name || ""}`.trim() ||
       farmer?.name ||
       "—"
     );
-  }, [farmersForSelectedOfficer, selectedFarmerId]);
+  }, [selectedFarmerRecord]);
+
+  const areaValue =
+    metrics.area ?? selectedFieldSummary.areaAcres ?? embedded?.areaAcres;
+  const summaryFarmer = embedded?.farmerName ?? selectedFarmerLabel;
+  const summaryCrop =
+    embedded?.cropType ?? selectedFieldSummary.crop ?? (embedded ? "Grapes" : null);
+  const summaryVariety = embedded?.variety ?? selectedFieldSummary.variety;
+  const foundationPruningSummaryDate =
+    savedFoundationPruningDate ?? selectedFieldSummary.foundationPruningDate;
+  const fruitPruningSummaryDate =
+    savedFruitPruningDate ??
+    selectedFieldSummary.fruitPruningDate ??
+    fruitPruningDate;
 
   // Time period toggle component
   const TimePeriodToggle: React.FC = () => (
@@ -1580,10 +1737,13 @@ const OwnerFarmDash: React.FC = () => {
 
   // Keep dashboard visible while hierarchy loads
 
+  const cropStage = milestoneState.cropStatus || metrics.growthStage || null;
+
   return (
-    <div className="min-h-screen dashboard-bg">
+    <div className={embedded ? "" : "min-h-screen dashboard-bg"}>
       {/* Enhanced Header */}
 
+      {!embedded && (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ">
         {loadingHierarchy && fieldOfficers.length === 0 && (
           <div className="mb-4 flex items-center gap-2 text-sm font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
@@ -1833,52 +1993,57 @@ const OwnerFarmDash: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+      <div className={embedded ? "space-y-4" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4"}>
         {/* Top Priority Metrics - same 4 cards as sugarcane */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-5 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/location.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 pt-2 relative z-10">
               <div className="text-right">
                 <div className="text-3xl font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {loadingData ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    metrics.area?.toFixed(2) || "-"
+                    areaValue?.toFixed(2) || "-"
                   )}
                 </div>
                 <div className="text-base font-semibold" style={{ color: '#6bb043' }}>acre</div>
               </div>
             </div>
-            <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>Field Area</p>
+            {(selectedFarmerId || embedded) && (
+              <div className="relative z-10 mt-3 rounded-lg border border-gray-200 bg-white/70 p-2.5">
+                <div className="grid grid-cols-1 gap-y-2 text-xs leading-4">
+                  <p className="min-w-0 truncate text-gray-500">
+                    Farmer <span className="ml-1 font-semibold text-gray-800">{summaryFarmer || "—"}</span>
+                  </p>
+                  <p className="min-w-0 truncate text-gray-500">
+                    Crop <span className="ml-1 font-semibold text-gray-800">{summaryCrop || "—"}</span>
+                  </p>
+                  <p className="min-w-0 truncate text-gray-500">
+                    Variety <span className="ml-1 font-semibold text-gray-800">{summaryVariety || "—"}</span>
+                  </p>
+                  <p className="min-w-0 truncate text-gray-500">
+                    Foundation <span className="ml-1 font-semibold text-gray-800">{formatSummaryDate(foundationPruningSummaryDate)}</span>
+                  </p>
+                  <p className="min-w-0 truncate text-gray-500">
+                    Fruit pruning <span className="ml-1 font-semibold text-gray-800">{formatSummaryDate(fruitPruningSummaryDate)}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+            <p className={`text-sm font-medium ${embedded ? "mt-auto pt-2" : "mt-auto pt-3"} relative z-10`} style={{ color: '#616161' }}>Field Area</p>
           </div>
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300 flex flex-col h-full relative overflow-hidden" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <img
-              src="/Image/crop images/Crop Status.png"
-              alt=""
-              aria-hidden
-              className="absolute left-4 top-5 w-20 h-20 object-contain opacity-100 z-0 pointer-events-none select-none"
-            />
             <div className="flex items-center justify-end mb-2 relative z-10">
-              <div className="text-right">
-                <div className="text-lg font-bold" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
-                  {loadingData ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    metrics.growthStage || "-"
-                  )}
-                </div>
-              </div>
+              <CropStageValue plotId={selectedPlotId} />
+            </div>
+            <div className="relative z-10 mt-2">
+              <CropStageCandles plotId={selectedPlotId} />
             </div>
             <p className="text-sm font-medium mt-auto pt-3 relative z-10" style={{ color: '#616161' }}>
-              Crop Status
+              Crop Stage
             </p>
           </div>
 
@@ -1892,32 +2057,49 @@ const OwnerFarmDash: React.FC = () => {
               style={{ color: '#5a7c3a' }}
               aria-hidden
             />
-            <div className="flex flex-col flex-1 min-h-0 relative z-10 pl-16" aria-busy={milestoneState.loading}>
-              {([
-                { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
-                { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
-              ] as const).map((row) => {
-                const showDash = milestoneState.loading || milestoneState.error;
-                const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
-                const subtleValue = showDash || dateText === "Not available";
-                return (
-                  <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
-                    <div
-                      className="text-sm font-bold tabular-nums"
-                      style={{
-                        color: subtleValue ? '#94a3b8' : '#212121',
-                        fontFamily: 'Inter, Poppins, sans-serif',
-                      }}
-                      title={subtleValue ? undefined : dateText}
-                    >
-                      {dateText}
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col items-end justify-start px-3 pt-2 text-right" aria-busy={milestoneState.loading}>
+              <div className="flex flex-col items-end">
+                {([
+                  { label: "Ripening Start", iso: milestoneState.ripeningStartDate },
+                  { label: "Harvest Ready", iso: milestoneState.harvestReadyStartDate },
+                ] as const).map((row) => {
+                  const showDash = milestoneState.loading || milestoneState.error;
+                  const dateText = showDash ? "—" : formatMilestoneDate(row.iso);
+                  const subtleValue = showDash || dateText === "Not available";
+                  return (
+                    <div key={row.label} className="flex flex-col items-end gap-0.5 py-1">
+                      <div
+                        className="text-sm font-bold tabular-nums"
+                        style={{
+                          color: subtleValue ? '#94a3b8' : '#212121',
+                          fontFamily: 'Inter, Poppins, sans-serif',
+                        }}
+                        title={subtleValue ? undefined : dateText}
+                      >
+                        {dateText}
+                      </div>
+                      <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
+                        {row.label}
+                      </div>
                     </div>
-                    <div className="text-base font-semibold" style={{ color: '#6bb043' }}>
-                      {row.label}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              {(currentStageName || ripening) && (
+                <div className="absolute left-1/2 top-1/2 w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 space-y-0.5 text-center text-[11px] leading-snug text-slate-500">
+                  {currentStageName && (
+                    <p>
+                      Current stage: <span className="font-semibold text-slate-700">{currentStageName}</span>
+                    </p>
+                  )}
+                  {ripening && (
+                    <p>
+                      Ripening ({ripening.veraisonStage}) normally starts ~day {ripening.veraisonDay},{" "}
+                      {formatMilestoneDate(ripening.veraisonStart)}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <p className="text-sm font-medium mt-auto pt-0 -mt-2 relative z-10" style={{ color: '#616161' }}>
               Ripening/Harvest
@@ -1931,29 +2113,51 @@ const OwnerFarmDash: React.FC = () => {
                 <div className="text-2xl font-bold flex items-center gap-1 justify-end" style={{ color: '#212121', fontFamily: 'Inter, Poppins, sans-serif' }}>
                   {loadingData ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : metrics.brix !== null ? (
+                  ) : metrics.brix != null ? (
                     metrics.brix.toFixed(2)
                   ) : (
-                    "-"
+                    "0"
                   )}
                   <span className="text-sm font-semibold" style={{ color: '#6bb043' }}>
                     °Brix (Avg)
                   </span>
                 </div>
+                {!loadingData && brixTrend.length > 1 && (
+                  <div className="text-sm font-medium mt-0.5" style={{ color: '#94a3b8' }}>
+                    {brixTrend.length} readings
+                  </div>
+                )}
               </div>
+            </div>
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-center">
+              {!loadingData ? (
+                brixTrend.length > 1 ? (
+                  <BrixSparkline points={brixTrend} />
+                ) : ripening && fruitPruningDate ? (
+                  <BrixOutlook
+                    ripening={ripening}
+                    fruitPruningDate={fruitPruningDate}
+                    todayDay={daysAfterFruitPruning}
+                  />
+                ) : (
+                  <p className="rounded-md bg-slate-100 px-2 py-1.5 text-center text-xs font-medium text-slate-500" role="status">
+                    Brix data unavailable
+                  </p>
+                )
+              ) : null}
             </div>
             <div className="flex items-center justify-between mt-auto pt-2 relative z-10">
               <p className="text-sm font-medium" style={{ color: '#616161' }}>Sugar Content</p>
               <div className="flex gap-4 text-xs">
                 <div className="text-center">
                   <div className="font-semibold text-red-600 text-sm">
-                    {loadingData ? "—" : metrics.brixMax != null ? metrics.brixMax.toFixed(2) : "-"}
+                    {loadingData ? "…" : metrics.brixMax != null ? metrics.brixMax.toFixed(2) : "0"}
                   </div>
                   <div className="text-[10px] text-gray-500 uppercase tracking-wide">Max</div>
                 </div>
                 <div className="text-center">
                   <div className="font-semibold text-green-600 text-sm">
-                    {loadingData ? "—" : metrics.brixMin != null ? metrics.brixMin.toFixed(2) : "-"}
+                    {loadingData ? "…" : metrics.brixMin != null ? metrics.brixMin.toFixed(2) : "0"}
                   </div>
                   <div className="text-[10px] text-gray-500 uppercase tracking-wide">Min</div>
                 </div>
@@ -1964,18 +2168,7 @@ const OwnerFarmDash: React.FC = () => {
 
         {/* Additional Metrics — Recovery Rate row: Field Score + CCI (same as Manager) */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-            <div className="flex items-center justify-between mb-2">
-              <Target className="w-7 h-7 text-purple-600" />
-              <div className="text-right">
-                <div className="text-2xl font-bold" style={{ color: '#212121' }}>
-                  {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : metrics.recovery?.toFixed(1) || "-"}
-                </div>
-                <div className="text-sm font-semibold text-purple-600">%</div>
-              </div>
-            </div>
-            <p className="text-xs font-medium mt-2" style={{ color: '#616161' }}>Recovery Rate</p>
-          </div>
+          <LightIntensityCard location={plotCoordinates.length > 0 ? mapCenter : null} />
 
           <div className="bg-[#f8f9fa] rounded-xl shadow-md p-4 hover:shadow-lg transition-all duration-300" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
             <div className="flex items-center justify-between mb-2">
@@ -2028,7 +2221,7 @@ const OwnerFarmDash: React.FC = () => {
                 <Activity className="w-7 h-7 text-red-500" />
                 <div className="text-right">
                   <div className="text-2xl font-bold" style={{ color: '#212121' }}>
-                    {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : (metrics.stressTotalDays ?? metrics.stressCount ?? 0)}
+                    {loadingData ? <Loader2 className="w-5 h-5 animate-spin" /> : (metrics.stressTotalDays ?? metrics.stressCount ?? "-")}
                   </div>
                   <div className="text-sm font-semibold text-red-500">Total days</div>
                 </div>
@@ -2069,6 +2262,7 @@ const OwnerFarmDash: React.FC = () => {
           </div>
         </div>
 
+        {!embedded && (<>
         {/* Map and Status Section */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Map */}
@@ -2103,7 +2297,7 @@ const OwnerFarmDash: React.FC = () => {
                           : loadingData
                             ? "Loading..."
                             : selectedPlotId
-                              ? metrics.growthStage ?? "—"
+                              ? cropStage ?? "—"
                               : "Select a plot"}
                       </div>
                     </div>
@@ -2125,7 +2319,7 @@ const OwnerFarmDash: React.FC = () => {
                   position: "relative",
                 }}
               >
-                <MapAutoCenter center={mapCenter} />
+                <MapAutoCenter center={mapCenter} boundary={plotCoordinates} />
                 <TileLayer
                   url="http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
                   attribution="© Google"
@@ -2163,7 +2357,7 @@ const OwnerFarmDash: React.FC = () => {
                           {loadingData
                             ? "Loading..."
                             : selectedPlotId
-                              ? metrics.growthStage ?? "—"
+                              ? cropStage ?? "—"
                               : "Select a plot"}
                         </p>
                         <p>
@@ -2807,6 +3001,7 @@ const OwnerFarmDash: React.FC = () => {
             </ResponsiveContainer>
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );

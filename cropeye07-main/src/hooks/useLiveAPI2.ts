@@ -88,7 +88,7 @@ export const useLiveAPI2 = (
           setState(prev => ({
             ...prev,
             isConnected: newState === 'READY' || newState === 'STREAMING',
-            connectionStrength: 
+            connectionStrength:
               newState === 'READY' || newState === 'STREAMING' ? 'excellent' :
               newState === 'SETUP' ? 'good' :
               newState === 'CONNECTING' ? 'fair' : 'poor',
@@ -160,7 +160,7 @@ export const useLiveAPI2 = (
             const timeout = setTimeout(() => {
               reject(new Error('WebSocket setup timeout - using REST fallback'));
             }, 10000);
-            
+
             const checkState = () => {
               if (bridgeStateRef.current === 'READY' || bridgeStateRef.current === 'STREAMING') {
                 clearTimeout(timeout);
@@ -248,7 +248,7 @@ export const useLiveAPI2 = (
       const errorMsg = error.message || 'Failed to start live session';
       setState(prev => ({ ...prev, error: errorMsg }));
       callbacks.onError?.(errorMsg);
-      
+
       // Show user-friendly error messages in Marathi/Hindi
       if (error.name === 'NotAllowedError') {
         if (error.message.includes('screen')) {
@@ -297,7 +297,7 @@ export const useLiveAPI2 = (
    */
   const captureCurrentFrame = async (): Promise<FrameCapture | null> => {
     if (!mediaStreamerRef.current) return null;
-    
+
     const videoElement = mediaStreamerRef.current.getVideoElement();
     if (!videoElement || !videoElement.videoWidth) return null;
 
@@ -390,12 +390,12 @@ export const useLiveAPI2 = (
 
       const data = await response.json();
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
+
       if (reply) {
         const lang = detectLanguage(reply);
         setState(prev => ({ ...prev, detectedLanguage: lang }));
         callbacks.onResponse?.(reply, lang);
-        
+
         // Use Web Speech API for TTS (fallback since audio response parsing is complex)
         await speakText(reply, lang);
       }
@@ -461,7 +461,7 @@ export const useLiveAPI2 = (
 
       const data = await response.json();
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
+
       if (reply) {
         const lang = detectLanguage(reply);
         setState(prev => ({ ...prev, detectedLanguage: lang }));
@@ -484,7 +484,7 @@ export const useLiveAPI2 = (
 
     return new Promise<void>((resolve) => {
       window.speechSynthesis.cancel();
-      
+
       const utterance = new SpeechSynthesisUtterance(text);
       const langMap: Record<SupportedLanguage, string> = {
         marathi: 'mr-IN',

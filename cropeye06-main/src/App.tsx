@@ -409,8 +409,13 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
 
   return (
     <>
-      <div className="main-background" />
-      <div className="min-h-screen flex flex-col">
+      <div
+        className="main-background"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)), url("${import.meta.env.BASE_URL}Image/Background.png")`,
+        }}
+      />
+      <div className="relative z-[1] min-h-screen flex flex-col">
       <div className="flex flex-col">
         {/* Header - responsive margin on desktop only */}
         <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? "lg:ml-[280px]" : "lg:ml-0"}`}>
@@ -419,8 +424,17 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
               toggleSidebar={toggleSidebar}
               isSidebarOpen={isSidebarOpen}
               userRole={userRole}
+              hideLanguageSelect={
+                (userRole === "owner" || userRole === "admin") &&
+                currentView === View.Home
+              }
+              showFirmLogo={
+                (userRole === "owner" || userRole === "admin") &&
+                currentView === View.Home
+              }
             />
           </div>
+          {userRole === "farmer" ? <FarmerInfoBar /> : null}
         </div>
 
 
@@ -562,7 +576,7 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
               )}
 
               {/* {currentView === View.ViewList && <ViewList />}
-            
+
             {currentView === View.Tasklist && <Tasklist  />} */}
 
               {currentView === View.ViewList && currentUser && (
@@ -626,5 +640,5 @@ const App: React.FC<AppProps> = ({ userRole, onLogout }) => {
       </>
     );
   };
-  
+
   export default App;

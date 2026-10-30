@@ -6,7 +6,7 @@ interface AgricultureData {
   crop: string;
   region: string;
   yield: number;
-  
+
 }
 
 const AgricultureData: React.FC = () => {
@@ -15,7 +15,7 @@ const AgricultureData: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const API_KEY = 'api_live_oU8aXavWgShH3rMTYxkKRsA7J5mhzPnBzqxo6RikhJp4ycKG3cYFuGraJMQ';
-  const API_URL = 'https://api.apitube.io//v1/news/everything'; 
+  const API_URL = 'https://api.apitube.io//v1/news/everything';
 
   useEffect(() => {
     const fetchData = async () => {

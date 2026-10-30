@@ -485,12 +485,12 @@ const FarmerDashboard: React.FC = () => {
         const harvestProperties =
           harvestData?.features?.[0]?.properties ||
           harvestData?.harvest_summary;
-        
+
         harvestStatus =
           harvestProperties?.harvest_status ||
           harvestData?.harvest_summary?.harvest_status ||
           null;
-        
+
         harvestDate = harvestProperties?.harvest_date || null;
         isHarvested =
           harvestProperties?.has_harvest === true &&
@@ -956,8 +956,8 @@ const FarmerDashboard: React.FC = () => {
               >
                 {profile.plots?.map(plot => {
                   let displayName = '';
-                  
-                  if (plot.gat_number && plot.plot_number && 
+
+                  if (plot.gat_number && plot.plot_number &&
                       plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
                       !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
                     displayName = `${plot.gat_number}_${plot.plot_number}`;
@@ -968,7 +968,7 @@ const FarmerDashboard: React.FC = () => {
                   } else {
                     const village = plot.address?.village;
                     const taluka = plot.address?.taluka;
-                    
+
                     if (village) {
                       displayName = `Plot in ${village}`;
                       if (taluka) displayName += `, ${taluka}`;
@@ -976,7 +976,7 @@ const FarmerDashboard: React.FC = () => {
                       displayName = 'Plot (No GAT/Plot Number)';
                     }
                   }
-                  
+
                   return (
                     <option key={plot.fastapi_plot_id} value={plot.fastapi_plot_id}>
                       {displayName}
@@ -987,7 +987,7 @@ const FarmerDashboard: React.FC = () => {
             </div>
           </div>
         )}
-        
+
         {/* Debug Info Panel */}
         {showDebugInfo && (
           <div className="bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700">

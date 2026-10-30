@@ -95,7 +95,7 @@ const Fertilizer: React.FC = () => {
 
       const res = await fetch(url, {
         method: "POST",
-        headers: { 
+        headers: {
           Accept: "application/json",
           "Content-Type": "application/json"
         },
@@ -106,7 +106,7 @@ const Fertilizer: React.FC = () => {
 
       const json = await res.json();
 
-      
+
 
       // Extract NPK data from the new response structure
       if (
@@ -294,8 +294,8 @@ const Fertilizer: React.FC = () => {
               >
                 {profile.plots?.map(plot => {
                   let displayName = '';
-                  
-                  if (plot.gat_number && plot.plot_number && 
+
+                  if (plot.gat_number && plot.plot_number &&
                       plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
                       !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
                     displayName = `${plot.gat_number}_${plot.plot_number}`;
@@ -306,7 +306,7 @@ const Fertilizer: React.FC = () => {
                   } else {
                     const village = plot.address?.village;
                     const taluka = plot.address?.taluka;
-                    
+
                     if (village) {
                       displayName = `Plot in ${village}`;
                       if (taluka) displayName += `, ${taluka}`;
@@ -314,7 +314,7 @@ const Fertilizer: React.FC = () => {
                       displayName = 'Plot (No GAT/Plot Number)';
                     }
                   }
-                  
+
                   return (
                     <option key={plot.fastapi_plot_id} value={plot.fastapi_plot_id}>
                       {displayName}

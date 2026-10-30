@@ -13,7 +13,7 @@ export const FieldMap: React.FC<FieldMapProps> = () => {
         <div className="field-map-cell field-map-good"></div>
         <div className="field-map-cell field-map-good"></div>
         <div className="field-map-cell field-map-needs-irrigation"></div>
-        
+
         {/* Second row */}
         <div className="field-map-cell field-map-good relative">
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
@@ -24,7 +24,7 @@ export const FieldMap: React.FC<FieldMapProps> = () => {
           </div>
         </div>
         <div className="field-map-cell field-map-needs-irrigation"></div>
-        
+
         {/* Third row */}
         <div className="field-map-cell field-map-good"></div>
         <div className="field-map-cell field-map-needs-irrigation"></div>

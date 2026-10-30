@@ -118,11 +118,6 @@ function hoursFromRequiredLiters(
   return Number.isFinite(hours) && hours > 0 ? hours : null;
 }
 
-function formatHoursShort(hours: number): string {
-  const rounded = Math.round(hours * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}
-
 function buildIrrigationStatusLabel(
   given: boolean,
   _hours?: number | null,
@@ -800,6 +795,26 @@ const IrrigationSchedule: React.FC = () => {
         {dateRangeLabel && (
           <p className="text-[9px] text-green-100 leading-tight">{dateRangeLabel}</p>
         )}
+        {legacySchedule.pruningKc ? (
+          <p className="text-[9px] text-green-50 leading-tight text-center">
+            {legacySchedule.pruningKc.stage} · {legacySchedule.pruningKc.daysAfterPruning} days after{" "}
+            {legacySchedule.pruningKc.cycle === "plantation"
+              ? "plantation"
+              : `${legacySchedule.pruningKc.cycle} pruning`}{" "}
+            · Kc {legacySchedule.pruningKc.kc.toFixed(2)}
+          </p>
+        ) : (
+          !legacySchedule.loading && (
+            <p className="text-[9px] text-amber-100 leading-tight text-center">
+              Set foundation &amp; fruit pruning dates in Fertilizer schedule to calculate water need.
+            </p>
+          )
+        )}
+        {legacySchedule.pruningKc?.stale && (
+          <p className="text-[9px] text-amber-100 leading-tight text-center">
+            Pruning dates are from a previous season — update them in Fertilizer schedule.
+          </p>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col px-2 pt-1.5 pb-1.5 gap-0 overflow-hidden">
@@ -859,11 +874,11 @@ const IrrigationSchedule: React.FC = () => {
                         <span className="text-[11px] font-semibold text-gray-800 whitespace-nowrap">
                           {Number(day.etDisplayed || 0).toFixed(1)}
                         </span>
-                        <span
+                      <span
                           className={`inline-block rounded px-1 py-0.5 text-[11px] font-medium leading-none ${getETRangeColor(day.etRange)}`}
-                        >
-                          {day.etRange}
-                        </span>
+                      >
+                        {day.etRange}
+                      </span>
                       </>
                     )}
                   </div>

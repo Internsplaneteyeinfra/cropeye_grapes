@@ -22,7 +22,7 @@ const MainApp: React.FC = () => {
     console.log('MainApp: Profile plots:', profile?.plots);
     console.log('MainApp: Profile plots length:', profile?.plots?.length);
     console.log('MainApp: Current selectedPlotName:', selectedPlotName);
-    
+
     if (!profileLoading && profile?.plots && profile.plots.length > 0 && !selectedPlotName) {
       const firstPlot = profile.plots[0];
       console.log('MainApp: First plot data:', firstPlot);
@@ -43,13 +43,13 @@ const MainApp: React.FC = () => {
   // Get display name for the selected plot
   const getPlotDisplayName = (plotId: string | null) => {
     if (!plotId || !profile?.plots) return plotId;
-    
+
     const plot = profile.plots.find(p => p.fastapi_plot_id === plotId);
     if (plot) {
       // Use gat_number or plot_number as display name, fallback to fastapi_plot_id
       return plot.gat_number || plot.plot_number || plot.fastapi_plot_id;
     }
-    
+
     return plotId;
   };
 
@@ -94,7 +94,7 @@ const MainApp: React.FC = () => {
               </div>
               <div className="text-sm text-gray-600">Good Health</div>
             </div>
-            
+
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm font-medium text-gray-500">Needs Attention</div>
               <div className="mt-2 text-3xl font-bold text-orange-600">
@@ -102,7 +102,7 @@ const MainApp: React.FC = () => {
               </div>
               <div className="text-sm text-gray-600">Requires Care</div>
             </div>
-            
+
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm font-medium text-gray-500">Total Area</div>
               <div className="mt-2 text-3xl font-bold text-blue-600">
@@ -124,7 +124,7 @@ const MainApp: React.FC = () => {
               </p>
             </div>
             <div className="h-96">
-              <Map 
+              <Map
                 onHealthDataChange={handleHealthDataChange}
                 onPlotChange={handlePlotChange}
               />

@@ -4,4 +4,4 @@ const Irrigation: React.FC = () => {
   return <div>Irrigation component placeholder (reverted)</div>;
 };
 
-export default Irrigation; 
+export default Irrigation;

@@ -10,7 +10,7 @@ import { getUserRole } from "../../utils/auth";
 import { getStoredUserIndustry } from "../../utils/userIndustry";
 import { isGrapesOwnerHierarchyEligible } from "./grapesOwnerEligibility";
 
-const GrapesOwnerHierarchyHomeLink: React.FC = () => {
+const GrapesOwnerHierarchyHomeLink: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const navigate = useNavigate();
   const eligible = isGrapesOwnerHierarchyEligible(
     getUserRole(),
@@ -18,6 +18,22 @@ const GrapesOwnerHierarchyHomeLink: React.FC = () => {
   );
 
   if (!eligible) return null;
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => navigate("/owner")}
+        className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
+        style={{ minHeight: 0 }}
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+          <Grape className="h-4 w-4" />
+        </span>
+        Grapes Hierarchy
+      </button>
+    );
+  }
 
   return (
     <button

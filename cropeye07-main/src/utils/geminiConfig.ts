@@ -23,12 +23,12 @@ export type SupportedLanguage = keyof typeof LANGUAGE_CODES;
 // Detect language from text
 export const detectLanguage = (text: string): SupportedLanguage => {
   const devanagariPattern = /[\u0900-\u097F]/;
-  
+
   if (devanagariPattern.test(text)) {
     // Check for Marathi-specific words/patterns
     const marathiIndicators = ["आहे", "ची", "ला", "मी", "तुम्ही", "शेत", "पीक"];
     const hasMarathiIndicators = marathiIndicators.some(indicator => text.includes(indicator));
-    
+
     if (hasMarathiIndicators) {
       return "marathi";
     }

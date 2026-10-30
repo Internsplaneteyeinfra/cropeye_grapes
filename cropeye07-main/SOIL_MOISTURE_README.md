@@ -32,7 +32,7 @@ The SoilMoistureTrendCard component has been updated to fetch dynamic 7-day soil
 ### Endpoint
 - **URL**: `http://172.20.10.2:1002/soil-moisture`
 - **Method**: GET
-- **Parameters**: 
+- **Parameters**:
   - `plot_name` (string): Plot identifier
   - `start_date` (string): Start date in YYYY-MM-DD format
   - `end_date` (string): End date in YYYY-MM-DD format
@@ -121,7 +121,7 @@ Open `test-soil-moisture-api.html` in a browser to test the API endpoint directl
 
 ### Soil Moisture Card Not Updating
 - **Issue**: Chart doesn't change when selecting different plots
-- **Solution**: 
+- **Solution**:
   1. Check browser console for API errors
   2. Verify plot names match exactly
   3. Test API with `test-soil-moisture-api.html`
@@ -175,4 +175,4 @@ test-soil-moisture-api.html               # API testing utility
 ## Performance Considerations
 - **Caching**: Consider implementing data caching for frequently accessed plots
 - **Refresh**: Data refreshes when plot selection changes
-- **Error Recovery**: Graceful fallback to mock data on API failures 
+- **Error Recovery**: Graceful fallback to mock data on API failures

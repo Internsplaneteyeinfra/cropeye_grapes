@@ -32,7 +32,7 @@ const FieldOfficerHomeGrid: React.FC<FieldOfficerHomeGridProps> = ({ onMenuClick
     const fetchDashboardStats = async () => {
       try {
         setLoading(true);
-        
+
         // Get current user ID
         let currentUserId: number | null = null;
         try {
@@ -57,7 +57,7 @@ const FieldOfficerHomeGrid: React.FC<FieldOfficerHomeGridProps> = ({ onMenuClick
         }
 
         console.log('🔍 Fetching dashboard stats for Field Officer ID:', currentUserId);
-        
+
         // Fetch data - use getRecentFarmers (farmers-by-field-officer returns 404 on backend)
         const [recentFarmersResponse, tasksResponse, farmsResponse] = await Promise.allSettled([
           getRecentFarmers(),
@@ -106,7 +106,7 @@ const FieldOfficerHomeGrid: React.FC<FieldOfficerHomeGridProps> = ({ onMenuClick
         if (totalPlots > 0) {
           console.log(`📊 Found ${totalPlots} unique plots from farmers data`);
         }
-        
+
         // Additional fallback: Count from farms API if still 0
         if (totalPlots === 0 && farmsResponse.status === 'fulfilled') {
           console.log('⚠️ No plots found from farmers, trying farms API...');
@@ -249,7 +249,7 @@ const FieldOfficerHomeGrid: React.FC<FieldOfficerHomeGridProps> = ({ onMenuClick
       textColor: 'text-indigo-700',
     },
   ];
-  
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 mt-4 mx-4">
       {/* Dashboard Statistics: 5 rows, 1 column (left) */}

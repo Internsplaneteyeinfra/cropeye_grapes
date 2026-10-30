@@ -1,4 +1,4 @@
-// 
+//
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -49,7 +49,7 @@ const TaskCalendar: React.FC<TaskCalendarProps> = ({ currentUserId, currentUserR
   const [loading, setLoading] = useState(false);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [contacts, setContacts] = useState<any[]>([]);
-  
+
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -76,15 +76,15 @@ const TaskCalendar: React.FC<TaskCalendarProps> = ({ currentUserId, currentUserR
     try {
       console.log('Fetching tasks for user ID:', currentUserId);
       const response = await getTasksForUser(currentUserId);
-      
-      const tasksData = response.data.results 
-        ? response.data.results 
+
+      const tasksData = response.data.results
+        ? response.data.results
         : (Array.isArray(response.data) ? response.data : []);
-      
+
       const filteredTasks = tasksData.filter((task: any) =>
         task.assigned_to && task.assigned_to.id === currentUserId
       );
-      
+
       console.log('Tasks loaded for calendar:', filteredTasks.length);
       setTasks(filteredTasks);
     } catch (error) {
@@ -101,7 +101,7 @@ const TaskCalendar: React.FC<TaskCalendarProps> = ({ currentUserId, currentUserR
 //       // Fetch only farmers created by this field officer
 //       const response = await getFarmersByFieldOfficer(currentUserId);
 //       const farmers = Array.isArray(response.data) ? response.data : response.data.results || [];
-      
+
 //       console.log('My farmers:', farmers.length);
 //       setContacts(farmers);
 //     } else if (currentUserRole === 'manager') {
@@ -124,15 +124,15 @@ const fetchContacts = async () => {
   try {
     const response = await getContactDetails();
     const contactData = response.data.contacts;
-    
+
     if (currentUserRole === 'fieldofficer') {
       // TEMPORARY: Show all farmers (no filtering)
       // TODO: Backend needs to add created_by field or create new endpoint
       const allFarmers = contactData.farmers || [];
-      
+
       console.log('Showing all farmers (not filtered):', allFarmers.length);
       setContacts(allFarmers);
-      
+
     } else if (currentUserRole === 'manager') {
       const allContacts = [
         ...(contactData.field_officers || []),
@@ -149,7 +149,7 @@ const fetchContacts = async () => {
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!newTask.title || !newTask.due_date || !newTask.assigned_to_id) {
       alert('Please fill in all required fields');
       return;
@@ -167,7 +167,7 @@ const fetchContacts = async () => {
       };
 
       await addTask(taskData);
-      
+
       alert('Task added successfully!');
       setShowAddTaskModal(false);
       setNewTask({
@@ -178,7 +178,7 @@ const fetchContacts = async () => {
         assigned_to_id: '',
         due_date: '',
       });
-      
+
       fetchTasks();
     } catch (error) {
       console.error('Error adding task:', error);
@@ -189,19 +189,19 @@ const fetchContacts = async () => {
   const start = startOfMonth(currentDate);
   const end = endOfMonth(currentDate);
   const monthDays = eachDayOfInterval({ start, end });
-  
+
   const days: (Date | null)[] = [];
   const firstDayOfWeek = start.getDay();
-  
+
   for (let i = 0; i < firstDayOfWeek; i++) {
     days.push(null);
   }
-  
+
   monthDays.forEach(day => days.push(day));
-  
+
   const totalDaysInGrid = days.length;
   const remainingDaysInLastWeek = 7 - (totalDaysInGrid % 7);
-  
+
   if (remainingDaysInLastWeek < 7) {
     for (let i = 0; i < remainingDaysInLastWeek; i++) {
       days.push(null);
@@ -222,10 +222,10 @@ const fetchContacts = async () => {
 
   const getTasksForDate = (date: Date): Task[] => {
     const formatted = format(date, 'yyyy-MM-dd');
-    
+
     return tasks.filter((task) => {
       if (!task.due_date) return false;
-      
+
       try {
         const taskDate = format(new Date(task.due_date), 'yyyy-MM-dd');
         return taskDate === formatted;
@@ -278,7 +278,7 @@ const fetchContacts = async () => {
               Today: {format(new Date(), 'EEEE, MMMM d, yyyy')}
             </p>
           </div>
-          
+
           <div className="flex items-center space-x-2 flex-wrap gap-2">
             {(currentUserRole === 'manager' || currentUserRole === 'fieldofficer') && (
               <button
@@ -289,7 +289,7 @@ const fetchContacts = async () => {
                 Add Task
               </button>
             )}
-            
+
             <button
               onClick={handlePrevMonth}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -326,27 +326,27 @@ const fetchContacts = async () => {
                 />
               );
             }
-            
+
             const isTodayDate = isToday(day);
             const dayTasks = getTasksForDate(day);
             const hasTasksOnDay = dayTasks.length > 0;
-            
+
             return (
               <div
                 key={day.toString()}
                 onClick={() => handleDateClick(day)}
                 className={`h-16 sm:h-20 lg:h-24 border-r border-b border-gray-200 last:border-r-0 flex flex-col items-center justify-start p-1 transition-colors cursor-pointer relative
-                ${isTodayDate ? 'bg-blue-100 text-blue-600 font-semibold' : 
+                ${isTodayDate ? 'bg-blue-100 text-blue-600 font-semibold' :
                   selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd') ? 'bg-green-100 text-green-600 font-semibold' :
                   'hover:bg-gray-50 bg-white text-gray-700'}`}
               >
                 <span className={`text-sm sm:text-base mb-1
-                  ${isTodayDate ? 'font-bold' : 
+                  ${isTodayDate ? 'font-bold' :
                     selectedDate && format(selectedDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd') ? 'font-bold' :
                     'font-medium'}`}>
                   {format(day, 'd')}
                 </span>
-                
+
                 {hasTasksOnDay && (
                   <div className="flex flex-col gap-0.5 w-full px-1">
                     {dayTasks.slice(0, 2).map((task) => (
@@ -397,7 +397,7 @@ const fetchContacts = async () => {
             (() => {
               const targetDate = selectedDate || new Date();
               const dateTasks = getTasksForDate(targetDate);
-              
+
               if (dateTasks.length === 0) {
                 return (
                   <p className="text-gray-500 text-sm">
@@ -405,7 +405,7 @@ const fetchContacts = async () => {
                   </p>
                 );
               }
-              
+
               return (
                 <div className="space-y-3">
                   {dateTasks.map((task) => (
@@ -418,31 +418,31 @@ const fetchContacts = async () => {
                           )}
                         </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ml-2
-                          ${task.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' : 
+                          ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-gray-100 text-gray-800'}`}>
                           {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
                         </span>
                       </div>
-                      
+
                       <div className="flex items-center gap-4 mt-3 flex-wrap">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
                           Priority: {task.priority}
                         </span>
-                        
+
                         {task.created_at && (
                           <span className="text-xs text-gray-500">
                             Assigned: {new Date(task.created_at).toLocaleString()}
                           </span>
                         )}
-                        
+
                         {task.created_by && (
                           <span className="text-xs text-gray-500">
                             By: {task.created_by.first_name} {task.created_by.last_name}
                           </span>
                         )}
                       </div>
-                      
+
                       <div className="mt-3 pt-3 border-t border-gray-200">
                         <label className="text-xs font-medium text-gray-700 mr-2">Update Status:</label>
                         <select

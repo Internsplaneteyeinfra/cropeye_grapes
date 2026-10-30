@@ -41,7 +41,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
       try {
         const response = await getorders();
         const data = response?.data;
-        
+
         // Handle different response formats
         let orders: any[] = [];
         if (Array.isArray(data)) {
@@ -53,13 +53,13 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
         } else if (data?.orders && Array.isArray(data.orders)) {
           orders = data.orders;
         }
-        
+
         // Transform API response to match User interface
         // Handle items array if present
         const transformedOrders: User[] = orders.map((order: any) => {
           const items = order?.items || [];
           const firstItem = items[0] || {};
-          
+
           // Handle vendor - can be ID (number) or object with vendor_name
           let vendor_name = '';
           if (typeof order.vendor === 'object' && order.vendor !== null) {
@@ -72,7 +72,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
             // If vendor is just an ID, we'll show it as "Vendor #ID"
             vendor_name = `Vendor #${order.vendor}`;
           }
-          
+
           return {
             id: order.id,
             vendor_name: vendor_name,
@@ -85,7 +85,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
             remark: firstItem.remark || order.remark || '',
           };
         });
-        
+
         setItems(transformedOrders);
       } catch (err: any) {
         setError(err?.response?.data?.message || err?.message || 'Failed to fetch orders');
@@ -124,33 +124,33 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
       // Prepare data for API (convert frontend field names to backend field names)
       // Note: For PATCH, we only send the fields that are being updated
       const apiData: any = {};
-      
+
       // Include all editable fields from editFormData (PATCH allows partial updates)
       // Only include fields that have values (not empty, null, or undefined)
       if (editFormData.invoice_date !== undefined && editFormData.invoice_date !== null && editFormData.invoice_date !== '') {
         apiData.invoice_date = editFormData.invoice_date;
       }
-      
+
       if (editFormData.invoice_number !== undefined && editFormData.invoice_number !== null && editFormData.invoice_number !== '') {
         apiData.invoice_number = editFormData.invoice_number;
       }
-      
+
       if (editFormData.state !== undefined && editFormData.state !== null && editFormData.state !== '') {
         apiData.state = editFormData.state;
       }
-      
+
       if (editFormData.item_name !== undefined && editFormData.item_name !== null && editFormData.item_name !== '') {
         apiData.item_name = editFormData.item_name;
       }
-      
+
       if (editFormData.year_of_make !== undefined && editFormData.year_of_make !== null && editFormData.year_of_make !== '') {
         apiData.year_of_make = editFormData.year_of_make;
       }
-      
+
       if (editFormData.estimate_cost !== undefined && editFormData.estimate_cost !== null && editFormData.estimate_cost !== '') {
         apiData.estimate_cost = editFormData.estimate_cost;
       }
-      
+
       if (editFormData.remark !== undefined && editFormData.remark !== null && editFormData.remark !== '') {
         apiData.remark = editFormData.remark;
       }
@@ -166,16 +166,16 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
         id: editId,
         data: apiData
       });
-      
+
       const response = await patchOrder(editId, apiData);
       console.log('Order patch response:', response);
-      
+
       // Refresh data from API to ensure consistency
       const fetchOrders = async () => {
         try {
           const response = await getorders();
           const data = response?.data;
-          
+
           let orders: any[] = [];
           if (Array.isArray(data)) {
             orders = data;
@@ -186,11 +186,11 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
           } else if (data?.orders && Array.isArray(data.orders)) {
             orders = data.orders;
           }
-          
+
           const transformedOrders: User[] = orders.map((order: any) => {
             const items = order?.items || [];
             const firstItem = items[0] || {};
-            
+
             let vendor_name = '';
             if (typeof order.vendor === 'object' && order.vendor !== null) {
               vendor_name = order.vendor.vendor_name || order.vendor.name || '';
@@ -201,7 +201,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
             } else if (order.vendor) {
               vendor_name = `Vendor #${order.vendor}`;
             }
-            
+
             return {
               id: order.id,
               vendor_name: vendor_name,
@@ -214,20 +214,20 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
               remark: firstItem.remark || order.remark || '',
             };
           });
-          
+
           setItems(transformedOrders);
         } catch (fetchErr) {
         }
       };
-      
+
       await fetchOrders();
-      
+
       setEditId(null);
       setEditFormData({});
     } catch (err: any) {
-      
+
       let errorMessage = 'Failed to update order. Please try again.';
-      
+
       if (err?.response?.status === 400) {
         const errorData = err?.response?.data;
         if (errorData) {
@@ -236,7 +236,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
             .filter(([key]) => key !== 'detail' && key !== 'message')
             .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
             .join('; ');
-          
+
           errorMessage = errorData.detail || errorData.message || fieldErrors || 'Invalid data format. Please check all fields.';
         } else {
           errorMessage = 'Invalid request format (400). Please check all required fields are filled correctly.';
@@ -246,7 +246,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
       } else {
         errorMessage = err?.message || errorMessage;
       }
-      
+
       setError(errorMessage);
     } finally {
       setSaving(false);
@@ -312,7 +312,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
   const paginatedData = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
-    <div 
+    <div
       className="min-h-screen dashboard-bg-bleed"
     >
       <div className="min-h-screen bg-black bg-opacity-40">
@@ -330,11 +330,11 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
-            <button 
-              onClick={handleDownload} 
+            <button
+              onClick={handleDownload}
               className="text-green-600 hover:text-green-800 flex items-center justify-center py-2 px-4 border border-green-600 rounded hover:bg-green-50"
             >
-              <Download className="w-5 h-5 mr-1" /> 
+              <Download className="w-5 h-5 mr-1" />
             </button>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-gray-400 h-4 w-4" />
@@ -620,7 +620,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
                       <h3 className="font-medium text-gray-900 text-sm flex-1 pr-2">{user.vendor_name}</h3>
                       <span className="text-xs text-gray-500">{user.invoice_date}</span>
                     </div>
-                    
+
                     <div className="space-y-2 text-sm text-gray-600">
                       <div className="flex items-center">
                         <span className="font-medium w-20">Item:</span>
@@ -649,7 +649,7 @@ export const OrderList: React.FC<OrderListProps> = ({ items, setItems }) => {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="flex justify-end space-x-2 mt-3 pt-3 border-t border-gray-100">
                       <button onClick={() => handleEditClick(user)} className="text-blue-600 hover:text-blue-800 px-3 py-1 rounded border">
                         <Edit className="w-4 h-4" />

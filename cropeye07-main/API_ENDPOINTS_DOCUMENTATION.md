@@ -22,7 +22,7 @@ This document provides a comprehensive list of all API endpoints used in the Cro
 
 ## Main Backend API
 
-**Base URL:** `https://cropeye-backendd.up.railway.app/api`  
+**Base URL:** `https://cropeye-backendd.up.railway.app/api`
 **Alternative:** Configured via `VITE_API_BASE_URL` environment variable
 
 ### Authentication Endpoints
@@ -325,7 +325,7 @@ These endpoints are called after farm/plot registration to refresh microservices
 | Events Service | `https://events-cropeye.up.railway.app/refresh-from-django` | Refresh events service data |
 | SEF Service | `https://sef-cropeye.up.railway.app/refresh-from-django` | Refresh SEF service data |
 
-**Method:** POST  
+**Method:** POST
 **Auth Required:** Yes (uses main API authentication)
 
 ---
@@ -440,6 +440,6 @@ Currently, the APIs do not appear to use explicit versioning in the URL paths. F
 
 ---
 
-**Documentation Generated:** From comprehensive codebase analysis  
-**Maintained By:** Development Team  
+**Documentation Generated:** From comprehensive codebase analysis
+**Maintained By:** Development Team
 **For Questions:** Contact the development team or refer to the API source code in `src/api.ts`

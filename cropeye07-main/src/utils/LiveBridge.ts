@@ -3,7 +3,7 @@
  * Handles SETUP, REALTIME_INPUT, and SERVER_CONTENT states
  */
 
-export type LiveBridgeState = 
+export type LiveBridgeState =
   | 'DISCONNECTED'
   | 'CONNECTING'
   | 'SETUP'
@@ -62,7 +62,7 @@ export class LiveBridge {
       // Note: Direct WebSocket may have CORS issues - may need proxy in production
       // Format: wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=API_KEY
       const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${this.config.apiKey}`;
-      
+
       console.log('🔵 Connecting to Gemini Live API WebSocket...');
       this.ws = new WebSocket(wsUrl);
 
@@ -86,7 +86,7 @@ export class LiveBridge {
       this.ws.onclose = (event) => {
         console.log('🔌 WebSocket closed:', event.code, event.reason);
         this.setState('DISCONNECTED');
-        
+
         // Auto-reconnect with exponential backoff
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.scheduleReconnect();
@@ -365,14 +365,14 @@ export class LiveBridge {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    
+
     // Convert bytes to Float32 (assuming 16-bit PCM)
     const int16Array = new Int16Array(bytes.buffer);
     const float32Array = new Float32Array(int16Array.length);
     for (let i = 0; i < int16Array.length; i++) {
       float32Array[i] = int16Array[i] / 32768.0; // Normalize to [-1, 1]
     }
-    
+
     return float32Array;
   }
 }

@@ -75,12 +75,12 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
   const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFarmers, setSelectedFarmers] = useState<Set<number>>(new Set());
-  
+
   // Loading states for filter operations
   const [filtering, setFiltering] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
-  
+
   // Edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
@@ -100,7 +100,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
   }>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  
+
   // View Details Modal Edit State
   const [isViewModalEditMode, setIsViewModalEditMode] = useState(false);
   const [viewModalEditForm, setViewModalEditForm] = useState<any>({});
@@ -117,9 +117,9 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
         setError(null);
         const response = await getRecentFarmers();
         console.log('API Response:', response.data);
-        
+
         let farmersData = response.data;
-        
+
         // Handle the new response structure: { farmers: [...] }
         if (farmersData && farmersData.farmers && Array.isArray(farmersData.farmers)) {
           farmersData = farmersData.farmers;
@@ -134,15 +134,15 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
           setError('Invalid data format received from server');
           return;
         }
-        
+
         // Transform the data to match our interface based on new API response structure
         const transformedData: Farmer[] = farmersData.map((farmer: any) => {
           console.log('Processing farmer:', farmer.username, 'Farms:', farmer.farms);
-          
+
           // Get the first farm from the farmer's farms array or from plots
           let firstFarm = null;
           let firstIrrigation = null;
-          
+
           // Try to get farm data from farmer.farms first
           if (farmer.farms && farmer.farms.length > 0) {
             firstFarm = farmer.farms[0];
@@ -153,7 +153,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
             firstFarm = farmer.plots[0].farms[0];
             firstIrrigation = firstFarm.irrigations && firstFarm.irrigations.length > 0 ? firstFarm.irrigations[0] : null;
           }
-          
+
           console.log('First farm data:', firstFarm);
           console.log('First irrigation data:', firstIrrigation);
 
@@ -189,11 +189,11 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
             // Store irrigation data for easy access
             irrigation: firstIrrigation
           };
-          
+
           console.log('Transformed farmer data:', transformed);
           return transformed;
         });
-        
+
         console.log('Transformed data:', transformedData);
         setUsers(transformedData);
         if (propSetUsers) {
@@ -229,12 +229,12 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
     // Collect ALL farms from both farmer.farms and farmer.plots[].farms
     const farmsList: any[] = [];
-    
+
     // Add farms from farmer.farms
     if (farmer.farms && farmer.farms.length > 0) {
       farmsList.push(...farmer.farms);
     }
-    
+
     // Add farms from plots
     if (farmer.plots && farmer.plots.length > 0) {
       farmer.plots.forEach((plot: any) => {
@@ -350,33 +350,33 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
     try {
       // Update all farms
       const farmUpdatePromises: Promise<any>[] = [];
-      
+
       allFarms.forEach((farm: any) => {
         if (!farm.id) return;
-        
+
         const farmForm = farmEditForms[farm.id.toString()];
         if (!farmForm) return;
 
         // Prepare farm update data (PATCH - only send changed fields)
         const farmUpdateData: any = {};
-        
+
         // Check if plantation_type changed
         if (farmForm.plantation_type && farmForm.plantation_type !== farm.plantation_type) {
           farmUpdateData.plantation_type = farmForm.plantation_type;
         }
-        
+
         // Check if crop_type changed
         const currentCropType = farm.crop_type?.crop_type || farm.crop_type_name || farm.crop_type;
         if (farmForm.crop_type && farmForm.crop_type !== currentCropType) {
           farmUpdateData.crop_type = farmForm.crop_type;
         }
-        
+
         // Check if crop_variety changed
         const currentCropVariety = farm.crop_type?.crop_variety || farm.crop_variety;
         if (farmForm.crop_variety !== undefined && farmForm.crop_variety !== currentCropVariety) {
           farmUpdateData.crop_variety = farmForm.crop_variety;
         }
-        
+
         // Check if area changed
         const currentAreaInAcres = farm.area_size ? formatAcresFromHectaresOrNA(farm.area_size) : '0';
         const currentAreaValue = currentAreaInAcres !== 'N/A' ? parseFloat(currentAreaInAcres) : 0;
@@ -399,16 +399,16 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
       // Update farmer/user data if changed
       const farmerUpdateData: any = {};
-      
+
       // Split farmer_name into first_name and last_name if needed
       if (editForm.first_name && editForm.first_name !== editingFarmer.first_name) {
         farmerUpdateData.first_name = editForm.first_name;
       }
-      
+
       if (editForm.last_name && editForm.last_name !== editingFarmer.last_name) {
         farmerUpdateData.last_name = editForm.last_name;
       }
-      
+
       if (editForm.phone_number && editForm.phone_number !== editingFarmer.phone_number) {
         farmerUpdateData.phone_number = editForm.phone_number;
       }
@@ -421,7 +421,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
       // Refresh the data
       const response = await getRecentFarmers();
       let farmersData = response.data;
-      
+
       if (farmersData && farmersData.farmers && Array.isArray(farmersData.farmers)) {
         farmersData = farmersData.farmers;
       } else if (farmersData && farmersData.results && Array.isArray(farmersData.results)) {
@@ -433,7 +433,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
       const transformedData: Farmer[] = farmersData.map((farmer: any) => {
         let firstFarm = null;
         let firstIrrigation = null;
-        
+
         if (farmer.farms && farmer.farms.length > 0) {
           firstFarm = farmer.farms[0];
           firstIrrigation = firstFarm.irrigations && firstFarm.irrigations.length > 0 ? firstFarm.irrigations[0] : null;
@@ -444,7 +444,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
         const farmAreaHectares = firstFarm ? parseNumericValue(firstFarm.area_size) : 0;
         const farmAreaAcresRaw = firstFarm ? hectaresToAcres(firstFarm.area_size) : 0;
-        
+
         return {
           id: farmer.id,
           farmer_name: farmer.username || `${farmer.first_name || ''} ${farmer.last_name || ''}`.trim() || 'N/A',
@@ -704,11 +704,11 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
       // Refresh the data
       await fetchFarms();
-      
+
       // Update selectedFarmer with fresh data
       const response = await getRecentFarmers();
       let farmersData = response.data;
-      
+
       if (farmersData && farmersData.farmers && Array.isArray(farmersData.farmers)) {
         farmersData = farmersData.farmers;
       } else if (farmersData && farmersData.results && Array.isArray(farmersData.results)) {
@@ -722,7 +722,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
         // Transform the updated farmer data
         let firstFarm = null;
         let firstIrrigation = null;
-        
+
         if (updatedFarmer.farms && updatedFarmer.farms.length > 0) {
           firstFarm = updatedFarmer.farms[0];
           firstIrrigation = firstFarm.irrigations && firstFarm.irrigations.length > 0 ? firstFarm.irrigations[0] : null;
@@ -733,7 +733,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
         const farmAreaHectares = firstFarm ? parseNumericValue(firstFarm.area_size) : 0;
         const farmAreaAcresRaw = firstFarm ? hectaresToAcres(firstFarm.area_size) : 0;
-        
+
         const transformedFarmer: Farmer = {
           id: updatedFarmer.id,
           farmer_name: updatedFarmer.username || `${updatedFarmer.first_name || ''} ${updatedFarmer.last_name || ''}`.trim() || 'N/A',
@@ -762,7 +762,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
           farms: updatedFarmer.farms,
           irrigation: firstIrrigation
         };
-        
+
         setSelectedFarmer(transformedFarmer);
         initializeViewModalEditForms(transformedFarmer);
       }
@@ -799,7 +799,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
   const handleDownloadFarmer = (farmer: Farmer) => {
     // Create comprehensive CSV data for the farmer with proper columns
     const csvData = [];
-    
+
     // Add header row with all column names
     csvData.push([
       'Farmer ID',
@@ -852,7 +852,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
       'Pipe Width (inches)',
       'Irrigation Status'
     ]);
-    
+
     // Add farmer data row
     const totalAreaAcres = formatAcresValue(farmer.area);
     const totalAreaHectares = acresToHectares(farmer.area).toFixed(2);
@@ -908,7 +908,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
       '', // Pipe Width
       ''  // Irrigation Status
     ];
-    
+
     // If no plots, add the basic farmer row
     if (!farmer.plots || farmer.plots.length === 0) {
       csvData.push(farmerRow);
@@ -932,7 +932,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                 detailedRow[28] = plot.pin_code || 'N/A'; // PIN Code
                 detailedRow[29] = plot.country || 'N/A'; // Country
                 detailedRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A'; // Plot Created At
-                
+
                 // Fill farm data
                 detailedRow[31] = farm.id || 'N/A'; // Farm ID
                 detailedRow[32] = farm.farm_uid || 'N/A'; // Farm UID
@@ -943,7 +943,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                 detailedRow[37] = farm.soil_type || 'N/A'; // Soil Type
                 detailedRow[38] = farm.address || 'N/A'; // Farm Address
                 detailedRow[39] = farm.created_at ? new Date(farm.created_at).toLocaleDateString('en-GB') : 'N/A'; // Farm Created At
-                
+
                 // Fill irrigation data
                 detailedRow[40] = irrigation.irrigation_type || 'N/A'; // Irrigation Type (Farm)
                 detailedRow[41] = irrigation.emitters_count || 'N/A'; // Emitters Count (Farm)
@@ -953,7 +953,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                 detailedRow[45] = irrigation.motor_horsepower || 'N/A'; // Motor Horsepower
                 detailedRow[46] = irrigation.pipe_width_inches || 'N/A'; // Pipe Width
                 detailedRow[47] = irrigation.status ? 'Active' : 'Inactive'; // Irrigation Status
-                
+
                 csvData.push(detailedRow);
               });
             } else {
@@ -971,7 +971,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
               farmRow[28] = plot.pin_code || 'N/A';
               farmRow[29] = plot.country || 'N/A';
               farmRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A';
-              
+
               // Fill farm data
               farmRow[31] = farm.id || 'N/A';
               farmRow[32] = farm.farm_uid || 'N/A';
@@ -982,7 +982,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
               farmRow[37] = farm.soil_type || 'N/A';
               farmRow[38] = farm.address || 'N/A';
               farmRow[39] = farm.created_at ? new Date(farm.created_at).toLocaleDateString('en-GB') : 'N/A';
-              
+
               csvData.push(farmRow);
             }
           });
@@ -1000,17 +1000,17 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
           plotRow[28] = plot.pin_code || 'N/A';
           plotRow[29] = plot.country || 'N/A';
           plotRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A';
-          
+
           csvData.push(plotRow);
         }
       });
     }
-    
+
     // Convert to CSV string
     const csvContent = csvData
       .map(row => row.map(field => `"${field}"`).join(','))
       .join('\n');
-    
+
     // Create and download file
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -1033,13 +1033,13 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
     try {
       // Simulate async filter operation
       await new Promise(resolve => setTimeout(resolve, 300));
-      
+
       // Get selected farmers data
       const selectedFarmersData = displayUsers.filter(farmer => selectedFarmers.has(farmer.id));
-    
+
     // Create comprehensive CSV data for all selected farmers with proper columns
     const csvData = [];
-    
+
     // Add header row with all column names
     csvData.push([
       'Farmer ID',
@@ -1092,7 +1092,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
       'Pipe Width (inches)',
       'Irrigation Status'
     ]);
-    
+
     // Process each selected farmer
     selectedFarmersData.forEach((farmer) => {
       // Create base farmer row
@@ -1150,7 +1150,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
         '', // Pipe Width
         ''  // Irrigation Status
       ];
-      
+
       // If no plots, add the basic farmer row
       if (!farmer.plots || farmer.plots.length === 0) {
         csvData.push(farmerRow);
@@ -1174,7 +1174,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                   detailedRow[28] = plot.pin_code || 'N/A'; // PIN Code
                   detailedRow[29] = plot.country || 'N/A'; // Country
                   detailedRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A'; // Plot Created At
-                  
+
                   // Fill farm data
                   detailedRow[31] = farm.id || 'N/A'; // Farm ID
                   detailedRow[32] = farm.farm_uid || 'N/A'; // Farm UID
@@ -1185,7 +1185,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                   detailedRow[37] = farm.soil_type || 'N/A'; // Soil Type
                   detailedRow[38] = farm.address || 'N/A'; // Farm Address
                   detailedRow[39] = farm.created_at ? new Date(farm.created_at).toLocaleDateString('en-GB') : 'N/A'; // Farm Created At
-                  
+
                   // Fill irrigation data
                   detailedRow[40] = irrigation.irrigation_type || 'N/A'; // Irrigation Type (Farm)
                   detailedRow[41] = irrigation.emitters_count || 'N/A'; // Emitters Count (Farm)
@@ -1195,7 +1195,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                   detailedRow[45] = irrigation.motor_horsepower || 'N/A'; // Motor Horsepower
                   detailedRow[46] = irrigation.pipe_width_inches || 'N/A'; // Pipe Width
                   detailedRow[47] = irrigation.status ? 'Active' : 'Inactive'; // Irrigation Status
-                  
+
                   csvData.push(detailedRow);
                 });
               } else {
@@ -1213,7 +1213,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                 farmRow[28] = plot.pin_code || 'N/A';
                 farmRow[29] = plot.country || 'N/A';
                 farmRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A';
-                
+
                 // Fill farm data
                 farmRow[31] = farm.id || 'N/A';
                 farmRow[32] = farm.farm_uid || 'N/A';
@@ -1224,7 +1224,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                 farmRow[37] = farm.soil_type || 'N/A';
                 farmRow[38] = farm.address || 'N/A';
                 farmRow[39] = farm.created_at ? new Date(farm.created_at).toLocaleDateString('en-GB') : 'N/A';
-                
+
                 csvData.push(farmRow);
               }
             });
@@ -1242,13 +1242,13 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
             plotRow[28] = plot.pin_code || 'N/A';
             plotRow[29] = plot.country || 'N/A';
             plotRow[30] = plot.created_at ? new Date(plot.created_at).toLocaleDateString('en-GB') : 'N/A';
-            
+
             csvData.push(plotRow);
           }
         });
       }
     });
-    
+
     // Convert to CSV string
     const csvContent = csvData
       .map(row => row.map(field => `"${field}"`).join(','))
@@ -1264,7 +1264,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     // Clear selection after download
     setSelectedFarmers(new Set());
     } finally {
@@ -1275,20 +1275,20 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
   // Filter with loading state
   const [filtered, setFiltered] = useState<Farmer[]>([]);
-  
+
   useEffect(() => {
     const performFilter = async () => {
       // Only show loading if there's a search term or if we have data to filter
       if (searchTerm || displayUsers.length > 0) {
         setFiltering(true);
       }
-      
+
       try {
         // Simulate async filter operation for better UX (only if search term exists)
         if (searchTerm) {
           await new Promise(resolve => setTimeout(resolve, 200));
         }
-        
+
         const result = displayUsers.filter(
           (user) =>
             user.farmer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1303,7 +1303,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
         setFiltering(false);
       }
     };
-    
+
     performFilter();
   }, [displayUsers, searchTerm]);
 
@@ -1311,7 +1311,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
   const paginatedData = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-cover bg-center bg-fixed"
       style={{
         backgroundImage: `url('/icons/sugarcane main slide.jpg')`
@@ -1334,7 +1334,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
             {selectedFarmers.size > 0 && (
-              <button 
+              <button
                 onClick={handleBulkDownload}
                 disabled={downloading}
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white px-3 sm:px-4 py-2 rounded-lg flex items-center justify-center transition-colors text-sm sm:text-base"
@@ -1440,15 +1440,15 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                     <td className="px-4 py-2">{user.crop_type}</td>
                     <td className="px-4 py-2">{user.crop_variety || 'N/A'}</td>
                     <td className="px-4 py-2 space-x-3">
-                      <button 
-                        onClick={() => handleViewDetails(user)} 
+                      <button
+                        onClick={() => handleViewDetails(user)}
                         className="text-green-600 hover:text-green-800"
                         title="View Details"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => handleDownloadFarmer(user)} 
+                      <button
+                        onClick={() => handleDownloadFarmer(user)}
                         className="text-purple-600 hover:text-purple-800"
                         title="Download Details"
                       >
@@ -1457,8 +1457,8 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                       <button onClick={() => handleEdit(user.id)} className="text-blue-600 hover:text-blue-800">
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => handleDelete(user.id)} 
+                      <button
+                        onClick={() => handleDelete(user.id)}
                         disabled={deleting === user.id}
                         className="text-red-600 hover:text-red-800 disabled:text-red-400 disabled:cursor-not-allowed"
                         title={deleting === user.id ? "Deleting..." : "Delete"}
@@ -1536,15 +1536,15 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                       </div>
                     </div>
                     <div className="flex space-x-2">
-                      <button 
-                        onClick={() => handleViewDetails(user)} 
+                      <button
+                        onClick={() => handleViewDetails(user)}
                         className="p-2 text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors"
                         title="View Details"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => handleDownloadFarmer(user)} 
+                      <button
+                        onClick={() => handleDownloadFarmer(user)}
                         className="p-2 text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg transition-colors"
                         title="Download Details"
                       >
@@ -1552,7 +1552,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                       </button>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <span className="text-gray-500">Area:</span>
@@ -1573,14 +1573,14 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                     <div>
                       <span className="text-gray-500">Actions:</span>
                       <div className="flex space-x-2 mt-1">
-                        <button 
-                          onClick={() => handleEdit(user.id)} 
+                        <button
+                          onClick={() => handleEdit(user.id)}
                           className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
                           title="Edit"
                         >
                           <Edit className="w-3 h-3" />
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleDelete(user.id)}
                           disabled={deleting === user.id}
                           className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 disabled:text-red-400 disabled:cursor-not-allowed rounded transition-colors"
@@ -1679,7 +1679,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                     </button>
                   </div>
                 )}
-                <button 
+                <button
                   onClick={closeModal}
                   className="text-white hover:text-gray-200 transition-colors flex-shrink-0"
                 >
@@ -1824,7 +1824,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                     Plot Details ({selectedFarmer.plots?.length || 0} plots)
                   </h3>
                 </div>
-                
+
                 {selectedFarmer.plots && selectedFarmer.plots.length > 0 ? (
                   selectedFarmer.plots.map((plot: any, index: number) => {
                     const plotId = plot.id?.toString() || `plot-${index}`;
@@ -1853,7 +1853,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                             ? `${plotForm.area_size} acres`
                             : `${(plot.area_size !== null && plot.area_size !== undefined && plot.area_size !== '') ? formatAcresFromHectaresOrNA(plot.area_size) : (selectedFarmer?.area !== null && selectedFarmer?.area !== undefined ? formatAcresValue(selectedFarmer.area) : 'N/A')} acres`}
                         </h4>
-                        
+
                         {/* Plot Fields */}
                         {isViewModalEditMode ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
@@ -1920,7 +1920,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                             </div>
                           </div>
                         )}
-                        
+
                         {plot.farms && plot.farms.length > 0 ? (
                           plot.farms.map((farm: any, farmIndex: number) => {
                             const farmId = farm.id?.toString() || `farm-${farmIndex}`;
@@ -1933,7 +1933,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                               spacing_b: farm.spacing_b || '',
                               area_size: farm.area_size ? formatAcresFromHectaresOrNA(farm.area_size) : '0',
                             };
-                            
+
                             // Get irrigation data from the first irrigation record
                             const irrigation = farm.irrigations && farm.irrigations.length > 0 ? farm.irrigations[0] : null;
                             const irrigationId = irrigation?.id?.toString() || `irrigation-${farmIndex}`;
@@ -1946,11 +1946,11 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
                               pipe_width_inches: irrigation.pipe_width_inches || '',
                               distance_motor_to_plot_m: irrigation.distance_motor_to_plot_m || '',
                             }) : null;
-                            
+
                             return (
                               <div key={farmIndex} className="border-t pt-3 sm:pt-4 mt-3 sm:mt-4">
                                 <h5 className="text-sm sm:text-base font-semibold text-gray-700 mb-3">Farm {farmIndex + 1}</h5>
-                                
+
                                 {isViewModalEditMode ? (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
                                     <div>
@@ -2216,7 +2216,7 @@ export const FarmList: React.FC<FarmlistProps> = ({ users: propUsers, setUsers: 
             {/* Modal Header */}
             <div className="bg-blue-600 text-white p-4 rounded-t-lg flex justify-between items-center">
               <h2 className="text-xl font-semibold">Edit Farm Details</h2>
-              <button 
+              <button
                 onClick={handleCloseEditModal}
                 className="text-white hover:text-gray-200 transition-colors"
                 disabled={savingEdit}

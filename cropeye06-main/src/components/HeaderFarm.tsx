@@ -5,11 +5,11 @@ interface HeaderFarmProps {}
 
 export const Header: React.FC<HeaderFarmProps> = () => {
   const { profile, loading: profileLoading } = useFarmerProfile();
-  
+
   // Note: Profile is automatically fetched by useFarmerProfile hook using the new my-profile endpoint
 
 
-  
+
   // Format current date to display like "27 May 2025"
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-GB', {

@@ -75,48 +75,48 @@ const tooltipStyles = `
   text-align: right;
   font-size: 10px;
   }
-  
+
   @media (max-width: 768px) {
     .hover-tooltip {
       padding: 6px 8px;
       font-size: 10px;
       max-width: 150px;
     }
-    
+
     .enhanced-tooltip {
       padding: 6px 8px;
       font-size: 10px;
       max-width: 160px;
     }
-    
+
     .layer-name {
       min-width: 40px;
       font-size: 9px;
     }
-    
+
     .layer-description {
       font-size: 9px;
     }
   }
-  
+
   @media (max-width: 320px) {
     .hover-tooltip {
       padding: 4px 6px;
       font-size: 9px;
       max-width: 120px;
     }
-    
+
     .enhanced-tooltip {
       padding: 2px 15px;
       font-size: 9px;
       max-width: 100px;
     }
-    
+
     .layer-name {
       min-width: 30px;
       font-size: 8px;
     }
-    
+
     .layer-description {
       font-size: 8px;
     }
@@ -287,7 +287,7 @@ const CropEyeMap: React.FC<MapProps> = ({
   const [layerChangeKey, setLayerChangeKey] = useState(0);
   const [pixelTooltip, setPixelTooltip] = useState<{layers: Array<{layer: string, label: string, description: string, percentage: number}>, x: number, y: number} | null>(null);
   const [plotAreaAcres, setPlotAreaAcres] = useState<number | null>(null);
-  
+
   // Date navigation state (similar to Streamlit logic)
   const [currentEndDate, setCurrentEndDate] = useState<string>(() => {
     const today = new Date();
@@ -456,11 +456,11 @@ const CropEyeMap: React.FC<MapProps> = ({
 
     // Mark that we're doing the initial fetch to prevent duplicate calls
     initialFetchDoneRef.current = true;
-    
+
     // Fetch ALL 4 APIs in parallel on login to preload data for faster button switching
     // This ensures all data is loaded when farmer logs in, making button switching instant
     console.log('🔄 Map: Fetching all 4 layer APIs (Growth, Water Uptake, Soil Moisture, Pest) on login for plot:', selectedPlotName);
-    
+
     // Fetch all APIs in parallel - this preloads data so button clicks are instant
     Promise.all([
       fetchGrowthData(selectedPlotName),
@@ -582,21 +582,21 @@ const CropEyeMap: React.FC<MapProps> = ({
     }
 
     // Use proxy in development to avoid CORS issues, direct URL in production
-    // const baseUrl = import.meta.env.DEV 
-      // ? '/api/dev-plot' 
+    // const baseUrl = import.meta.env.DEV
+      // ? '/api/dev-plot'
       // : 'https://admin-cropeye.up.railway.app';
     const baseUrl='https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/analyze_Growth?plot_name=${plotName}&end_date=${currentEndDate}&days_back=15`;
-    
+
     try {
-      
+
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const resp = await fetch(url, {
           method: "POST",
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         // Note: Not setting body at all, let browser handle empty POST body
@@ -606,24 +606,24 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Growth API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Growth API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       layerTilesCacheRef.current.set(memKey, data);
       setGrowthData(data);
-      
+
       // Cache the data if it's for today's date
       if (currentEndDate === today) {
         setCached(`growthData_${plotName}`, data);
       }
-      
+
       // Preserve plot boundary from growth data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -640,7 +640,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setGrowthData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch growth data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError") {
@@ -686,21 +686,21 @@ const CropEyeMap: React.FC<MapProps> = ({
     }
 
     // Use direct backend URL in production (proxy only works in dev)
-    // const baseUrl = import.meta.env.DEV 
-    //   ? '/api/dev-plot' 
+    // const baseUrl = import.meta.env.DEV
+    //   ? '/api/dev-plot'
     //   : 'https://admin-cropeye.up.railway.app';
     const baseUrl = 'https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/wateruptake?plot_name=${plotName}&end_date=${currentEndDate}&days_back=15`;
 
     try {
-      
+
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const resp = await fetch(url, {
           method: "POST",
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         // Note: Not setting body at all, let browser handle empty POST body
@@ -710,24 +710,24 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Water Uptake API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Water Uptake API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       layerTilesCacheRef.current.set(memKey, data);
       setWaterUptakeData(data);
-      
+
       // Cache the data if it's for today's date
       if (currentEndDate === today) {
         setCached(`waterUptakeData_${plotName}`, data);
       }
-      
+
       // Preserve plot boundary from water uptake data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -744,7 +744,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setWaterUptakeData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch water uptake data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError") {
@@ -790,22 +790,22 @@ const CropEyeMap: React.FC<MapProps> = ({
     }
 
     // Use direct backend URL in production (proxy only works in dev)
-    // const baseUrl = import.meta.env.DEV 
-    //   ? '/api/dev-plot' 
+    // const baseUrl = import.meta.env.DEV
+    //   ? '/api/dev-plot'
     //   : 'https://admin-cropeye.up.railway.app';
     const baseUrl = 'https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/SoilMoisture?plot_name=${plotName}&end_date=${currentEndDate}&days_back=7`;
 
-    
+
     try {
-      
+
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const resp = await fetch(url, {
           method: "POST",
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         // Note: Not setting body at all, let browser handle empty POST body
@@ -815,24 +815,24 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Soil Moisture API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Soil Moisture API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       layerTilesCacheRef.current.set(memKey, data);
       setSoilMoistureData(data);
-      
+
       // Cache the data if it's for today's date
       if (currentEndDate === today) {
         setCached(`soilMoistureData_${plotName}`, data);
       }
-      
+
       // Preserve plot boundary from soil moisture data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -849,7 +849,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setSoilMoistureData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch soil moisture data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError") {
@@ -872,21 +872,21 @@ const CropEyeMap: React.FC<MapProps> = ({
 
       const currentDate = getCurrentDate();
     // Use direct backend URL in production (proxy only works in dev)
-    // const baseUrl = import.meta.env.DEV 
-    //   ? '/api/dev-plot' 
+    // const baseUrl = import.meta.env.DEV
+    //   ? '/api/dev-plot'
     //   : 'https://admin-cropeye.up.railway.app';
     const baseUrl = 'https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/analyze_Growth?plot_name=${plotName}&end_date=${currentDate}&days_back=7`;
 
     try {
-      
+
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const resp = await fetch(url, {
           method: "POST",
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         // Note: Not setting body at all, let browser handle empty POST body
@@ -896,18 +896,18 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Plot API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Plot API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       setPlotData(data);
-      
+
       // Preserve plot boundary separately so it persists across layer changes
       if (data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -922,7 +922,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         plotName: plotName,
         endDate: currentDate
       });
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch plot data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError") {
@@ -1058,21 +1058,21 @@ const CropEyeMap: React.FC<MapProps> = ({
     }
 
     // Use direct backend URL in production (proxy only works in dev)
-    // const baseUrl = import.meta.env.DEV 
-    //   ? '/api/dev-plot' 
+    // const baseUrl = import.meta.env.DEV
+    //   ? '/api/dev-plot'
     //   : 'https://admin-cropeye.up.railway.app';
     const baseUrl = 'https://admin-cropeye.up.railway.app';
     const url = `${baseUrl}/pest-detection?plot_name=${plotName}&end_date=${currentEndDate}&days_back=7`;
 
     try {
-      
+
       // Try fetch with explicit CORS mode and proper headers matching curl command
       const resp = await fetch(url, {
           method: "POST",
         mode: "cors",
         cache: "no-cache",
         credentials: "omit",
-        headers: { 
+        headers: {
           "Accept": "application/json"
         },
         // Note: Not setting body at all, let browser handle empty POST body
@@ -1082,24 +1082,24 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!resp.ok) {
         const errorText = await resp.text().catch(() => 'Unable to read error response');
         console.error("Pest detection API error response:", errorText);
-        
+
         // Handle 502 Bad Gateway - filter out HTML error page
         if (resp.status === 502 || errorText.includes('<html>') || errorText.includes('Bad Gateway')) {
           throw new Error('Backend service is temporarily unavailable. Please try again in a few moments.');
         }
-        
+
         throw new Error(`Pest detection API failed: ${resp.status} ${resp.statusText}`);
       }
 
       const data = await resp.json();
       layerTilesCacheRef.current.set(memKey, data);
       setPestData(data);
-      
+
       // Cache the data if it's for today's date
       if (currentEndDate === today) {
         setCached(`pestData_${plotName}`, data);
       }
-      
+
       // Preserve plot boundary from pest data if not already set
       if (!plotBoundary && data?.features?.[0]?.geometry) {
         setPlotBoundary(data.features[0]);
@@ -1112,15 +1112,15 @@ const CropEyeMap: React.FC<MapProps> = ({
         const soilBornePercentage = data.pixel_summary.SoilBorn_affected_pixel_percentage || 0;
 
         const totalAffectedPercentage = chewingPestPercentage + suckingPercentage + fungiPercentage + soilBornePercentage;
-        
+
         onPestDataChange({
           plotName,
           pestPercentage: totalAffectedPercentage,
           healthyPercentage: 100 - totalAffectedPercentage,
           totalPixels: data.pixel_summary.total_pixel_count || 0,
-          pestAffectedPixels: (data.pixel_summary.chewing_affected_pixel_count || 0) + 
-                             (data.pixel_summary.sucking_affected_pixel_count || 0) + 
-                             (data.pixel_summary.fungi_affected_pixel_count || 0) +  
+          pestAffectedPixels: (data.pixel_summary.chewing_affected_pixel_count || 0) +
+                             (data.pixel_summary.sucking_affected_pixel_count || 0) +
+                             (data.pixel_summary.fungi_affected_pixel_count || 0) +
                              (data.pixel_summary.SoilBorn_pixel_count || 0),
           chewingPestPercentage,
           chewingPestPixels: data.pixel_summary.chewing_affected_pixel_count || 0,
@@ -1140,7 +1140,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         endDate: currentEndDate
       });
       setPestData(null);
-      
+
       // Provide more specific error messages
       let errorMessage = "Failed to fetch pest data";
       if (err?.message?.includes("Failed to fetch") || err?.name === "TypeError") {
@@ -1229,7 +1229,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       const suckingPercentage = pestData?.pixel_summary?.sucking_affected_pixel_percentage || 0;
       const fungiPercentage = pestData?.pixel_summary?.fungi_affected_pixel_percentage || 0;
       const soilBornePercentage = pestData?.pixel_summary?.SoilBorn_affected_pixel_percentage || 0;
-      
+
       return [
         { label: "Chewing", color: "#DC2626", percentage: Math.round(chewingPestPercentage), description: "Areas affected by chewing pests" },
         { label: "Sucking", color: "#B91C1C", percentage: Math.round(suckingPercentage), description: "Areas affected by sucking disease" },
@@ -1281,7 +1281,7 @@ const CropEyeMap: React.FC<MapProps> = ({
 
   const getFilteredPixels = useMemo(() => {
     // console.log('getFilteredPixels called with:', { selectedLegendClass, activeLayer });
-    
+
     if (!selectedLegendClass) {
       // console.log('No selectedLegendClass, returning empty array');
       return [];
@@ -1294,15 +1294,15 @@ const CropEyeMap: React.FC<MapProps> = ({
       }
 
       // console.log('Processing PEST layer for selectedLegendClass:', selectedLegendClass);
-      
+
       if (!["Chewing", "Sucking", "fungi", "Soil Borne"].includes(selectedLegendClass)) {
         // console.log('SelectedLegendClass not in allowed pest categories:', selectedLegendClass);
         return [];
       }
-      
+
       let coordinates = [];
       let pestType = "";
-      
+
       if (selectedLegendClass === "Chewing") {
         coordinates = pestData.pixel_summary?.chewing_affected_pixel_coordinates || [];
         pestType = "Chewing";
@@ -1316,17 +1316,17 @@ const CropEyeMap: React.FC<MapProps> = ({
         coordinates = pestData.pixel_summary?.SoilBorne_affected_pixel_coordinates || [];
         pestType = "Soil Borne";
       }
-      
+
       if (!coordinates || !Array.isArray(coordinates)) {
         // console.log('No valid coordinates found for', pestType);
         return [];
       }
-      
+
       // console.log(`Found ${coordinates.length} coordinates for ${pestType}`);
 
       const actualPixels = coordinates.map((coord, index) => {
         if (!Array.isArray(coord) || coord.length < 2) return null;
-        
+
         return {
           geometry: {
             coordinates: [coord[0], coord[1]]
@@ -1338,11 +1338,11 @@ const CropEyeMap: React.FC<MapProps> = ({
           }
         };
       }).filter(Boolean);
-      
+
       // console.log(`Generated ${actualPixels.length} pixel objects for ${pestType}`);
       return actualPixels;
     }
-    
+
     if (activeLayer === "Water Uptake") {
       if (!waterUptakeData || !currentPlotFeature) {
         // console.log('Missing waterUptakeData or currentPlotFeature');
@@ -1378,7 +1378,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         // console.log('No valid coordinates found for', categoryType);
       return [];
     }
-    
+
       // console.log(`Found ${coordinates.length} coordinates for ${categoryType}`);
 
       const actualPixels = coordinates.map((coord, index) => {
@@ -1517,11 +1517,11 @@ const CropEyeMap: React.FC<MapProps> = ({
   const getMultiLayerDataForPosition = (coords: number[]) => {
     const allLayerData = [];
     const tolerance = 0.00001;
-    
+
     // Helper function to find category for coordinates in a layer
     const findCategoryInLayer = (layerData: any, layerName: string, legendItems: any[]) => {
       if (!layerData?.pixel_summary) return null;
-      
+
       for (const legendItem of legendItems) {
         const coordsKey = getCoordinatesKey(layerName, legendItem.label);
         let coordinates = layerData.pixel_summary[coordsKey] || [];
@@ -1532,12 +1532,12 @@ const CropEyeMap: React.FC<MapProps> = ({
         ) {
           coordinates = waterUptakeVeryHealthyCoordinates(layerData.pixel_summary);
         }
-        
-        const found = coordinates.find((coord: number[]) => 
-          Math.abs(coord[0] - coords[0]) < tolerance && 
+
+        const found = coordinates.find((coord: number[]) =>
+          Math.abs(coord[0] - coords[0]) < tolerance &&
           Math.abs(coord[1] - coords[1]) < tolerance
         );
-        
+
         if (found) {
           return {
             layer: layerName,
@@ -1549,7 +1549,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       }
       return null;
     };
-    
+
     // Get coordinates key for each layer type
     const getCoordinatesKey = (layerName: string, label: string) => {
       if (layerName === 'Growth') {
@@ -1569,7 +1569,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       }
       return '';
     };
-    
+
     // Check Growth layer
     if (growthData) {
       const growthLegend = [
@@ -1581,7 +1581,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       const growthResult = findCategoryInLayer(growthData, 'Growth', growthLegend);
       if (growthResult) allLayerData.push(growthResult);
     }
-    
+
     // Check Water Uptake layer
     if (waterUptakeData) {
       const waterLegend = [
@@ -1594,7 +1594,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       const waterResult = findCategoryInLayer(waterUptakeData, 'Water Uptake', waterLegend);
       if (waterResult) allLayerData.push(waterResult);
     }
-    
+
     // Check Soil Moisture layer
     if (soilMoistureData) {
       const soilLegend = [
@@ -1607,7 +1607,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       const soilResult = findCategoryInLayer(soilMoistureData, 'Soil Moisture', soilLegend);
       if (soilResult) allLayerData.push(soilResult);
     }
-    
+
     // Check PEST layer
     if (pestData) {
       const pestLegend = [
@@ -1619,7 +1619,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       const pestResult = findCategoryInLayer(pestData, 'PEST', pestLegend);
       if (pestResult) allLayerData.push(pestResult);
     }
-    
+
     return allLayerData;
   };
 
@@ -1632,7 +1632,7 @@ const CropEyeMap: React.FC<MapProps> = ({
   const renderPlotBorder = () => {
     // Always prioritize plotBoundary (persists across layer changes)
     let featureToUse = plotBoundary || currentPlotFeature;
-    
+
     // If still no feature, try to get from active layer data as fallback (read-only)
     if (!featureToUse) {
       if (activeLayer === "Growth" && growthData?.features?.[0]) {
@@ -1645,7 +1645,7 @@ const CropEyeMap: React.FC<MapProps> = ({
         featureToUse = pestData.features[0];
       }
     }
-    
+
     const geom = featureToUse?.geometry;
     if (!geom || geom.type !== "Polygon" || !geom.coordinates?.[0]) {
       // If no geometry available, return null but don't clear anything
@@ -1681,7 +1681,7 @@ const CropEyeMap: React.FC<MapProps> = ({
       if (!coords || !Array.isArray(coords) || coords.length < 2) {
         return null;
       }
-      
+
       const circleRadius = 0.000025;
 
       return (
@@ -1774,8 +1774,8 @@ const CropEyeMap: React.FC<MapProps> = ({
             >
               {profile.plots?.map(plot => {
                 let displayName = '';
-                
-                if (plot.gat_number && plot.plot_number && 
+
+                if (plot.gat_number && plot.plot_number &&
                     plot.gat_number.trim() !== "" && plot.plot_number.trim() !== "" &&
                     !plot.gat_number.startsWith('GAT_') && !plot.plot_number.startsWith('PLOT_')) {
                   displayName = `${plot.gat_number}_${plot.plot_number}`;
@@ -1786,7 +1786,7 @@ const CropEyeMap: React.FC<MapProps> = ({
                 } else {
                   const village = plot.address?.village;
                   const taluka = plot.address?.taluka;
-                  
+
                   if (village) {
                     displayName = `Plot in ${village}`;
                     if (taluka) displayName += `, ${taluka}`;
@@ -1794,7 +1794,7 @@ const CropEyeMap: React.FC<MapProps> = ({
                     displayName = 'Plot (No GAT/Plot Number)';
                   }
                 }
-                
+
                 return (
                   <option key={plot.fastapi_plot_id} value={plot.fastapi_plot_id}>
                     {displayName}
@@ -1813,7 +1813,7 @@ const CropEyeMap: React.FC<MapProps> = ({
 
       {/* Enhanced Multi-Layer Tooltip */}
       {pixelTooltip && pixelTooltip.layers.length > 0 && (
-        <div 
+        <div
           className="enhanced-tooltip"
           style={{
             left: `${pixelTooltip.x + 10}px`,
@@ -1851,7 +1851,7 @@ const CropEyeMap: React.FC<MapProps> = ({
 
         {/* Loading Spinner Overlay - Shows when fetching map data */}
         {dateNavigationLoading && (
-          <div 
+          <div
             style={{
               position: 'absolute',
               top: 0,
@@ -1866,7 +1866,7 @@ const CropEyeMap: React.FC<MapProps> = ({
               pointerEvents: 'none'
             }}
           >
-            <div 
+            <div
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -1999,7 +1999,7 @@ const CropEyeMap: React.FC<MapProps> = ({
                 <span className="timeseries-arrow-icon timeseries-arrow-right-icon"></span>
               )}
             </button>
-            
+
             {/* Date Popup */}
             {showDatePopup && (
               <div className={`timeseries-date-popup ${popupSide === 'left' ? 'timeseries-date-popup-left' : ''} ${popupSide === 'right' ? 'timeseries-date-popup-right' : ''}`}>

@@ -18,6 +18,7 @@ import {
 import type { OwnerUnit } from "../../hooks/useOwnerPortfolio";
 import type { OwnerBackendCounts } from "../../utils/ownerCounts";
 import {
+  displayOwnerManagerName,
   summarizePlots,
   UNASSIGNED_MANAGER,
   type OwnerPlotRecord,
@@ -51,6 +52,8 @@ type UnitCardData = {
   farmers: number;
   summary: PortfolioSummary;
   districts: string[];
+  /** Whether plots sit under a real manager (FO link) or the Unassigned bucket. */
+  linkStatus: "linked" | "unassigned" | "empty";
 };
 
 type Props = {
@@ -102,6 +105,12 @@ const UnitCard: React.FC<{
   const statuses = Object.entries(c.summary.statusCounts).sort((a, b) => b[1] - a[1]);
   const share = totalFarmers > 0 ? Math.round((c.farmers / totalFarmers) * 100) : 0;
   const places = c.districts.length ? c.districts : c.location ? [c.location] : [];
+  const linkBadge =
+    c.linkStatus === "linked"
+      ? { text: "Linked to manager", className: "bg-emerald-50 text-emerald-700" }
+      : c.linkStatus === "unassigned"
+        ? { text: "Not linked to a manager", className: "bg-amber-50 text-amber-800" }
+        : { text: "No FO / plots linked", className: "bg-slate-100 text-slate-600" };
 
   return (
     <button
@@ -122,7 +131,10 @@ const UnitCard: React.FC<{
       </div>
 
       <div className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-1.5">
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${linkBadge.className}`}>
+            {linkBadge.text}
+          </span>
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
             {fmtInt(c.fieldOfficers)} FOs · {fmtInt(c.farmers)} farmers
           </span>
@@ -130,7 +142,7 @@ const UnitCard: React.FC<{
 
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-900">{c.name}</p>
-          <p className="text-[11px] text-slate-500">Manager</p>
+          <p className="text-[11px] text-slate-500">Farm unit</p>
         </div>
 
         <div className="flex min-h-[18px] flex-wrap items-center gap-1.5 text-[10px]">
@@ -212,44 +224,64 @@ const OwnerUnitLanding: React.FC<Props> = ({
 }) => {
   const [query, setQuery] = useState("");
   const overall = useMemo(() => summarizePlots(plots), [plots]);
-  const totals = {
-    managers: backendCounts?.managers ?? managerCount,
-    fieldOfficers: backendCounts?.fieldOfficers ?? fieldOfficerCount,
-    farmers: backendCounts?.farmers ?? Math.max(farmerCount, overall.farmers),
-    plots: backendCounts?.plots ?? overall.plots,
-    areaAcres: backendCounts?.areaAcres ?? overall.areaAcres,
-  };
-  const totalFarmers = totals.farmers;
-
   const cards = useMemo<UnitCardData[]>(() => {
-    const build = (key: string, base: Omit<UnitCardData, "summary" | "districts" | "key">): UnitCardData => {
+    const build = (
+      key: string,
+      base: Omit<UnitCardData, "summary" | "districts" | "key" | "linkStatus">,
+      linkStatus: UnitCardData["linkStatus"],
+    ): UnitCardData => {
       const unitPlots = plots.filter((p) => p.managerId === key);
       const summary = summarizePlots(unitPlots);
+      const resolvedLink: UnitCardData["linkStatus"] =
+        linkStatus === "unassigned"
+          ? "unassigned"
+          : summary.plots > 0 || base.farmers > 0
+            ? "linked"
+            : "empty";
       return {
         key,
         ...base,
-        fieldOfficers: Math.max(base.fieldOfficers, summary.fieldOfficers),
+        // Never show FO count on manager cards — plots/farmers stay under manager.
+        fieldOfficers: 0,
         farmers: Math.max(base.farmers, summary.farmers),
         summary,
         districts: topCounts(unitPlots.map((p) => p.district), 2).map(([d]) => d),
+        linkStatus: resolvedLink,
       };
     };
-    const list = units.map((u) => build(u.key, u));
+    const list = units.map((u) => build(u.key, u, "linked"));
     const known = new Set(units.map((u) => u.key));
-    const orphanKeys = Array.from(new Set(plots.map((p) => p.managerId))).filter((k) => !known.has(k));
+    const orphanKeys = Array.from(new Set(plots.map((p) => p.managerId))).filter(
+      (k) => !known.has(k),
+    );
     orphanKeys.forEach((k) => {
       const sample = plots.find((p) => p.managerId === k)!;
       list.push(
-        build(k, {
-          name: k === UNASSIGNED_MANAGER ? "Plots not linked to a manager" : sample.managerName,
-          phone: "",
-          location: "",
-          fieldOfficers: 0,
-          farmers: 0,
-        }),
+        build(
+          k,
+          {
+            name:
+              k === UNASSIGNED_MANAGER
+                ? "Plots not linked to a manager"
+                : displayOwnerManagerName(sample.managerName),
+            phone: "",
+            location: "",
+            fieldOfficers: 0,
+            farmers: 0,
+          },
+          k === UNASSIGNED_MANAGER ? "unassigned" : "linked",
+        ),
       );
     });
-    return list.sort((a, b) => b.summary.plots - a.summary.plots || b.farmers - a.farmers);
+    // Keep all manager cards (including Grapes Manager); only empty ones stay hidden.
+    return list
+      .filter(
+        (c) =>
+          c.linkStatus === "unassigned" ||
+          c.summary.plots > 0 ||
+          c.farmers > 0,
+      )
+      .sort((a, b) => b.summary.plots - a.summary.plots || b.farmers - a.farmers);
   }, [units, plots]);
 
   const visible = useMemo(() => {
@@ -257,6 +289,15 @@ const OwnerUnitLanding: React.FC<Props> = ({
     if (!q) return cards;
     return cards.filter((c) => [c.name, c.location, ...c.districts].some((s) => s.toLowerCase().includes(q)));
   }, [cards, query]);
+
+  const totals = {
+    managers: cards.filter((c) => c.linkStatus !== "unassigned").length,
+    fieldOfficers: 0,
+    farmers: backendCounts?.farmers ?? Math.max(farmerCount, overall.farmers),
+    plots: backendCounts?.plots ?? overall.plots,
+    areaAcres: backendCounts?.areaAcres ?? overall.areaAcres,
+  };
+  const totalFarmers = totals.farmers;
 
   return (
     <div className={`${OD_THEME} mx-auto flex w-full max-w-[1440px] flex-col gap-4 pb-4`}>
@@ -317,6 +358,15 @@ const OwnerUnitLanding: React.FC<Props> = ({
           />
         </label>
       </div>
+
+      {!loading && cards.some((c) => c.linkStatus === "unassigned") && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <b>Plots not linked to a manager</b> still has rows the app could not match to a field officer
+          (missing FO / manager id on the plot). Linked manager cards show plots that matched. Ask backend
+          to set <code className="rounded bg-amber-100 px-1">field_officer_id</code> /{" "}
+          <code className="rounded bg-amber-100 px-1">manager_id</code> on remaining grapes plots.
+        </div>
+      )}
 
       {loading ? (
         <EmptyState loading message="Loading managers…" />

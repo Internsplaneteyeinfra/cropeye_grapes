@@ -172,7 +172,7 @@ const OwnerScopeSelector: React.FC<Props> = ({
           {initials(unitName)}
         </span>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manager</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Farm unit</p>
           <p className="truncate font-semibold text-slate-900">{unitName}</p>
         </div>
       </div>

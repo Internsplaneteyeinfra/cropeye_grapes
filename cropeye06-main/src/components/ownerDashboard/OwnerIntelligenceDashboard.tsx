@@ -597,7 +597,7 @@ const OwnerIntelligenceDashboard: React.FC<Props> = ({ onMenuClick }) => {
               </p>
               <h1 className="mt-1 truncate text-xl font-semibold leading-tight sm:text-2xl">{unitName}</h1>
               <p className="mt-1 text-xs text-emerald-50/90">
-                {[portfolio.industryName, "Manager", unit?.phone, stateName].filter(Boolean).join(" · ")}
+                {[portfolio.industryName, unitName, unit?.phone, stateName].filter(Boolean).join(" · ")}
                 {" · "}
                 {fmtInt(districts.length)} district{districts.length === 1 ? "" : "s"}
               </p>
@@ -630,7 +630,7 @@ const OwnerIntelligenceDashboard: React.FC<Props> = ({ onMenuClick }) => {
 
         <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           {[
-            { label: "Field officers", value: fmtInt(Math.max(unit?.fieldOfficers ?? 0, overall.fieldOfficers)), icon: <Users className="h-3.5 w-3.5" /> },
+            { label: "Field officers", value: "0", icon: <Users className="h-3.5 w-3.5" /> },
             { label: "Farmers", value: fmtInt(Math.max(unit?.farmers ?? 0, overall.farmers)), icon: <Tractor className="h-3.5 w-3.5" /> },
             { label: "Plots", value: fmtInt(overall.plots), icon: <MapPin className="h-3.5 w-3.5" /> },
             { label: "Area", value: fmt(overall.areaAcres, 1, " ac"), icon: <Layers className="h-4.5 w-4.5" /> },
@@ -835,8 +835,10 @@ const OwnerIntelligenceDashboard: React.FC<Props> = ({ onMenuClick }) => {
           </Suspense>
         ) : loading && summary.plots === 0 ? (
           <EmptyState loading message="Loading portfolio overview…" />
+        ) : unitPlots.length === 0 ? (
+          <EmptyState message="No plots linked under this manager yet. Soft-refresh after FO hydrate, or confirm grapes plots have field_officer_id / manager_id in the backend." />
         ) : summary.plots === 0 ? (
-          <EmptyState message="No plots in this selection." />
+          <EmptyState message="No plots in this selection. Pick a district and taluka that list counts above 0." />
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

@@ -254,7 +254,12 @@ export const UNASSIGNED_TEAM_ID = "industry-unassigned";
 export function displayOwnerManagerName(name: unknown): string {
   const raw = String(name ?? "").trim().replace(/\s+/g, " ");
   if (!raw) return "";
-  if (raw.toLowerCase() === "grapes manager" || raw.toLowerCase() === "grapesmanager") {
+  const lower = raw.toLowerCase();
+  if (lower === "grapes manager" || lower === "grapesmanager") {
+    return "Grapes";
+  }
+  // first_name "Grapes" + last_name "Manager" (or trailing Manager role word)
+  if (/\bmanager\b$/i.test(raw) && /^grapes\b/i.test(raw)) {
     return "Grapes";
   }
   return raw;

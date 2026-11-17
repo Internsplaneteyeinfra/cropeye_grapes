@@ -46,6 +46,7 @@ import {
   plotArea,
   plotBoundary,
   plotCenter,
+  displayOwnerManagerName,
   summarizePlots,
   UNASSIGNED_MANAGER,
   type OwnerPlotRecord,
@@ -182,9 +183,12 @@ const OwnerIntelligenceDashboard: React.FC<Props> = ({ onMenuClick }) => {
     [plots, unitKey],
   );
   const unit = useMemo(() => portfolio.units.find((u) => u.key === unitKey) ?? null, [portfolio.units, unitKey]);
-  const unitName =
+  const unitName = displayOwnerManagerName(
     unit?.name ??
-    (unitKey === UNASSIGNED_MANAGER ? "Plots not linked to a manager" : unitPlots[0]?.managerName ?? "Farm unit");
+      (unitKey === UNASSIGNED_MANAGER
+        ? "Plots not linked to a manager"
+        : unitPlots[0]?.managerName ?? "Farm unit"),
+  );
 
   useEffect(() => {
     setDistrict(ALL);

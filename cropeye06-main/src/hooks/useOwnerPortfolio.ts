@@ -10,6 +10,8 @@ import { harvestInfoFromAgroStatsBatch } from "../utils/harvestStatusService";
 import {
   buildOwnerFarmerRecords,
   buildOwnerPlotRecords,
+  displayOwnerManagerName,
+  isRealFieldOfficerId,
   normalizeGrapesStatus,
   readAgroMetrics,
   UNASSIGNED_MANAGER,
@@ -17,7 +19,9 @@ import {
   type OwnerPlotRecord,
 } from "../utils/ownerPortfolio";
 
-const HIERARCHY_CACHE_KEY = "ownerPortfolio_hierarchy_v3";
+export { displayOwnerManagerName };
+
+const HIERARCHY_CACHE_KEY = "ownerPortfolio_hierarchy_v14";
 
 type Hierarchy = Awaited<ReturnType<typeof loadOwnerFieldOfficers>>;
 
@@ -45,7 +49,9 @@ function buildUnits(managers: any[], fieldOfficers: any[]): OwnerUnit[] {
     .map((m) => {
       const key = String(m.id);
       const officers = fieldOfficers.filter(
-        (fo) => String(fo?.manager_id ?? fo?.manager?.id ?? "") === key,
+        (fo) =>
+          isRealFieldOfficerId(fo?.id ?? fo?.user_id) &&
+          String(fo?.manager_id ?? fo?.manager?.id ?? "") === key,
       );
       const farmers = new Set<string>();
       officers.forEach((fo) =>
@@ -54,13 +60,16 @@ function buildUnits(managers: any[], fieldOfficers: any[]): OwnerUnit[] {
           if (id) farmers.add(id);
         }),
       );
-      const name = `${m?.first_name ?? ""} ${m?.last_name ?? ""}`.trim() || m?.username || `Manager ${key}`;
+      const name = displayOwnerManagerName(
+        `${m?.first_name ?? ""} ${m?.last_name ?? ""}`.trim() || m?.username || `Manager ${key}`,
+      );
       return {
         key,
         name,
         phone: String(m?.phone_number ?? m?.phone ?? "").trim(),
         location: [m?.village, m?.taluka, m?.district].map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean).join(", "),
-        fieldOfficers: officers.length,
+        // Owner UI: hide FO under managers (Grapes Wala was showing 1 FO to remove).
+        fieldOfficers: 0,
         farmers: farmers.size,
       };
     });
@@ -155,10 +164,27 @@ export function useOwnerPortfolio() {
 
     plots = buildOwnerPlotRecords(hierarchy.fieldOfficers, hierarchy.managers);
     if (import.meta.env.DEV) {
-      console.table(plots.map((p) => ({ plot: p.plotLabel, farmer: p.farmerName, variety: p.variety })));
+      const byManager = new Map<string, number>();
+      plots.forEach((p) => {
+        const key = p.managerId || UNASSIGNED_MANAGER;
+        byManager.set(key, (byManager.get(key) ?? 0) + 1);
+      });
+      console.info(
+        `[owner portfolio] source=${hierarchy.source} managers=${hierarchy.managers.length} FOs=${hierarchy.fieldOfficers.length} plots=${plots.length}`,
+        Object.fromEntries(byManager),
+      );
+      console.table(
+        plots.slice(0, 40).map((p) => ({
+          plot: p.plotLabel,
+          farmer: p.farmerName,
+          manager: p.managerName,
+          managerId: p.managerId,
+          fo: p.fieldOfficerName,
+          linked: p.managerId !== UNASSIGNED_MANAGER,
+        })),
+      );
     }
     const realManagers = hierarchy.managers.filter((m: any) => m?.id !== UNASSIGNED_TEAM_ID);
-    const realOfficers = hierarchy.fieldOfficers.filter((fo: any) => fo?.id !== UNASSIGNED_TEAM_ID);
     const managerIds = new Set(
       plots.map((p) => p.managerId).filter((id) => id !== UNASSIGNED_MANAGER),
     );
@@ -175,7 +201,7 @@ export function useOwnerPortfolio() {
       farmers: buildOwnerFarmerRecords(hierarchy!.fieldOfficers, hierarchy!.managers),
       units: buildUnits(hierarchy!.managers, hierarchy!.fieldOfficers),
       managerCount: Math.max(realManagers.length, managerIds.size),
-      fieldOfficerCount: realOfficers.length,
+      fieldOfficerCount: 0,
       farmerCount: farmerKeys.size,
       industryName:
         (

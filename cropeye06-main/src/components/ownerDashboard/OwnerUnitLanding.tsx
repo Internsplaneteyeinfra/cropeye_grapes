@@ -107,9 +107,9 @@ const UnitCard: React.FC<{
   const places = c.districts.length ? c.districts : c.location ? [c.location] : [];
   const linkBadge =
     c.linkStatus === "linked"
-      ? { text: "Linked to manager", className: "bg-emerald-50 text-emerald-700" }
+      ? { text: "Linked", className: "bg-emerald-50 text-emerald-700" }
       : c.linkStatus === "unassigned"
-        ? { text: "Not linked to a manager", className: "bg-amber-50 text-amber-800" }
+        ? { text: "Not linked", className: "bg-amber-50 text-amber-800" }
         : { text: "No FO / plots linked", className: "bg-slate-100 text-slate-600" };
 
   return (
@@ -312,14 +312,14 @@ const OwnerUnitLanding: React.FC<Props> = ({
             </p>
             <h1 className="truncate text-xl font-bold leading-tight sm:text-2xl">{industryName ?? "Grapes industry"}</h1>
             <p className="truncate text-xs text-emerald-50/90">
-              Welcome · select a manager to see every vineyard parameter, crop stage, issues and history
+              Welcome · select a farm unit to see every vineyard parameter, crop stage, issues and history
             </p>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
           {[
-            { label: "Managers", value: fmtInt(totals.managers), icon: <UserSquare2 className="h-4 w-4" /> },
+            { label: "Farm units", value: fmtInt(totals.managers), icon: <UserSquare2 className="h-4 w-4" /> },
             { label: "Field Officers", value: fmtInt(totals.fieldOfficers), icon: <Users className="h-4 w-4" /> },
             { label: "Total Farmers", value: fmtInt(totals.farmers), icon: <Tractor className="h-4 w-4" /> },
             { label: "Total Plots", value: fmtInt(totals.plots), icon: <Layers className="h-4 w-4" /> },
@@ -341,9 +341,9 @@ const OwnerUnitLanding: React.FC<Props> = ({
             <UserSquare2 className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 sm:text-base">Select a Manager</h2>
+            <h2 className="text-sm font-semibold text-slate-900 sm:text-base">Select a farm unit</h2>
             <p className="truncate text-[11px] text-slate-500">
-              {fmtInt(cards.length)} manager{cards.length === 1 ? "" : "s"} under {industryName ?? "your industry"} · click a card for the unit view
+              {fmtInt(cards.length)} unit{cards.length === 1 ? "" : "s"} under {industryName ?? "your industry"} · click a card for the unit view
             </p>
           </div>
         </div>

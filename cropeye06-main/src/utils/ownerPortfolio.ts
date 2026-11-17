@@ -250,6 +250,31 @@ export const UNLINKED_FARMER = "Farmer not linked";
 /** Synthetic manager / field officer id for industry plots with no FO link. */
 export const UNASSIGNED_TEAM_ID = "industry-unassigned";
 
+/** Owner-facing display name — keep the card, soften the "Grapes Manager" label. */
+export function displayOwnerManagerName(name: unknown): string {
+  const raw = String(name ?? "").trim().replace(/\s+/g, " ");
+  if (!raw) return "";
+  if (raw.toLowerCase() === "grapes manager" || raw.toLowerCase() === "grapesmanager") {
+    return "Grapes";
+  }
+  return raw;
+}
+
+/** @deprecated use displayOwnerManagerName — card is kept, only the label is renamed. */
+export function isExcludedOwnerManagerName(_name: unknown): boolean {
+  return false;
+}
+
+/** True for real backend FO users — excludes Unassigned / industry-fo-* placeholders. */
+export function isRealFieldOfficerId(id: unknown): boolean {
+  if (id == null || id === "") return false;
+  const key = String(id);
+  if (key === String(UNASSIGNED_TEAM_ID)) return false;
+  if (key.startsWith("industry-fo-")) return false;
+  if (key.startsWith("industry-unassigned")) return false;
+  return true;
+}
+
 function personName(person: any, fallback: string): string {
   const name = `${person?.first_name ?? ""} ${person?.last_name ?? ""}`.trim();
   return name || person?.username || fallback;
@@ -330,7 +355,12 @@ export function buildOwnerPlotRecords(fieldOfficers: any[], managers: any[]): Ow
   const managerNames = new Map<string, string>();
   managers.forEach((m: any) => {
     const id = m?.id ?? m?.user_id;
-    if (id != null) managerNames.set(String(id), personName(m, `Manager ${id}`));
+    if (id != null) {
+      managerNames.set(
+        String(id),
+        displayOwnerManagerName(personName(m, `Manager ${id}`)),
+      );
+    }
   });
 
   const records = new Map<string, OwnerPlotRecord>();
@@ -338,11 +368,12 @@ export function buildOwnerPlotRecords(fieldOfficers: any[], managers: any[]): Ow
   fieldOfficers.forEach((officer: any) => {
     const rawManagerId = String(officer?.manager_id ?? officer?.manager?.id ?? "");
     const managerId = rawManagerId === UNASSIGNED_TEAM_ID ? "" : rawManagerId;
-    const managerName =
+    const managerName = displayOwnerManagerName(
       (managerId && managerNames.get(managerId)) ||
-      (officer?.manager ? personName(officer.manager, "") : "") ||
-      text(officer?.manager_name) ||
-      UNASSIGNED_MANAGER;
+        (officer?.manager ? personName(officer.manager, "") : "") ||
+        text(officer?.manager_name) ||
+        UNASSIGNED_MANAGER,
+    );
     const fieldOfficerId = String(officer?.id ?? officer?.user_id ?? "");
     const fieldOfficerName = personName(officer, "Field officer");
 
@@ -381,18 +412,24 @@ export function buildOwnerFarmerRecords(fieldOfficers: any[], managers: any[]): 
   const managerNames = new Map<string, string>();
   managers.forEach((m: any) => {
     const id = m?.id ?? m?.user_id;
-    if (id != null) managerNames.set(String(id), personName(m, `Manager ${id}`));
+    if (id != null) {
+      managerNames.set(
+        String(id),
+        displayOwnerManagerName(personName(m, `Manager ${id}`)),
+      );
+    }
   });
 
   const records = new Map<string, OwnerFarmerRecord>();
   fieldOfficers.forEach((officer: any) => {
     const rawManagerId = String(officer?.manager_id ?? officer?.manager?.id ?? "");
     const managerId = rawManagerId === UNASSIGNED_TEAM_ID ? "" : rawManagerId;
-    const managerName =
+    const managerName = displayOwnerManagerName(
       (managerId && managerNames.get(managerId)) ||
-      (officer?.manager ? personName(officer.manager, "") : "") ||
-      text(officer?.manager_name) ||
-      UNASSIGNED_MANAGER;
+        (officer?.manager ? personName(officer.manager, "") : "") ||
+        text(officer?.manager_name) ||
+        UNASSIGNED_MANAGER,
+    );
     const fieldOfficerId = String(officer?.id ?? officer?.user_id ?? "");
     const fieldOfficerName = personName(officer, "Field officer");
 
@@ -613,7 +650,7 @@ export function summarizePlots(plots: OwnerPlotRecord[]): PortfolioSummary {
 
   plots.forEach((p) => {
     if (p.farmerName !== UNLINKED_FARMER) farmers.add(`${p.fieldOfficerId}:${p.farmerName}`);
-    if (p.fieldOfficerId && p.fieldOfficerId !== UNASSIGNED_TEAM_ID) officers.add(p.fieldOfficerId);
+    if (isRealFieldOfficerId(p.fieldOfficerId)) officers.add(p.fieldOfficerId);
     if (p.managerId !== UNASSIGNED_MANAGER) managers.add(p.managerId);
     const area = plotArea(p);
     areaAcres += area;
